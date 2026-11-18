@@ -8,6 +8,7 @@
  *   (SharedWorker 미지원 모바일 구형 브라우저에서는 자동으로 탭 내 단일 서버 모드로 폴백한다.)
  */
 
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -650,10 +651,10 @@ function getTransport() {
   transportReadyPromise = (async () => {
     if (typeof SharedWorker === 'function') {
       try {
-        const workerUrl = new URL('./virtual-server-worker.mjs', import.meta.url);
+        const workerUrl = new URL('./virtual-server-worker.mjs?v=__BUNDLE_HASH__', import.meta.url);
         const sw = new SharedWorker(workerUrl, {
           type: 'module',
-          name: \`modular-hr-shared-v3:\${APP_BASE_PATH || '/'}\`,
+          name: \`modular-hr-shared-__BUNDLE_HASH__:\${APP_BASE_PATH || '/'}\`,
         });
         sharedPortRef = sw.port;
         const pending = new Map();
@@ -703,7 +704,7 @@ function getTransport() {
       }
     }
 
-    const mod = await import('./virtual-server-worker.mjs');
+    const mod = await import('./virtual-server-worker.mjs?v=__BUNDLE_HASH__');
     return {
       sendApi(payload) {
         return mod.invokeDirectInTab(payload);
@@ -949,17 +950,42 @@ function assertNoRemainingNodeImports(dir) {
   }
 }
 
+function appendVersionQueryToRelativeEsmImports(code, hash) {
+  return code.replace(/(from\s+['"])(\.\.?\/[^'"?]+\.mjs)(['"])/g, `$1$2?v=${hash}$3`);
+}
+
 function main() {
   fs.rmSync(OUT_DIR, { recursive: true, force: true });
   fs.mkdirSync(OUT_ENGINE_DIR, { recursive: true });
 
-  // 1) 8개 코어 엔진 모듈 변환 복사
+  const serverCoreRaw = buildServerCoreFromSource();
+  const hashBuilder = crypto.createHash('sha256');
+  hashBuilder.update(serverCoreRaw);
+  hashBuilder.update(BROWSER_CRYPTO_SHIM_SOURCE);
+  hashBuilder.update(VIRTUAL_HTTP_SHIM_SOURCE);
+  hashBuilder.update(VIRTUAL_SERVER_WORKER_SOURCE);
+  hashBuilder.update(STATIC_API_RUNTIME_SOURCE);
+  hashBuilder.update(REDIRECT_404_JS);
+
   const engineDir = path.join(PROJECT_ROOT, 'src', 'engine');
-  const engineFiles = [];
-  for (const entry of fs.readdirSync(engineDir)) {
+  const rawEngines = new Map();
+  for (const entry of fs.readdirSync(engineDir).sort()) {
     if (!entry.endsWith('.mjs')) continue;
+    const content = fs.readFileSync(path.join(engineDir, entry), 'utf8');
+    rawEngines.set(entry, content);
+    hashBuilder.update(content);
+  }
+  const publicDir = path.join(PROJECT_ROOT, 'src', 'public');
+  for (const pubName of ['index.html', 'mobile.html', 'app.js', 'mobile.js', 'styles.css', 'mobile.css', 'sw.js']) {
+    hashBuilder.update(fs.readFileSync(path.join(publicDir, pubName), 'utf8'));
+  }
+  const bundleHash = hashBuilder.digest('hex').slice(0, 12);
+
+  // 1) 8개 코어 엔진 모듈 변환 복사 (상대 ESM import 캐시 무효화 해시 부여)
+  const engineFiles = [];
+  for (const [entry, origSrc] of rawEngines.entries()) {
     engineFiles.push(`./engine/${entry}`);
-    let src = fs.readFileSync(path.join(engineDir, entry), 'utf8');
+    let src = origSrc;
     if (src.includes('node:crypto')) {
       src = replaceStrict(
         src,
@@ -988,11 +1014,11 @@ function main() {
         'mobile-auth-realtime verify await'
       );
     }
+    src = appendVersionQueryToRelativeEsmImports(src, bundleHash);
     fs.writeFileSync(path.join(OUT_ENGINE_DIR, entry), src, 'utf8');
   }
 
-  // 2) public 자산 복사 (이진 안전 copyFileSync 기본, HTML 및 sw.js만 명시적 변환)
-  const publicDir = path.join(PROJECT_ROOT, 'src', 'public');
+  // 2) public 자산 복사 (이진 안전 copyFileSync 기본, HTML 및 sw.js만 명시적 변환 + 빌드 해시 부여)
   for (const entry of fs.readdirSync(publicDir)) {
     const srcFile = path.join(publicDir, entry);
     const dstFile = path.join(OUT_DIR, entry);
@@ -1001,8 +1027,14 @@ function main() {
       html = replaceStrict(html, '<meta charset="UTF-8" />', `<meta charset="UTF-8" />\n  ${STATIC_CSP_META}`, 'index.html CSP meta');
       html = replaceStrict(
         html,
+        '<link rel="stylesheet" href="./styles.css" />',
+        `<link rel="stylesheet" href="./styles.css?v=${bundleHash}" />`,
+        'index.html styles hash'
+      );
+      html = replaceStrict(
+        html,
         '<script type="module" src="./app.js"></script>',
-        '<script type="module" src="./static-api-runtime.mjs"></script>\n  <script type="module" src="./app.js"></script>',
+        `<script type="module" src="./static-api-runtime.mjs?v=${bundleHash}"></script>\n  <script type="module" src="./app.js?v=${bundleHash}"></script>`,
         'index.html runtime script'
       );
       fs.writeFileSync(dstFile, html, 'utf8');
@@ -1011,23 +1043,41 @@ function main() {
       html = replaceStrict(html, '<meta charset="UTF-8" />', `<meta charset="UTF-8" />\n  ${STATIC_CSP_META}`, 'mobile.html CSP meta');
       html = replaceStrict(
         html,
+        '<link rel="stylesheet" href="./mobile.css" />',
+        `<link rel="stylesheet" href="./mobile.css?v=${bundleHash}" />`,
+        'mobile.html styles hash'
+      );
+      html = replaceStrict(
+        html,
         '<script type="module" src="./mobile.js"></script>',
-        '<script type="module" src="./static-api-runtime.mjs"></script>\n  <script type="module" src="./mobile.js"></script>',
+        `<script type="module" src="./static-api-runtime.mjs?v=${bundleHash}"></script>\n  <script type="module" src="./mobile.js?v=${bundleHash}"></script>`,
         'mobile.html runtime script'
       );
       fs.writeFileSync(dstFile, html, 'utf8');
     } else if (entry === 'sw.js') {
       let sw = fs.readFileSync(srcFile, 'utf8');
+      sw = replaceStrict(
+        sw,
+        "const SHELL_CACHE = 'modular-hr-shell-v3';",
+        `const SHELL_CACHE = 'modular-hr-shell-${bundleHash}';`,
+        'sw.js SHELL_CACHE hash'
+      );
+      sw = replaceStrict(
+        sw,
+        "  './mobile.css',\n  './mobile.js',",
+        `  './mobile.css?v=${bundleHash}',\n  './mobile.js?v=${bundleHash}',`,
+        'sw.js mobile asset hashes'
+      );
       const extraAssets = [
         './index.html',
-        './styles.css',
-        './app.js',
-        './static-api-runtime.mjs',
-        './virtual-server-worker.mjs',
-        './server-core.mjs',
-        './engine/browser-crypto-shim.mjs',
-        './engine/virtual-http-shim.mjs',
-        ...engineFiles,
+        `./styles.css?v=${bundleHash}`,
+        `./app.js?v=${bundleHash}`,
+        `./static-api-runtime.mjs?v=${bundleHash}`,
+        `./virtual-server-worker.mjs?v=${bundleHash}`,
+        `./server-core.mjs?v=${bundleHash}`,
+        `./engine/browser-crypto-shim.mjs?v=${bundleHash}`,
+        `./engine/virtual-http-shim.mjs?v=${bundleHash}`,
+        ...engineFiles.map((p) => `${p}?v=${bundleHash}`),
       ]
         .map((p) => `  '${p}',`)
         .join('\n');
@@ -1038,22 +1088,42 @@ function main() {
     }
   }
 
-  // 3) 심 · 가상 HTTP 어댑터 · 서버 코어 · SharedWorker · 404 생성
-  fs.writeFileSync(path.join(OUT_ENGINE_DIR, 'browser-crypto-shim.mjs'), BROWSER_CRYPTO_SHIM_SOURCE, 'utf8');
-  fs.writeFileSync(path.join(OUT_ENGINE_DIR, 'virtual-http-shim.mjs'), VIRTUAL_HTTP_SHIM_SOURCE, 'utf8');
-  fs.writeFileSync(path.join(OUT_DIR, 'server-core.mjs'), buildServerCoreFromSource(), 'utf8');
-  fs.writeFileSync(path.join(OUT_DIR, 'virtual-server-worker.mjs'), VIRTUAL_SERVER_WORKER_SOURCE, 'utf8');
-  fs.writeFileSync(path.join(OUT_DIR, 'static-api-runtime.mjs'), STATIC_API_RUNTIME_SOURCE, 'utf8');
+  // 3) 심 · 가상 HTTP 어댑터 · 서버 코어 · SharedWorker · 404 생성 (모든 상대 ESM import 에 ?v=bundleHash 적용)
+  fs.writeFileSync(
+    path.join(OUT_ENGINE_DIR, 'browser-crypto-shim.mjs'),
+    appendVersionQueryToRelativeEsmImports(BROWSER_CRYPTO_SHIM_SOURCE, bundleHash),
+    'utf8'
+  );
+  fs.writeFileSync(
+    path.join(OUT_ENGINE_DIR, 'virtual-http-shim.mjs'),
+    appendVersionQueryToRelativeEsmImports(VIRTUAL_HTTP_SHIM_SOURCE, bundleHash),
+    'utf8'
+  );
+  fs.writeFileSync(
+    path.join(OUT_DIR, 'server-core.mjs'),
+    appendVersionQueryToRelativeEsmImports(serverCoreRaw, bundleHash),
+    'utf8'
+  );
+  fs.writeFileSync(
+    path.join(OUT_DIR, 'virtual-server-worker.mjs'),
+    appendVersionQueryToRelativeEsmImports(VIRTUAL_SERVER_WORKER_SOURCE, bundleHash),
+    'utf8'
+  );
+  fs.writeFileSync(
+    path.join(OUT_DIR, 'static-api-runtime.mjs'),
+    STATIC_API_RUNTIME_SOURCE.replaceAll('__BUNDLE_HASH__', bundleHash),
+    'utf8'
+  );
   fs.writeFileSync(path.join(OUT_DIR, 'redirect-404.js'), REDIRECT_404_JS, 'utf8');
   fs.writeFileSync(path.join(OUT_DIR, '.nojekyll'), '', 'utf8');
   fs.writeFileSync(
     path.join(OUT_DIR, '404.html'),
-    `<!DOCTYPE html>\n<html lang="ko">\n<head>\n  <meta charset="UTF-8" />\n  ${STATIC_CSP_META}\n  <title>MODULAR HR 이동 중</title>\n  <script src="/modular-hr/redirect-404.js"></script>\n</head>\n<body>\n  <a href="/modular-hr/">모듈형 인사노무 플랫폼 홈으로 이동</a>\n</body>\n</html>\n`,
+    `<!DOCTYPE html>\n<html lang="ko">\n<head>\n  <meta charset="UTF-8" />\n  ${STATIC_CSP_META}\n  <title>MODULAR HR 이동 중</title>\n  <script src="/modular-hr/redirect-404.js?v=${bundleHash}"></script>\n</head>\n<body>\n  <a href="/modular-hr/">모듈형 인사노무 플랫폼 홈으로 이동</a>\n</body>\n</html>\n`,
     'utf8'
   );
 
   assertNoRemainingNodeImports(OUT_DIR);
-  console.log(`[build-gh-pages] SharedWorker 통합형 정적 배포 번들 생성 완료: ${OUT_DIR}`);
+  console.log(`[build-gh-pages] SharedWorker 통합형 정적 배포 번들 생성 완료 (hash=${bundleHash}): ${OUT_DIR}`);
 }
 
 main();
