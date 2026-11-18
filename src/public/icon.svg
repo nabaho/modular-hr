@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" role="img" aria-label="MODULAR HR 아이콘">
+  <rect width="192" height="192" rx="40" fill="#1d4ed8" />
+  <rect x="28" y="34" width="136" height="26" rx="8" fill="#ffffff" />
+  <rect x="28" y="70" width="136" height="26" rx="8" fill="#bfdbfe" />
+  <rect x="28" y="106" width="92" height="26" rx="8" fill="#ffffff" />
+  <circle cx="144" cy="136" r="24" fill="#10b981" />
+  <path d="M134 136l7 7 14-15" stroke="#ffffff" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+</svg>
