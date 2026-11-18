@@ -232,6 +232,17 @@ function syncSimFormControls(snapshot) {
     presetWrap.replaceChildren(...buttons);
   }
 
+  const popupPresetSelect = document.getElementById('popup-preset-select');
+  if (popupPresetSelect) {
+    const matchedPreset = presets.some((p) => p.id === company.id);
+    const opts = presets.map((p) => h('option', { value: p.id }, `사업장 규모: ${p.badge}`));
+    if (!matchedPreset) {
+      opts.unshift(h('option', { value: '' }, `현재 개통 사업장: ${company.companyName}`));
+    }
+    popupPresetSelect.replaceChildren(...opts);
+    popupPresetSelect.value = matchedPreset ? company.id : '';
+  }
+
   const setVal = (id, val) => {
     const node = document.getElementById(id);
     if (node) node.value = String(val ?? '');
@@ -979,6 +990,7 @@ function buildCustomDomainUrl(pathnameAndSearch = '/') {
 }
 
 function openStandalonePopupWindow(tabKey = null) {
+  const targetTab = tabKey || appState.activeTab || 'ops-home';
   const query = new URLSearchParams({ popup: '1', autounlock: '1' });
   if (tabKey) query.set('tab', tabKey);
   const url = buildCustomDomainUrl(`/?${query.toString()}`);
@@ -989,9 +1001,9 @@ function openStandalonePopupWindow(tabKey = null) {
     'popup=yes,width=1360,height=880,left=60,top=45,resizable=yes,scrollbars=yes'
   );
   if (!opened) {
+    openModuleDetailPopup(targetTab);
     showBanner(
-      `브라우저 팝업 차단이 감지되었습니다. 주소창 팝업 허용 또는 새 도메인(${url})을 직접 열어 확인하실 수 있습니다.`,
-      true
+      '새 창 팝업이 제한된 환경이어서 화면 내 대형 실무 검토 모달로 표시했습니다. 상단 바에서 1~14번 전 화면을 바로 넘겨 확인하실 수 있습니다.'
     );
   } else {
     opened.focus();
@@ -1007,15 +1019,31 @@ function openMobilePopupWindow() {
     'popup=yes,width=420,height=860,left=980,top=50,resizable=yes,scrollbars=yes'
   );
   if (!opened) {
-    showBanner(`브라우저 팝업 차단이 감지되었습니다. ${url} 주소를 확인해 주세요.`, true);
+    showBanner(
+      '새 창 팝업이 제한된 환경입니다. 상단의 [모바일 앱 이동] 또는 팝업 툴바의 [모바일 폰 앱(420px) 검토] 링크를 눌러 이동하실 수 있습니다.'
+    );
   } else {
     opened.focus();
     showBanner('모바일 폰 앱(420×860) 전용 팝업창이 나란히 실행되었습니다.');
   }
 }
 
+function syncPopupModuleSelectOptions() {
+  const sel = document.getElementById('popup-module-select');
+  if (!sel) return;
+  if (sel.options.length === 0) {
+    ALL_PANEL_SPECS.forEach((spec, idx) => {
+      sel.appendChild(
+        h('option', { value: spec.key }, `${idx + 1} / ${ALL_PANEL_SPECS.length} · ${spec.label}`)
+      );
+    });
+  }
+  const activeKey = appState.popupModalTabKey || appState.activeTab || 'ops-home';
+  sel.value = activeKey;
+}
+
 function openModuleDetailPopup(tabKey, triggerEl = null) {
-  const targetKey = tabKey || appState.activeTab || 'ops-recruit';
+  const targetKey = tabKey || appState.activeTab || 'ops-home';
   const modal = document.getElementById('module-popup-modal');
   const body = document.getElementById('module-popup-body');
   const titleEl = document.getElementById('module-popup-title');
@@ -1023,11 +1051,26 @@ function openModuleDetailPopup(tabKey, triggerEl = null) {
   const panelEl = document.getElementById(`panel-${targetKey}`);
   if (!modal || !body || !panelEl) return;
 
-  if (appState.popupModalTabKey) {
+  const wasAlreadyOpen = Boolean(appState.popupModalTabKey);
+  if (wasAlreadyOpen) {
     closeModuleDetailPopup(false);
+  } else {
+    appState.lastFocusedBeforeModulePopup = triggerEl || document.activeElement;
   }
 
-  appState.lastFocusedBeforeModulePopup = triggerEl || document.activeElement;
+  appState.activeTab = targetKey;
+  const tabButtons = Array.from(document.querySelectorAll('.tab-btn'));
+  for (const btn of tabButtons) {
+    const isMatch = btn.dataset.tab === targetKey;
+    btn.setAttribute('aria-selected', String(isMatch));
+    btn.tabIndex = isMatch ? 0 : -1;
+  }
+  for (const s of ALL_PANEL_SPECS) {
+    const p = document.getElementById(`panel-${s.key}`);
+    if (p) p.hidden = s.key !== targetKey;
+  }
+  syncReviewTourLabel();
+
   appState.popupModalTabKey = targetKey;
   const placeholder = document.createComment(`slot-panel-${targetKey}`);
   panelEl.parentNode?.insertBefore(placeholder, panelEl);
@@ -1035,15 +1078,23 @@ function openModuleDetailPopup(tabKey, triggerEl = null) {
 
   panelEl.hidden = false;
   body.replaceChildren(panelEl);
+  body.scrollTop = 0;
 
-  const spec = ALL_PANEL_SPECS.find((s) => s.key === targetKey);
+  const specIdx = ALL_PANEL_SPECS.findIndex((s) => s.key === targetKey);
+  const spec = specIdx >= 0 ? ALL_PANEL_SPECS[specIdx] : null;
   if (titleEl) {
-    titleEl.textContent = `[실무 상세 팝업] ${spec ? spec.label : targetKey}`;
+    const stepTag = specIdx >= 0 ? ` (${specIdx + 1}/${ALL_PANEL_SPECS.length})` : '';
+    titleEl.textContent = `[실무 검토 팝업${stepTag}] ${spec ? spec.label : targetKey}`;
   }
+  syncPopupModuleSelectOptions();
 
   setBackgroundInert(true);
   modal.hidden = false;
-  closeBtn?.focus();
+  if (!wasAlreadyOpen) {
+    closeBtn?.focus();
+  } else if (!modal.contains(document.activeElement) || document.activeElement === document.body) {
+    (document.getElementById('popup-module-select') || closeBtn)?.focus();
+  }
 }
 
 function closeModuleDetailPopup(restoreFocus = true) {
@@ -1061,12 +1112,19 @@ function closeModuleDetailPopup(restoreFocus = true) {
   modal.hidden = true;
   setBackgroundInert(false);
 
-  if (
-    restoreFocus &&
-    appState.lastFocusedBeforeModulePopup &&
-    typeof appState.lastFocusedBeforeModulePopup.focus === 'function'
-  ) {
-    appState.lastFocusedBeforeModulePopup.focus();
+  if (restoreFocus) {
+    const prev = appState.lastFocusedBeforeModulePopup;
+    if (
+      prev &&
+      prev !== document.body &&
+      prev.isConnected &&
+      !prev.closest('[hidden]') &&
+      typeof prev.focus === 'function'
+    ) {
+      prev.focus();
+    } else {
+      document.getElementById('btn-open-current-module-modal')?.focus();
+    }
   }
 }
 
@@ -1868,7 +1926,13 @@ function renderOpsHomeTab(snapshot) {
                 {
                   type: 'button',
                   className: 'btn btn-primary btn-sm',
-                  onClick: () => switchTab(m.tab, true),
+                  onClick: (e) => {
+                    if (appState.popupModalTabKey) {
+                      openModuleDetailPopup(m.tab, e.currentTarget);
+                    } else {
+                      switchTab(m.tab, true);
+                    }
+                  },
                 },
                 '관리 열기'
               )
@@ -3415,6 +3479,43 @@ function bindEvents() {
     openStandalonePopupWindow(targetTab);
   });
 
+  document.getElementById('popup-prev-btn')?.addEventListener('click', () => {
+    const curKey = appState.popupModalTabKey || appState.activeTab;
+    const idx = ALL_PANEL_SPECS.findIndex((s) => s.key === curKey);
+    const prevIdx = (idx - 1 + ALL_PANEL_SPECS.length) % ALL_PANEL_SPECS.length;
+    openModuleDetailPopup(ALL_PANEL_SPECS[prevIdx].key);
+  });
+
+  document.getElementById('popup-next-btn')?.addEventListener('click', () => {
+    const curKey = appState.popupModalTabKey || appState.activeTab;
+    const idx = ALL_PANEL_SPECS.findIndex((s) => s.key === curKey);
+    const nextIdx = (idx + 1) % ALL_PANEL_SPECS.length;
+    openModuleDetailPopup(ALL_PANEL_SPECS[nextIdx].key);
+  });
+
+  document.getElementById('popup-module-select')?.addEventListener('change', (e) => {
+    const nextKey = e.currentTarget.value;
+    if (ALL_PANEL_SPECS.some((s) => s.key === nextKey)) {
+      openModuleDetailPopup(nextKey);
+    }
+  });
+
+  document.getElementById('popup-preset-apply-btn')?.addEventListener('click', async (e) => {
+    const selectEl = document.getElementById('popup-preset-select');
+    const presetId = selectEl?.value || '';
+    if (!presetId) {
+      showBanner('적용할 사업장 규모 시나리오 프리셋을 먼저 선택해 주세요.', true);
+      return;
+    }
+    try {
+      const data = await apiPost('/api/simulate-company', { presetId }, e.currentTarget);
+      updateSnapshot(data.snapshot);
+      showBanner(`팝업 내 사업장 규모 프리셋 전환 완료: ${data.snapshot.company.companyName}`);
+    } catch (err) {
+      showBanner(err.message, true);
+    }
+  });
+
   document.getElementById('module-popup-modal')?.addEventListener('click', (e) => {
     if (e.target.id === 'module-popup-modal') closeModuleDetailPopup(true);
   });
@@ -3979,7 +4080,10 @@ async function loadAuthorizedBootstrap() {
   const isStaticPagesDemo =
     window.location.hostname.endsWith('.github.io') || window.__MHR_STATIC_DEMO__ === true;
   const isPopupLaunch =
-    params.get('popup') === '1' || params.get('autounlock') === '1' || isStaticPagesDemo;
+    params.get('popup') === '1' ||
+    params.get('autounlock') === '1' ||
+    params.get('openmodal') === '1' ||
+    isStaticPagesDemo;
 
   let res = await fetch('/api/bootstrap', { credentials: 'same-origin' });
   if (!res.ok && (res.status === 401 || res.status === 403) && isPopupLaunch) {
@@ -4010,6 +4114,10 @@ async function loadAuthorizedBootstrap() {
     switchTab(requestedTab, false);
   } else {
     syncReviewTourLabel();
+  }
+  syncPopupModuleSelectOptions();
+  if (params.get('openmodal') === '1') {
+    openModuleDetailPopup(appState.activeTab);
   }
 
   document.getElementById('recruit-check-form')?.dispatchEvent(new Event('submit'));

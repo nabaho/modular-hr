@@ -869,16 +869,44 @@
         <div>
           <h2 id="module-popup-title" class="modal-title">관리 시스템 상세 팝업</h2>
           <p id="module-popup-subtitle" class="modal-subtitle">
-            팝업 안에서 발령·승인·급여반영·증명서 열람을 실행하면 전체 대시보드와 실시간 동기화됩니다.
+            팝업 상단 이동 바로 1~14번 전 관리 시스템과 사업장 규모 시나리오를 닫지 않고 연속 검토할 수 있습니다.
           </p>
         </div>
         <div class="step-pill-group">
-          <button type="button" id="module-popup-detach-btn" class="btn btn-primary btn-sm">
-            별도 OS 팝업 윈도우로 분리
+          <button type="button" id="module-popup-detach-btn" class="btn btn-secondary btn-sm">
+            외부 브라우저 새 창 분리
           </button>
-          <button type="button" id="module-popup-close-btn" class="btn btn-secondary" aria-label="상세 팝업 닫기">
+          <button type="button" id="module-popup-close-btn" class="btn btn-secondary btn-sm" aria-label="상세 팝업 닫기">
             닫기 (Esc)
           </button>
+        </div>
+      </div>
+      <div id="module-popup-nav-bar" class="popup-review-toolbar" role="region" aria-label="팝업 내부 전 모듈 연속 검토 도구모음">
+        <div class="popup-review-nav-group">
+          <button type="button" id="popup-prev-btn" class="btn btn-secondary btn-sm">
+            이전 화면
+          </button>
+          <select
+            id="popup-module-select"
+            class="popup-review-select"
+            aria-label="검토할 인사노무·급여 관리 화면 바로 선택 (1~14)"
+          ></select>
+          <button type="button" id="popup-next-btn" class="btn btn-primary btn-sm">
+            다음 화면 검토
+          </button>
+        </div>
+        <div class="popup-review-nav-group">
+          <select
+            id="popup-preset-select"
+            class="popup-review-select"
+            aria-label="사업장 규모·업종 프리셋 선택"
+          ></select>
+          <button type="button" id="popup-preset-apply-btn" class="btn btn-secondary btn-sm">
+            규모 시나리오 적용
+          </button>
+          <a href="./mobile.html" class="btn btn-secondary btn-sm">
+            모바일 폰 앱(420px) 검토
+          </a>
         </div>
       </div>
       <div id="module-popup-body" class="module-popup-body" tabindex="0"></div>

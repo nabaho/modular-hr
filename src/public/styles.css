@@ -176,6 +176,7 @@ body {
   cursor: pointer;
   transition: background-color 0.15s ease, border-color 0.15s ease;
   text-align: center;
+  text-decoration: none;
 }
 
 .btn:disabled {
@@ -1677,8 +1678,47 @@ body {
 }
 
 .modal-dialog-wide {
-  max-width: 1180px;
-  max-height: 92vh;
+  width: 96vw;
+  max-width: 1280px;
+  max-height: 94vh;
+}
+
+.popup-review-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 10px 16px;
+  background: var(--surface-subtle);
+  border-bottom: 1px solid var(--border);
+}
+
+.popup-review-nav-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  flex: 1 1 auto;
+}
+
+.popup-review-select {
+  min-height: 40px;
+  min-width: 0;
+  max-width: 100%;
+  width: 100%;
+  flex: 1 1 200px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.85rem;
+  font-weight: 700;
 }
 
 .module-popup-body {
