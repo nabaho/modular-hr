@@ -941,6 +941,30 @@ function buildAlumniMobileCard(summary, alumniList = []) {
           '상실·이직초안'
         )
       );
+
+      btnRow.appendChild(
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'm-btn m-btn-secondary m-btn-sm',
+            onClick: async (e) => {
+              const trigger = e.currentTarget;
+              try {
+                const { document: doc } = await mobilePost(
+                  '/api/mobile/document',
+                  { templateId: 'DOC_EXIT_SECURITY_NONCOMPETE', empCode: al.empCode },
+                  trigger
+                );
+                openModal(doc.title, doc.subtitle, doc.body, trigger);
+              } catch (err) {
+                showToast(err.message, true);
+              }
+            },
+          },
+          '퇴사보안·경업금지'
+        )
+      );
     }
 
     listWrap.appendChild(
@@ -1176,6 +1200,52 @@ function renderWorkerTabs(container, d) {
           },
         },
         '표준 근로계약서 전문 열람'
+      ),
+      h(
+        'div',
+        { className: 'm-btn-row' },
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'm-btn m-btn-secondary m-btn-sm',
+            onClick: async (e) => {
+              const trigger = e.currentTarget;
+              try {
+                const { document: doc } = await mobilePost(
+                  '/api/mobile/document',
+                  { templateId: 'DOC_PRIVACY_CONSENT' },
+                  trigger
+                );
+                openModal(doc.title, doc.legalBasis, doc.body, trigger);
+              } catch (err) {
+                showToast(err.message, true);
+              }
+            },
+          },
+          '개인정보 수집·이용 동의서'
+        ),
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'm-btn m-btn-secondary m-btn-sm',
+            onClick: async (e) => {
+              const trigger = e.currentTarget;
+              try {
+                const { document: doc } = await mobilePost(
+                  '/api/mobile/document',
+                  { templateId: 'DOC_NDA_SECURITY_PLEDGE' },
+                  trigger
+                );
+                openModal(doc.title, doc.legalBasis, doc.body, trigger);
+              } catch (err) {
+                showToast(err.message, true);
+              }
+            },
+          },
+          '비밀유지·정보보안 서약서'
+        )
       )
     );
 

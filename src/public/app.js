@@ -327,21 +327,23 @@ function renderHeadcountKpis(snapshot) {
   if (compactLine) {
     const indObj = (snapshot.industries || []).find((i) => i.code === snapshot.company.ksicMajor);
     compactLine.replaceChildren(
-      h('span', { className: 'font-extrabold' }, snapshot.company.companyName),
-      h(
-        'span',
-        { className: 'tag tag-blue' },
-        `[${snapshot.company.ksicMajor}] ${indObj ? indObj.name : '제조업'}`
-      ),
-      h('span', { className: 'tag tag-gray' }, `근기법 상시 ${hc.lsaRegularCount}명`),
-      h('span', { className: 'tag tag-gray' }, `산안법 ${hc.oshRegularCount}명`),
-      hc.is30OrMore ? h('span', { className: 'tag tag-green' }, '30인+ 노사협의회·고충위원 가동') : null,
-      compliance.oshFlags.needsSafetyOfficer
-        ? h('span', { className: 'tag tag-amber' }, '50인+ 안전·보건관리자·산안위 가동')
-        : null,
-      pendingFilings > 0
-        ? h('span', { className: 'tag tag-red' }, `법정기한 감독 ${pendingFilings}건`)
-        : null
+      ...[
+        h('span', { className: 'font-extrabold' }, snapshot.company.companyName),
+        h(
+          'span',
+          { className: 'tag tag-blue' },
+          `[${snapshot.company.ksicMajor}] ${indObj ? indObj.name : '제조업'}`
+        ),
+        h('span', { className: 'tag tag-gray' }, `근기법 상시 ${hc.lsaRegularCount}명`),
+        h('span', { className: 'tag tag-gray' }, `산안법 ${hc.oshRegularCount}명`),
+        hc.is30OrMore ? h('span', { className: 'tag tag-green' }, '30인+ 노사협의회·고충위원 가동') : null,
+        compliance.oshFlags.needsSafetyOfficer
+          ? h('span', { className: 'tag tag-amber' }, '50인+ 안전·보건관리자·산안위 가동')
+          : null,
+        pendingFilings > 0
+          ? h('span', { className: 'tag tag-red' }, `법정기한 감독 ${pendingFilings}건`)
+          : null,
+      ].filter(Boolean)
     );
   }
 
@@ -973,8 +975,19 @@ function closeModal() {
   } else {
     setBackgroundInert(false);
   }
-  if (appState.lastFocusedBeforeModal && typeof appState.lastFocusedBeforeModal.focus === 'function') {
-    appState.lastFocusedBeforeModal.focus();
+  const prev = appState.lastFocusedBeforeModal;
+  if (
+    prev &&
+    prev !== document.body &&
+    prev.isConnected &&
+    !prev.closest('[hidden]') &&
+    typeof prev.focus === 'function'
+  ) {
+    prev.focus();
+  } else if (modPopup && !modPopup.hidden) {
+    (document.getElementById('popup-module-select') || document.getElementById('module-popup-close-btn'))?.focus();
+  } else {
+    document.getElementById('btn-open-current-module-modal')?.focus();
   }
 }
 
@@ -1622,6 +1635,24 @@ function renderAlumniTab(snapshot) {
             'button',
             {
               type: 'button',
+              className: 'btn btn-secondary btn-sm',
+              onClick: (e) =>
+                openDocumentPreview(
+                  'DOC_EXIT_SECURITY_NONCOMPETE',
+                  e.currentTarget,
+                  undefined,
+                  al.empCode
+                ),
+            },
+            '퇴사 보안·경업금지서약서'
+          )
+        );
+
+        actionButtons.appendChild(
+          h(
+            'button',
+            {
+              type: 'button',
               className: 'btn btn-danger-outline btn-sm',
               onClick: async (e) => {
                 try {
@@ -1946,7 +1977,71 @@ function renderOpsHomeTab(snapshot) {
     )
   );
 
-  wrap.replaceChildren(topKpis, hubGrid);
+  const essentialFormsBar = h(
+    'div',
+    { className: 'ops-section-block' },
+    h(
+      'div',
+      { className: 'ops-section-head' },
+      h(
+        'div',
+        {},
+        h(
+          'h3',
+          { className: 'ops-section-title' },
+          '필수 인사 · 개인정보 · 정보보안 표준 서식함 (입사 ~ 재직 ~ 퇴사 법정 가드레일 반영)'
+        ),
+        h(
+          'p',
+          { className: 'ops-module-desc' },
+          '근로기준법 제17조·개인정보보호법 제15조/제22조/제24조의2·부정경쟁방지법 및 대법원 경업금지 판례(2009다82244) 기준이 자동 반영된 표준 양식입니다.'
+        )
+      ),
+      h('span', { className: 'tag tag-blue' }, '즉시 열람 · 전문 복사 지원')
+    ),
+    h(
+      'div',
+      { className: 'step-pill-group' },
+      h(
+        'button',
+        {
+          type: 'button',
+          className: 'btn btn-primary btn-sm',
+          onClick: (e) => openDocumentPreview('DOC_PRIVACY_CONSENT', e.currentTarget),
+        },
+        '개인정보 수집·이용·제3자제공 동의서'
+      ),
+      h(
+        'button',
+        {
+          type: 'button',
+          className: 'btn btn-primary btn-sm',
+          onClick: (e) => openDocumentPreview('DOC_NDA_SECURITY_PLEDGE', e.currentTarget),
+        },
+        '비밀유지 및 정보보안 서약서 (입사·재직)'
+      ),
+      h(
+        'button',
+        {
+          type: 'button',
+          className: 'btn btn-primary btn-sm',
+          onClick: (e) => openDocumentPreview('DOC_EXIT_SECURITY_NONCOMPETE', e.currentTarget),
+        },
+        '퇴사 시 보안·자산반납 및 경업금지 서약서'
+      ),
+      h(
+        'button',
+        {
+          type: 'button',
+          className: 'btn btn-secondary btn-sm',
+          onClick: (e) => openDocumentPreview('DOC_EMPLOYMENT_CONTRACT', e.currentTarget),
+        },
+        '제17조 표준 근로계약서 양식'
+      )
+    )
+  );
+
+  wrap.replaceChildren(topKpis, essentialFormsBar, hubGrid);
 }
 
 function renderOpsRecruitTab(snapshot) {
@@ -2114,15 +2209,37 @@ function renderOpsRecruitTab(snapshot) {
     h(
       'div',
       { className: 'ops-section-head' },
-      h('h3', { className: 'ops-section-title' }, 'M2 전자근로계약(제17조 즉시교부) · 수습만료 · 4대보험 취득 대장'),
+      h('h3', { className: 'ops-section-title' }, 'M2 전자근로계약(제17조) · 개인정보동의 · 비밀유지보안 · 4대보험 취득 대장'),
       h(
-        'button',
-        {
-          type: 'button',
-          className: 'btn btn-secondary btn-sm',
-          onClick: (e) => openDocumentPreview('DOC_EMPLOYMENT_CONTRACT', e.currentTarget),
-        },
-        '표준 근로계약서 양식 미리보기'
+        'div',
+        { className: 'step-pill-group' },
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'btn btn-secondary btn-sm',
+            onClick: (e) => openDocumentPreview('DOC_EMPLOYMENT_CONTRACT', e.currentTarget),
+          },
+          '표준 근로계약서 양식'
+        ),
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'btn btn-secondary btn-sm',
+            onClick: (e) => openDocumentPreview('DOC_PRIVACY_CONSENT', e.currentTarget),
+          },
+          '개인정보 수집·이용 동의서'
+        ),
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'btn btn-secondary btn-sm',
+            onClick: (e) => openDocumentPreview('DOC_NDA_SECURITY_PLEDGE', e.currentTarget),
+          },
+          '비밀유지·정보보안 서약서'
+        )
       )
     ),
     h(
@@ -2203,29 +2320,53 @@ function renderOpsRecruitTab(snapshot) {
               h(
                 'td',
                 { 'data-label': '관리 액션' },
-                c.contractSigned
-                  ? h(
-                      'button',
-                      {
-                        type: 'button',
-                        className: 'btn btn-secondary btn-sm',
-                        onClick: (e) => openDocumentPreview('DOC_EMPLOYMENT_CONTRACT', e.currentTarget),
-                      },
-                      '계약서 사본 열람'
-                    )
-                  : h(
-                      'button',
-                      {
-                        type: 'button',
-                        className: 'btn btn-primary btn-sm',
-                        onClick: (e) =>
-                          runOpsAction(
-                            { actionType: 'SIGN_CONTRACT', empCode: c.empCode },
-                            e.currentTarget
-                          ),
-                      },
-                      '전자서명 · 즉시교부 완료'
-                    )
+                h(
+                  'div',
+                  { className: 'step-pill-group' },
+                  c.contractSigned
+                    ? h(
+                        'button',
+                        {
+                          type: 'button',
+                          className: 'btn btn-secondary btn-sm',
+                          onClick: (e) => openDocumentPreview('DOC_EMPLOYMENT_CONTRACT', e.currentTarget),
+                        },
+                        '계약서 사본'
+                      )
+                    : h(
+                        'button',
+                        {
+                          type: 'button',
+                          className: 'btn btn-primary btn-sm',
+                          onClick: (e) =>
+                            runOpsAction(
+                              { actionType: 'SIGN_CONTRACT', empCode: c.empCode },
+                              e.currentTarget
+                            ),
+                        },
+                        '전자서명·교부'
+                      ),
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'btn btn-secondary btn-sm',
+                      onClick: (e) =>
+                        openDocumentPreview('DOC_PRIVACY_CONSENT', e.currentTarget, undefined, c.empCode),
+                    },
+                    '개인정보동의서'
+                  ),
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'btn btn-secondary btn-sm',
+                      onClick: (e) =>
+                        openDocumentPreview('DOC_NDA_SECURITY_PLEDGE', e.currentTarget, undefined, c.empCode),
+                    },
+                    '보안서약서'
+                  )
+                )
               )
             )
           )
@@ -2348,7 +2489,7 @@ function renderOpsOrgTab(snapshot) {
             h('th', { scope: 'col' }, '소속부서 · 직위'),
             h('th', { scope: 'col' }, '고용구분 · 근무상태'),
             h('th', { scope: 'col', className: 'num' }, '월 기본급'),
-            h('th', { scope: 'col' }, '재직증명서 발급')
+            h('th', { scope: 'col' }, '재직증명 · 보안서식 발급')
           )
         ),
         h(
@@ -2384,16 +2525,40 @@ function renderOpsOrgTab(snapshot) {
               h('td', { className: 'num', 'data-label': '월 기본급' }, fmtWon(w.baseMonthlyPay || 0)),
               h(
                 'td',
-                { 'data-label': '재직증명서 발급' },
+                { 'data-label': '재직증명 · 보안서식' },
                 h(
-                  'button',
-                  {
-                    type: 'button',
-                    className: 'btn btn-secondary btn-sm',
-                    onClick: (e) =>
-                      openDocumentPreview('DOC_EMPLOYMENT_CERT', e.currentTarget, undefined, w.empCode),
-                  },
-                  '재직증명서 열람·발급'
+                  'div',
+                  { className: 'step-pill-group' },
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'btn btn-secondary btn-sm',
+                      onClick: (e) =>
+                        openDocumentPreview('DOC_EMPLOYMENT_CERT', e.currentTarget, undefined, w.empCode),
+                    },
+                    '재직증명서'
+                  ),
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'btn btn-secondary btn-sm',
+                      onClick: (e) =>
+                        openDocumentPreview('DOC_PRIVACY_CONSENT', e.currentTarget, undefined, w.empCode),
+                    },
+                    '개인정보동의서'
+                  ),
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'btn btn-secondary btn-sm',
+                      onClick: (e) =>
+                        openDocumentPreview('DOC_NDA_SECURITY_PLEDGE', e.currentTarget, undefined, w.empCode),
+                    },
+                    '비밀유지서약서'
+                  )
                 )
               )
             )
@@ -3583,33 +3748,33 @@ function bindEvents() {
       const r = data.result;
       const box = document.getElementById('recruit-check-result');
       box.replaceChildren(
-        h(
-          'div',
-          { className: 'mb-6' },
-          h(
-            'span',
-            { className: r.passed ? 'tag tag-green' : 'tag tag-red' },
-            r.passed ? '적법 통과 (공고 게시 가능)' : '법령 위반 위험 감지 (수정 필요)'
-          )
-        ),
-        h(
-          'div',
-          {},
-          `환산 통상시급(${r.wageCheck.monthlyRefHours}h 기준): ${fmtWon(r.wageCheck.offeredHourlyWage)} (최저임금 월 최소 ${fmtWon(r.wageCheck.requiredMinMonthlyPay)})`
-        ),
-        r.wageCheck.isBelowMinWage
-          ? h('div', { className: 'text-danger-bold' }, '※ 최저임금법 제6조 미달! 제시 급여 상향이 필요합니다.')
-          : null,
-        ...r.violations.map((v) =>
+        ...[
           h(
             'div',
-            { className: 'violation-item' },
-            `[${v.severity === 'BLOCK' ? '금지차단' : '삭제권고'}] ${v.label} (${v.article}) — ${v.penaltyNote}`
-          )
-        ),
-        ...r.autoAppendedClauses.map((c) =>
-          h('div', { className: 'clause-note' }, c)
-        )
+            { className: 'mb-6' },
+            h(
+              'span',
+              { className: r.passed ? 'tag tag-green' : 'tag tag-red' },
+              r.passed ? '적법 통과 (공고 게시 가능)' : '법령 위반 위험 감지 (수정 필요)'
+            )
+          ),
+          h(
+            'div',
+            {},
+            `환산 통상시급(${r.wageCheck.monthlyRefHours}h 기준): ${fmtWon(r.wageCheck.offeredHourlyWage)} (최저임금 월 최소 ${fmtWon(r.wageCheck.requiredMinMonthlyPay)})`
+          ),
+          r.wageCheck.isBelowMinWage
+            ? h('div', { className: 'text-danger-bold' }, '※ 최저임금법 제6조 미달! 제시 급여 상향이 필요합니다.')
+            : null,
+          ...r.violations.map((v) =>
+            h(
+              'div',
+              { className: 'violation-item' },
+              `[${v.severity === 'BLOCK' ? '금지차단' : '삭제권고'}] ${v.label} (${v.article}) — ${v.penaltyNote}`
+            )
+          ),
+          ...r.autoAppendedClauses.map((c) => h('div', { className: 'clause-note' }, c)),
+        ].filter(Boolean)
       );
     } catch (err) {
       showBanner(err.message, true);
@@ -3870,6 +4035,10 @@ function bindEvents() {
     } catch (err) {
       showBanner(err.message, true);
     }
+  });
+
+  document.getElementById('btn-preview-exit-pledge')?.addEventListener('click', (e) => {
+    openDocumentPreview('DOC_EXIT_SECURITY_NONCOMPETE', e.currentTarget);
   });
 
   document.getElementById('live-offboard-form')?.addEventListener('submit', async (e) => {

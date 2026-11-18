@@ -969,9 +969,23 @@ export function createAppServer(options = {}) {
               throw badRequest(`지원하지 않는 문서 템플릿입니다 (${templateId}).`);
             }
             assertOptionalInteger(body, 'quarterNumber', 1, 4);
-            if (currentAcc.role === 'WORKER' && templateId !== 'DOC_EMPLOYMENT_CONTRACT') {
-              sendJson(res, 403, { error: '근로자 계정은 표준 근로계약서만 열람할 수 있습니다.' });
-              return;
+            const workerAllowedSelfTemplates = new Set([
+              'DOC_EMPLOYMENT_CONTRACT',
+              'DOC_PRIVACY_CONSENT',
+              'DOC_NDA_SECURITY_PLEDGE',
+            ]);
+            if (currentAcc.role === 'WORKER') {
+              if (!workerAllowedSelfTemplates.has(templateId)) {
+                sendJson(res, 403, {
+                  error: '근로자 계정은 본인 근로계약서·개인정보동의서·비밀유지서약서만 열람할 수 있습니다.',
+                });
+                return;
+              }
+              const reqEmp = String(body.empCode ?? '').trim();
+              if (reqEmp && reqEmp !== currentAcc.empCode) {
+                sendJson(res, 403, { error: '타 근로자의 인사·보안 서식은 열람할 수 없습니다.' });
+                return;
+              }
             }
             if (currentAcc.role === 'DEPT_MANAGER') {
               sendJson(res, 403, { error: '전사 규정·관공서 신고서 열람은 대표이사 및 인사관리자 권한입니다.' });
@@ -1006,22 +1020,54 @@ export function createAppServer(options = {}) {
               );
               workerRecord = { ...baseWorker, ...(leaveRow || {}), ...(discRow || {}) };
             }
-            if (templateId === 'DOC_CAREER_CERTIFICATE' || templateId === 'DOC_EI_SEPARATION_CERT') {
+            if (templateId === 'DOC_PRIVACY_CONSENT' || templateId === 'DOC_NDA_SECURITY_PLEDGE') {
+              const effectiveEmpCode =
+                currentAcc.role === 'WORKER'
+                  ? String(currentAcc.empCode || '').trim()
+                  : String(body.empCode ?? '').trim();
+              if (effectiveEmpCode) {
+                if (purgeTombstones.isEmpCodePurged(state.company.bizRegNo, effectiveEmpCode)) {
+                  sendJson(res, 409, { error: '비식별 파기된 인원의 문서는 발급할 수 없습니다.' });
+                  return;
+                }
+                const baseWorker = snap.workers.find((w) => w.empCode === effectiveEmpCode) || null;
+                if (!baseWorker && currentAcc.role !== 'WORKER') {
+                  sendJson(res, 404, { error: '현재 재직자 명부에서 해당 사번을 찾을 수 없습니다.' });
+                  return;
+                }
+                workerRecord = baseWorker;
+              }
+            }
+            if (
+              templateId === 'DOC_CAREER_CERTIFICATE' ||
+              templateId === 'DOC_EI_SEPARATION_CERT' ||
+              templateId === 'DOC_EXIT_SECURITY_NONCOMPETE'
+            ) {
               const targetEmpCode = String(body.empCode ?? '').trim();
-              if (purgeTombstones.isEmpCodePurged(state.company.bizRegNo, targetEmpCode)) {
-                sendJson(res, 409, {
-                  error: '3년 법정보존 만료로 비식별 파기된 퇴사자 문서는 발급할 수 없습니다.',
-                });
-                return;
+              if (!targetEmpCode && templateId !== 'DOC_EXIT_SECURITY_NONCOMPETE') {
+                throw badRequest('대상 퇴사자 사번(empCode)이 필요합니다.');
               }
-              alumniRecord = snap.offboardedWorkers.find((a) => a.empCode === targetEmpCode) || null;
-              if (!alumniRecord) {
-                sendJson(res, 404, { error: '대상 퇴사자 레코드를 찾을 수 없습니다.' });
-                return;
-              }
-              if (alumniRecord.dataLifecycleStatus === 'ANONYMIZED_PURGED') {
-                sendJson(res, 409, { error: '3년 법정보존 만료로 비식별 파기된 퇴사자 문서는 발급할 수 없습니다.' });
-                return;
+              if (targetEmpCode) {
+                if (purgeTombstones.isEmpCodePurged(state.company.bizRegNo, targetEmpCode)) {
+                  sendJson(res, 409, {
+                    error: '3년 법정보존 만료로 비식별 파기된 퇴사자 문서는 발급할 수 없습니다.',
+                  });
+                  return;
+                }
+                alumniRecord = snap.offboardedWorkers.find((a) => a.empCode === targetEmpCode) || null;
+                if (alumniRecord && alumniRecord.dataLifecycleStatus === 'ANONYMIZED_PURGED') {
+                  sendJson(res, 409, {
+                    error: '3년 법정보존 만료로 비식별 파기된 퇴사자 문서는 발급할 수 없습니다.',
+                  });
+                  return;
+                }
+                if (!alumniRecord && templateId === 'DOC_EXIT_SECURITY_NONCOMPETE') {
+                  workerRecord = snap.workers.find((w) => w.empCode === targetEmpCode) || null;
+                }
+                if (!alumniRecord && !workerRecord) {
+                  sendJson(res, 404, { error: '대상 퇴사자 레코드를 찾을 수 없습니다.' });
+                  return;
+                }
               }
             }
             const filingMatch = snap.compliance.statutoryFilings.find(
@@ -1375,36 +1421,69 @@ export function createAppServer(options = {}) {
               ...(discRow || {}),
             };
           }
-          if (templateId === 'DOC_CAREER_CERTIFICATE' || templateId === 'DOC_EI_SEPARATION_CERT') {
+          if (templateId === 'DOC_PRIVACY_CONSENT' || templateId === 'DOC_NDA_SECURITY_PLEDGE') {
             const targetEmpCode = String(body.empCode ?? '').trim();
-            if (purgeTombstones.isEmpCodePurged(state.company.bizRegNo, targetEmpCode)) {
-              sendJson(res, 409, {
-                error: '3년 법정보존 만료로 비식별 파기된 퇴사자 문서는 발급할 수 없습니다.',
-              });
-              return;
+            if (targetEmpCode) {
+              if (purgeTombstones.isEmpCodePurged(state.company.bizRegNo, targetEmpCode)) {
+                sendJson(res, 409, { error: '비식별 파기된 인원의 문서는 발급할 수 없습니다.' });
+                return;
+              }
+              const baseWorker = snap.workers.find((w) => w.empCode === targetEmpCode) || null;
+              if (!baseWorker) {
+                sendJson(res, 404, { error: '현재 재직자 명부에서 해당 사번을 찾을 수 없습니다.' });
+                return;
+              }
+              workerRecord = baseWorker;
             }
-            const alIdx = state.offboardedWorkers.findIndex((a) => a.empCode === targetEmpCode);
-            if (alIdx < 0) {
-              sendJson(res, 404, { error: '대상 퇴사자 레코드를 찾을 수 없습니다.' });
-              return;
+          }
+          if (
+            templateId === 'DOC_CAREER_CERTIFICATE' ||
+            templateId === 'DOC_EI_SEPARATION_CERT' ||
+            templateId === 'DOC_EXIT_SECURITY_NONCOMPETE'
+          ) {
+            const targetEmpCode = String(body.empCode ?? '').trim();
+            if (!targetEmpCode && templateId !== 'DOC_EXIT_SECURITY_NONCOMPETE') {
+              throw badRequest('대상 퇴사자 사번(empCode)이 필요합니다.');
             }
-            const currentAl = refreshOffboardedLifecycle(
-              state.offboardedWorkers[alIdx],
-              state.company.referenceDate
-            );
-            if (currentAl.dataLifecycleStatus === 'ANONYMIZED_PURGED') {
-              sendJson(res, 409, { error: '3년 법정보존 만료로 비식별 파기된 퇴사자 문서는 발급할 수 없습니다.' });
-              return;
-            }
-            if (templateId === 'DOC_CAREER_CERTIFICATE') {
-              state.offboardedWorkers[alIdx] = updateOffboardedChecklist(
-                currentAl,
-                { incrementCareerCert: true },
-                state.company.referenceDate
-              );
-              alumniRecord = state.offboardedWorkers[alIdx];
-            } else {
-              alumniRecord = currentAl;
+            if (targetEmpCode) {
+              if (purgeTombstones.isEmpCodePurged(state.company.bizRegNo, targetEmpCode)) {
+                sendJson(res, 409, {
+                  error: '3년 법정보존 만료로 비식별 파기된 퇴사자 문서는 발급할 수 없습니다.',
+                });
+                return;
+              }
+              const alIdx = state.offboardedWorkers.findIndex((a) => a.empCode === targetEmpCode);
+              if (alIdx >= 0) {
+                const currentAl = refreshOffboardedLifecycle(
+                  state.offboardedWorkers[alIdx],
+                  state.company.referenceDate
+                );
+                if (currentAl.dataLifecycleStatus === 'ANONYMIZED_PURGED') {
+                  sendJson(res, 409, {
+                    error: '3년 법정보존 만료로 비식별 파기된 퇴사자 문서는 발급할 수 없습니다.',
+                  });
+                  return;
+                }
+                if (templateId === 'DOC_CAREER_CERTIFICATE') {
+                  state.offboardedWorkers[alIdx] = updateOffboardedChecklist(
+                    currentAl,
+                    { incrementCareerCert: true },
+                    state.company.referenceDate
+                  );
+                  alumniRecord = state.offboardedWorkers[alIdx];
+                } else {
+                  alumniRecord = currentAl;
+                }
+              } else if (templateId === 'DOC_EXIT_SECURITY_NONCOMPETE') {
+                workerRecord = snap.workers.find((w) => w.empCode === targetEmpCode) || null;
+                if (!workerRecord) {
+                  sendJson(res, 404, { error: '대상 퇴사자 레코드를 찾을 수 없습니다.' });
+                  return;
+                }
+              } else {
+                sendJson(res, 404, { error: '대상 퇴사자 레코드를 찾을 수 없습니다.' });
+                return;
+              }
             }
           }
           const filingMatch = snap.compliance.statutoryFilings.find(

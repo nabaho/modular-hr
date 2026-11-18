@@ -2786,3 +2786,137 @@ test('21. GitHub Pages 무서버 정적 런타임(SharedWorker + server-core) �
   );
   assert.equal(evtAfterLock.status, 409);
 });
+
+
+test('22. 필수 인사·보안 서식 3종(개인정보동의서 · 비밀유지보안서약서 · 퇴사 경업금지서약서) 생성·바인딩·RBAC·파기차단(409) 검증', async () => {
+  const { server } = createAppServer({ demoMode: true, requirePcAuth: false });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  const baseUrl = `http://127.0.0.1:${port}`;
+
+  try {
+    const bootRes = await fetch(`${baseUrl}/api/bootstrap`);
+    assert.equal(bootRes.status, 200);
+    const { csrfToken, snapshot } = await bootRes.json();
+
+    const postPcDoc = async (payload) => {
+      const r = await fetch(`${baseUrl}/api/document`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfToken,
+          Origin: baseUrl,
+        },
+        body: JSON.stringify(payload),
+      });
+      return { status: r.status, json: await r.json() };
+    };
+
+    // 1. 전사 표준 양식(공란) 3종 생성 및 필수 법정 가드레일 문구 검증
+    const privacyBlank = await postPcDoc({ templateId: 'DOC_PRIVACY_CONSENT' });
+    assert.equal(privacyBlank.status, 200);
+    assert.match(privacyBlank.json.document.body, /개인정보 보호법/);
+    assert.match(privacyBlank.json.document.body, /제24조의2/);
+    assert.match(privacyBlank.json.document.body, /3년간 의무 보존/);
+
+    const ndaBlank = await postPcDoc({ templateId: 'DOC_NDA_SECURITY_PLEDGE' });
+    assert.equal(ndaBlank.status, 200);
+    assert.match(ndaBlank.json.document.body, /부정경쟁방지/);
+    assert.match(ndaBlank.json.document.body, /외부 생성형 AI/);
+
+    const exitBlank = await postPcDoc({ templateId: 'DOC_EXIT_SECURITY_NONCOMPETE' });
+    assert.equal(exitBlank.status, 200);
+    assert.match(exitBlank.json.document.body, /2009다82244/);
+    assert.match(exitBlank.json.document.body, /경업금지 대가\(보상\)/);
+
+    // 2. 개별 재직자(EMP-201 김하늘) 및 퇴사자 바인딩 검증
+    const privacyBound = await postPcDoc({ templateId: 'DOC_PRIVACY_CONSENT', empCode: 'EMP-201' });
+    assert.equal(privacyBound.status, 200);
+    assert.match(privacyBound.json.document.title, /김하늘/);
+    assert.match(privacyBound.json.document.body, /EMP-201/);
+
+    const firstAlumni = snapshot.offboardedWorkers.find((a) => a.dataLifecycleStatus !== 'ANONYMIZED_PURGED');
+    assert.ok(firstAlumni, '보존 중인 퇴사자 레코드 존재 필수');
+    const exitBound = await postPcDoc({
+      templateId: 'DOC_EXIT_SECURITY_NONCOMPETE',
+      empCode: firstAlumni.empCode,
+    });
+    assert.equal(exitBound.status, 200);
+    assert.ok(exitBound.json.document.title.includes(firstAlumni.displayName));
+    assert.ok(exitBound.json.document.body.includes(firstAlumni.lastWorkDate));
+
+    // 3. 모바일 근로자(WORKER: emp.201) 본인 동의서/보안서약서 허용 및 타인/퇴사서약서 403 차단 검증
+    const mBoot = await (await fetch(`${baseUrl}/api/mobile/bootstrap`)).json();
+    const wrkDemo = mBoot.demoAccounts.find((a) => a.loginId === 'emp.201');
+    const wrkLoginRes = await fetch(`${baseUrl}/api/mobile/login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': mBoot.loginCsrfToken,
+        Origin: baseUrl,
+      },
+      body: JSON.stringify({ loginId: 'emp.201', password: wrkDemo.demoPassword }),
+    });
+    assert.equal(wrkLoginRes.status, 200);
+    const wrkCookie = (wrkLoginRes.headers.get('set-cookie') || '').split(';')[0];
+    const wrkSession = (await wrkLoginRes.json()).session;
+
+    const wrkSelfNda = await fetch(`${baseUrl}/api/mobile/document`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: wrkCookie,
+        'X-CSRF-Token': wrkSession.csrfToken,
+        Origin: baseUrl,
+      },
+      body: JSON.stringify({ templateId: 'DOC_NDA_SECURITY_PLEDGE' }),
+    });
+    assert.equal(wrkSelfNda.status, 200);
+    const wrkSelfNdaJson = await wrkSelfNda.json();
+    assert.match(wrkSelfNdaJson.document.title, /김하늘/);
+
+    const wrkOtherEmp = await fetch(`${baseUrl}/api/mobile/document`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: wrkCookie,
+        'X-CSRF-Token': wrkSession.csrfToken,
+        Origin: baseUrl,
+      },
+      body: JSON.stringify({ templateId: 'DOC_PRIVACY_CONSENT', empCode: 'EMP-202' }),
+    });
+    assert.equal(wrkOtherEmp.status, 403);
+
+    const wrkExitDoc = await fetch(`${baseUrl}/api/mobile/document`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: wrkCookie,
+        'X-CSRF-Token': wrkSession.csrfToken,
+        Origin: baseUrl,
+      },
+      body: JSON.stringify({ templateId: 'DOC_EXIT_SECURITY_NONCOMPETE' }),
+    });
+    assert.equal(wrkExitDoc.status, 403);
+
+    // 4. 3년 보존 만료 파기 퇴사자(EMP-105)의 퇴사 경업금지서약서 발급 시도 시 409 차단 검증
+    const purgeRes = await fetch(`${baseUrl}/api/offboarded/purge-pii`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': csrfToken,
+        Origin: baseUrl,
+      },
+      body: JSON.stringify({ empCode: 'EMP-105' }),
+    });
+    assert.equal(purgeRes.status, 200);
+
+    const exitPurged = await postPcDoc({
+      templateId: 'DOC_EXIT_SECURITY_NONCOMPETE',
+      empCode: 'EMP-105',
+    });
+    assert.equal(exitPurged.status, 409);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
