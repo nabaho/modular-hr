@@ -10,52 +10,326 @@
 <body>
   <a href="#main-content" class="skip-link">본문 바로가기</a>
 
-  <header class="top-header">
-    <div class="container header-inner">
-      <div class="brand-group">
-        <div class="brand-badge-row">
-          <span class="brand-badge">MODULAR HR · LAW ENGINE</span>
-          <span id="active-domain-pill" class="tag tag-green">modular-hr.localhost 전용 도메인</span>
-        </div>
-        <h1 class="brand-title">채용~퇴사 모듈형 인사노무·급여 및 노동법 자동생성 플랫폼</h1>
-        <p class="brand-subtitle">
-          근로기준법·근참법·산업안전보건법·채용절차법·장애인고용법 실시간 연동 컨트롤타워 (독립 팝업 콘솔 지원)
-        </p>
-      </div>
-      <div class="header-actions">
-        <button type="button" id="btn-open-dashboard-popup" class="btn btn-primary">
-          독립 대시보드 팝업창 띄우기
-        </button>
-        <button type="button" id="btn-open-mobile-popup" class="btn btn-secondary">
-          모바일 폰 팝업창(420px) 열기
-        </button>
-        <a href="./mobile.html" class="btn btn-secondary" aria-label="대표·관리자 모바일 폰 앱 화면 이동">
-          모바일 앱 이동
-        </a>
-        <button type="button" id="theme-toggle-btn" class="btn btn-secondary" aria-label="테마 전환 (라이트/다크)">
-          어두운 화면 전환
-        </button>
-      </div>
-    </div>
-  </header>
+  <div id="sidebar-backdrop" class="sidebar-backdrop" hidden></div>
 
-  <!-- 상단 사업장 상태 요약 바 & 접이식 사업장 환경설정 드로어 -->
-  <section class="simulator-bar" aria-labelledby="sim-heading">
-    <div class="container">
-      <div class="workplace-compact-strip">
-        <div class="workplace-compact-info">
-          <h2 id="sim-heading" class="section-eyebrow">실무 인사노무 통합 관리 콘솔 · 현재 운영 사업장</h2>
-          <div id="compact-workplace-summary" class="compact-summary-line">
-            사업장 정보를 불러오는 중입니다...
+  <div id="app-shell" class="app-shell">
+    <!-- 좌측 큰항목 대분류 대시보드 사이드바 -->
+    <aside id="left-sidebar" class="app-sidebar" aria-label="인사노무 대분류 대시보드 메뉴">
+      <div class="sidebar-top">
+        <div class="sidebar-brand-head">
+          <div>
+            <div class="brand-badge-row">
+              <span class="brand-badge">MODULAR HR</span>
+              <span id="active-domain-pill" class="tag tag-green">전용 도메인</span>
+            </div>
+            <h1 class="sidebar-brand-title">인사노무 · 급여 통합센터</h1>
           </div>
-        </div>
-        <div class="workplace-compact-actions">
           <button
             type="button"
-            id="btn-jump-onboarding"
-            class="btn btn-secondary btn-sm"
+            id="btn-close-mobile-sidebar"
+            class="btn btn-secondary btn-sm mobile-only-btn"
+            aria-label="좌측 메뉴 닫기"
           >
-            4종 문서 자동연결(세팅)
+            닫기
+          </button>
+        </div>
+
+        <div id="sidebar-company-card" class="sidebar-company-card">
+          <div id="sidebar-company-name" class="sidebar-company-name">사업장 로딩 중...</div>
+          <div id="sidebar-company-meta" class="sidebar-company-meta">상시근로자 · 법정의무 산정 중</div>
+          <div class="sidebar-preset-row">
+            <select
+              id="sidebar-preset-select"
+              class="sidebar-preset-select"
+              aria-label="사업장 규모 시나리오 빠른 선택"
+            ></select>
+            <button type="button" id="sidebar-preset-apply-btn" class="btn btn-primary btn-sm">
+              전환
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div
+        class="sidebar-nav-scroll"
+        role="tablist"
+        aria-orientation="vertical"
+        aria-label="인사노무 모듈 플랫폼 대분류 메뉴"
+      >
+        <div class="sidebar-group" role="presentation">
+          <div class="sidebar-group-label" role="presentation">1. 전사 통합 대시보드</div>
+          <button
+            type="button"
+            role="tab"
+            id="tab-btn-ops-home"
+            aria-selected="true"
+            aria-controls="panel-ops-home"
+            tabindex="0"
+            class="tab-btn sidebar-nav-btn"
+            data-tab="ops-home"
+            data-category="1. 전사 통합 대시보드"
+          >
+            <span class="nav-btn-text">통합 현황판 · 서식함</span>
+            <span id="nav-badge-ops-home" class="nav-count-pill">홈</span>
+          </button>
+        </div>
+
+        <div class="sidebar-group" role="presentation">
+          <div class="sidebar-group-label" role="presentation">2. 채용 · 입사 · 인사관리</div>
+          <button
+            type="button"
+            role="tab"
+            id="tab-btn-ops-recruit"
+            aria-selected="false"
+            aria-controls="panel-ops-recruit"
+            tabindex="-1"
+            class="tab-btn sidebar-nav-btn"
+            data-tab="ops-recruit"
+            data-category="2. 채용 · 입사 · 인사관리"
+          >
+            <span class="nav-btn-text">채용 · 전자근로계약</span>
+            <span id="nav-badge-ops-recruit" class="nav-count-pill">M1·M2</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            id="tab-btn-ops-org"
+            aria-selected="false"
+            aria-controls="panel-ops-org"
+            tabindex="-1"
+            class="tab-btn sidebar-nav-btn"
+            data-tab="ops-org"
+            data-category="2. 채용 · 입사 · 인사관리"
+          >
+            <span class="nav-btn-text">인사명부 · 조직 · 발령</span>
+            <span id="nav-badge-ops-org" class="nav-count-pill">M3</span>
+          </button>
+        </div>
+
+        <div class="sidebar-group" role="presentation">
+          <div class="sidebar-group-label" role="presentation">3. 근태 · 휴가 · 평가 · 징계</div>
+          <button
+            type="button"
+            role="tab"
+            id="tab-btn-ops-attendance"
+            aria-selected="false"
+            aria-controls="panel-ops-attendance"
+            tabindex="-1"
+            class="tab-btn sidebar-nav-btn"
+            data-tab="ops-attendance"
+            data-category="3. 근태 · 휴가 · 평가 · 징계"
+          >
+            <span class="nav-btn-text">출퇴근 · 교대 · 주52시간</span>
+            <span id="nav-badge-ops-attendance" class="nav-count-pill">M4</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            id="tab-btn-ops-leave"
+            aria-selected="false"
+            aria-controls="panel-ops-leave"
+            tabindex="-1"
+            class="tab-btn sidebar-nav-btn"
+            data-tab="ops-leave"
+            data-category="3. 근태 · 휴가 · 평가 · 징계"
+          >
+            <span class="nav-btn-text">연차원장 · 사용촉진 · 모성</span>
+            <span id="nav-badge-ops-leave" class="nav-count-pill">M5</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            id="tab-btn-ops-eval"
+            aria-selected="false"
+            aria-controls="panel-ops-eval"
+            tabindex="-1"
+            class="tab-btn sidebar-nav-btn"
+            data-tab="ops-eval"
+            data-category="3. 근태 · 휴가 · 평가 · 징계"
+          >
+            <span class="nav-btn-text">인사평가 · 연봉 · 성과보상</span>
+            <span id="nav-badge-ops-eval" class="nav-count-pill">M6</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            id="tab-btn-ops-discipline"
+            aria-selected="false"
+            aria-controls="panel-ops-discipline"
+            tabindex="-1"
+            class="tab-btn sidebar-nav-btn"
+            data-tab="ops-discipline"
+            data-category="3. 근태 · 휴가 · 평가 · 징계"
+          >
+            <span class="nav-btn-text">적법 징계 · 감봉 · 고충처리</span>
+            <span id="nav-badge-ops-discipline" class="nav-count-pill">M7</span>
+          </button>
+        </div>
+
+        <div class="sidebar-group" role="presentation">
+          <div class="sidebar-group-label" role="presentation">4. 자동급여 · 세무 · 퇴사관리</div>
+          <button
+            type="button"
+            role="tab"
+            id="tab-btn-payroll"
+            aria-selected="false"
+            aria-controls="panel-payroll"
+            tabindex="-1"
+            class="tab-btn sidebar-nav-btn"
+            data-tab="payroll"
+            data-category="4. 자동급여 · 세무 · 퇴사관리"
+          >
+            <span class="nav-btn-text">자동 급여 · 4대보험 · 명세서</span>
+            <span id="nav-badge-payroll" class="nav-count-pill">M8</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            id="tab-btn-alumni"
+            aria-selected="false"
+            aria-controls="panel-alumni"
+            tabindex="-1"
+            class="tab-btn sidebar-nav-btn"
+            data-tab="alumni"
+            data-category="4. 자동급여 · 세무 · 퇴사관리"
+          >
+            <span class="nav-btn-text">퇴사 정산 · 상실 · 3년보존</span>
+            <span id="nav-badge-alumni" class="nav-count-pill">M9</span>
+          </button>
+        </div>
+
+        <div class="sidebar-group" role="presentation">
+          <div class="sidebar-group-label" role="presentation">5. 규모별 노동법 · 안전보건</div>
+          <button
+            type="button"
+            role="tab"
+            id="tab-btn-ops-statutory"
+            aria-selected="false"
+            aria-controls="panel-ops-statutory"
+            tabindex="-1"
+            class="tab-btn sidebar-nav-btn"
+            data-tab="ops-statutory"
+            data-category="5. 규모별 노동법 · 안전보건"
+          >
+            <span class="nav-btn-text">노사협의회 · 안전보건 · 교육</span>
+            <span id="nav-badge-ops-statutory" class="nav-count-pill">M10</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            id="tab-btn-compliance"
+            aria-selected="false"
+            aria-controls="panel-compliance"
+            tabindex="-1"
+            class="tab-btn sidebar-nav-btn"
+            data-tab="compliance"
+            data-category="5. 규모별 노동법 · 안전보건"
+          >
+            <span class="nav-btn-text">관공서 신고 기한 · 분기감독</span>
+            <span id="nav-badge-compliance" class="nav-count-pill">감독</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            id="tab-btn-lifecycle"
+            aria-selected="false"
+            aria-controls="panel-lifecycle"
+            tabindex="-1"
+            class="tab-btn sidebar-nav-btn"
+            data-tab="lifecycle"
+            data-category="5. 규모별 노동법 · 안전보건"
+          >
+            <span class="nav-btn-text">법령 가드레일 시뮬레이터</span>
+            <span id="nav-badge-lifecycle" class="nav-count-pill">검증</span>
+          </button>
+        </div>
+
+        <div class="sidebar-group" role="presentation">
+          <div class="sidebar-group-label" role="presentation">6. 사업장 자동세팅 · 설계도면</div>
+          <button
+            type="button"
+            role="tab"
+            id="tab-btn-onboarding"
+            aria-selected="false"
+            aria-controls="panel-onboarding"
+            tabindex="-1"
+            class="tab-btn sidebar-nav-btn"
+            data-tab="onboarding"
+            data-category="6. 사업장 자동세팅 · 설계도면"
+          >
+            <span class="nav-btn-text">4종 문서 무입력 자동세팅</span>
+            <span id="nav-badge-onboarding" class="nav-count-pill">M0</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            id="tab-btn-floor"
+            aria-selected="false"
+            aria-controls="panel-floor"
+            tabindex="-1"
+            class="tab-btn sidebar-nav-btn"
+            data-tab="floor"
+            data-category="6. 사업장 자동세팅 · 설계도면"
+          >
+            <span class="nav-btn-text">4계층 모듈 설계도면 (4F~1F)</span>
+            <span id="nav-badge-floor" class="nav-count-pill">도면</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="sidebar-footer">
+        <a href="./mobile.html" class="btn btn-secondary btn-sm full-width" aria-label="대표·관리자 모바일 폰 앱 화면 이동">
+          모바일 폰 앱(대표·근로자) 이동
+        </a>
+        <div class="sidebar-footer-split">
+          <button type="button" id="btn-open-mobile-popup" class="btn btn-secondary btn-sm">
+            폰 팝업(420px)
+          </button>
+          <button type="button" id="theme-toggle-btn" class="btn btn-secondary btn-sm" aria-label="테마 전환 (라이트/다크)">
+            어두운 화면 전환
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- 우측 메인 업무 워크스페이스 -->
+    <div class="app-workspace">
+      <header id="review-tour-bar" class="top-header workspace-topbar">
+        <div class="workspace-topbar-left">
+          <button
+            type="button"
+            id="btn-mobile-sidebar-toggle"
+            class="btn btn-primary btn-sm mobile-only-btn"
+            aria-expanded="false"
+            aria-controls="left-sidebar"
+          >
+            전체 대시보드 메뉴
+          </button>
+          <div class="workspace-breadcrumb-box">
+            <div class="workspace-title-line">
+              <span id="workspace-category-badge" class="tag tag-blue">1. 전사 통합 대시보드</span>
+              <strong id="review-step-label" class="workspace-screen-title">1 / 14 · 통합 관리 홈</strong>
+            </div>
+            <div id="compact-workplace-summary" class="compact-summary-line">
+              사업장 정보를 불러오는 중입니다...
+            </div>
+          </div>
+        </div>
+        <div class="workspace-topbar-actions">
+          <button type="button" id="btn-tour-prev" class="btn btn-secondary btn-sm" aria-label="이전 화면으로 이동">
+            이전
+          </button>
+          <button type="button" id="btn-tour-next" class="btn btn-secondary btn-sm" aria-label="다음 화면으로 이동">
+            다음
+          </button>
+          <button
+            type="button"
+            id="btn-toggle-forms-drawer"
+            class="btn btn-primary btn-sm"
+            aria-expanded="false"
+            aria-controls="quick-forms-drawer"
+          >
+            필수 법정·보안 서식함
           </button>
           <button
             type="button"
@@ -66,283 +340,116 @@
           >
             사업장 규모·환경설정 열기
           </button>
+          <button type="button" id="btn-jump-onboarding" class="btn btn-secondary btn-sm">
+            4종 문서 세팅
+          </button>
+          <button type="button" id="btn-open-current-module-modal" class="btn btn-secondary btn-sm">
+            확대 팝업
+          </button>
+          <button type="button" id="btn-open-dashboard-popup" class="btn btn-secondary btn-sm">
+            새 창 팝업
+          </button>
+          <button type="button" id="btn-detach-current-module-popup" class="btn btn-secondary btn-sm" hidden>
+            현재 모듈 분리
+          </button>
         </div>
-      </div>
+      </header>
 
-      <div id="sim-settings-drawer" class="sim-drawer-box" hidden>
-        <div class="sim-top-row">
-          <div>
-            <p class="sim-desc">
-              프리셋을 누르거나 인원·업종을 바꾸면 <strong>노사협의회(30인+)</strong>, <strong>안전·보건관리자 선임(50인+ 제조업 등)</strong>, <strong>가산수당(5인+)</strong>이 전 관리 모듈에 즉시 재구성됩니다.
-            </p>
+      <!-- 상단 접이식 서랍: (1) 전사 필수 법정·보안 표준서식함 / (2) 사업장 규모·환경설정 -->
+      <section class="simulator-bar workspace-drawers-wrap" aria-label="빠른 서식함 및 사업장 환경설정">
+        <div class="workspace-inner">
+          <div id="quick-forms-drawer" class="sim-drawer-box" hidden>
+            <div class="ops-section-head">
+              <div>
+                <h2 class="ops-section-title">전사 필수 인사 · 개인정보 · 정보보안 · 법정기구 표준 서식함</h2>
+                <p class="sim-desc">
+                  현재 작업 중인 화면을 벗어나지 않고 입사·재직·퇴사·노사협의회·안전보건 표준 서식을 즉시 열람하고 복사합니다.
+                </p>
+              </div>
+            </div>
+            <div id="global-forms-drawer-buttons" class="step-pill-group"></div>
           </div>
-          <div id="preset-buttons" class="preset-group" role="group" aria-label="사업장 시나리오 프리셋"></div>
+
+          <div id="sim-settings-drawer" class="sim-drawer-box" hidden>
+            <div class="sim-top-row">
+              <div>
+                <h2 id="sim-heading" class="ops-section-title">사업장 규모 · 업종 상세 시뮬레이터 설정</h2>
+                <p class="sim-desc">
+                  프리셋을 누르거나 인원·업종을 바꾸면 <strong>노사협의회(30인+)</strong>, <strong>안전·보건관리자 선임(50인+ 제조업 등)</strong>, <strong>가산수당(5인+)</strong>이 전 관리 모듈에 즉시 재구성됩니다.
+                </p>
+              </div>
+              <div id="preset-buttons" class="preset-group" role="group" aria-label="사업장 시나리오 프리셋"></div>
+            </div>
+
+            <form id="sim-form" class="sim-controls-grid" novalidate>
+              <div class="field">
+                <label for="input-company-name">사업장 명칭</label>
+                <input id="input-company-name" name="companyName" type="text" maxlength="80" autocomplete="off" />
+              </div>
+
+              <div class="field">
+                <label for="select-ksic">업종 (한국표준산업분류 KSIC)</label>
+                <select id="select-ksic" name="ksicMajor"></select>
+              </div>
+
+              <div class="field">
+                <label for="input-regular-workers">상용근로자 수 (명)</label>
+                <input id="input-regular-workers" name="regularWorkers" type="number" min="0" max="5000" step="1" />
+              </div>
+
+              <div class="field">
+                <label for="input-parttime-workers">단시간근로자 수 (명)</label>
+                <input id="input-parttime-workers" name="partTimeWorkers" type="number" min="0" max="2000" step="1" />
+              </div>
+
+              <div class="field">
+                <label for="input-daily-mandays">일용직 월 연인원 (명·일)</label>
+                <input id="input-daily-mandays" name="dailyWorkerManDays" type="number" min="0" max="20000" step="1" />
+              </div>
+
+              <div class="field">
+                <label for="input-dispatched-workers">현장 파견근로자 (명, 산안법)</label>
+                <input id="input-dispatched-workers" name="dispatchedWorkers" type="number" min="0" max="2000" step="1" />
+              </div>
+
+              <div class="field">
+                <label for="input-operating-days">월 가동일수 (일)</label>
+                <input id="input-operating-days" name="operatingDays" type="number" min="1" max="31" step="1" />
+              </div>
+
+              <div class="field">
+                <label for="input-trigger-date">규모 도달(사유발생)일</label>
+                <input id="input-trigger-date" name="triggerDate" type="date" />
+              </div>
+
+              <div class="field checkbox-cluster">
+                <label class="check-label" for="check-majority-union">
+                  <input id="check-majority-union" name="hasMajorityUnion" type="checkbox" />
+                  <span>과반수 노동조합 있음</span>
+                </label>
+                <label class="check-label" for="check-subsidies">
+                  <input id="check-subsidies" name="hasSubsidies" type="checkbox" />
+                  <span>고용지원금 수급 중</span>
+                </label>
+              </div>
+
+              <div class="field sim-submit-wrap">
+                <button type="submit" id="apply-sim-btn" class="btn btn-primary full-width">
+                  규모·업종 즉시 재산정 적용
+                </button>
+              </div>
+            </form>
+
+            <div id="headcount-kpi-strip" class="kpi-strip" aria-live="polite"></div>
+          </div>
+
+          <div id="status-banner" class="status-banner" role="status" aria-live="polite" hidden></div>
+          <div id="pc-auth-gate" class="auth-gate-card" hidden></div>
         </div>
+      </section>
 
-        <form id="sim-form" class="sim-controls-grid" novalidate>
-          <div class="field">
-            <label for="input-company-name">사업장 명칭</label>
-            <input id="input-company-name" name="companyName" type="text" maxlength="80" autocomplete="off" />
-          </div>
-
-          <div class="field">
-            <label for="select-ksic">업종 (한국표준산업분류 KSIC)</label>
-            <select id="select-ksic" name="ksicMajor"></select>
-          </div>
-
-          <div class="field">
-            <label for="input-regular-workers">상용근로자 수 (명)</label>
-            <input id="input-regular-workers" name="regularWorkers" type="number" min="0" max="5000" step="1" />
-          </div>
-
-          <div class="field">
-            <label for="input-parttime-workers">단시간근로자 수 (명)</label>
-            <input id="input-parttime-workers" name="partTimeWorkers" type="number" min="0" max="2000" step="1" />
-          </div>
-
-          <div class="field">
-            <label for="input-daily-mandays">일용직 월 연인원 (명·일)</label>
-            <input id="input-daily-mandays" name="dailyWorkerManDays" type="number" min="0" max="20000" step="1" />
-          </div>
-
-          <div class="field">
-            <label for="input-dispatched-workers">현장 파견근로자 (명, 산안법)</label>
-            <input id="input-dispatched-workers" name="dispatchedWorkers" type="number" min="0" max="2000" step="1" />
-          </div>
-
-          <div class="field">
-            <label for="input-operating-days">월 가동일수 (일)</label>
-            <input id="input-operating-days" name="operatingDays" type="number" min="1" max="31" step="1" />
-          </div>
-
-          <div class="field">
-            <label for="input-trigger-date">규모 도달(사유발생)일</label>
-            <input id="input-trigger-date" name="triggerDate" type="date" />
-          </div>
-
-          <div class="field checkbox-cluster">
-            <label class="check-label" for="check-majority-union">
-              <input id="check-majority-union" name="hasMajorityUnion" type="checkbox" />
-              <span>과반수 노동조합 있음</span>
-            </label>
-            <label class="check-label" for="check-subsidies">
-              <input id="check-subsidies" name="hasSubsidies" type="checkbox" />
-              <span>고용지원금 수급 중</span>
-            </label>
-          </div>
-
-          <div class="field sim-submit-wrap">
-            <button type="submit" id="apply-sim-btn" class="btn btn-primary full-width">
-              규모·업종 즉시 재산정 적용
-            </button>
-          </div>
-        </form>
-
-        <!-- 법령별 상시근로자 수 실시간 산출 지표 카드 -->
-        <div id="headcount-kpi-strip" class="kpi-strip" aria-live="polite"></div>
-      </div>
-
-      <div id="status-banner" class="status-banner" role="status" aria-live="polite" hidden></div>
-      <div id="pc-auth-gate" class="auth-gate-card" hidden></div>
-    </div>
-  </section>
-
-  <!-- 메인 탭 네비게이션 및 패널 -->
-  <main id="main-content" class="container main-area">
-    <div id="review-tour-bar" class="review-tour-bar" role="region" aria-label="전체 대시보드 및 관리 시스템 순차 검토 컨트롤">
-      <div class="review-tour-info">
-        <span class="tag tag-blue">전 모듈 검토 가이드</span>
-        <strong id="review-step-label">1 / 14 · 통합 관리 홈</strong>
-      </div>
-      <div class="review-tour-actions">
-        <button type="button" id="btn-tour-prev" class="btn btn-secondary btn-sm">
-          이전 화면
-        </button>
-        <button type="button" id="btn-tour-next" class="btn btn-primary btn-sm">
-          다음 관리 화면 검토
-        </button>
-        <button type="button" id="btn-open-current-module-modal" class="btn btn-secondary btn-sm">
-          현재 화면 대형 상세팝업 열기
-        </button>
-        <button type="button" id="btn-detach-current-module-popup" class="btn btn-secondary btn-sm">
-          현재 모듈 새 팝업창 분리
-        </button>
-      </div>
-    </div>
-
-    <div class="module-nav-group">
-      <div class="nav-group-caption">일상 인사노무 관리 시스템 (채용 ~ 퇴사 · 법정기구 실무 콘솔)</div>
-      <div class="tabs-bar" role="tablist" aria-label="인사노무 모듈 플랫폼 주요 화면">
-        <button
-          type="button"
-          role="tab"
-          id="tab-btn-ops-home"
-          aria-selected="true"
-          aria-controls="panel-ops-home"
-          tabindex="0"
-          class="tab-btn"
-          data-tab="ops-home"
-        >
-          통합 관리 홈
-        </button>
-        <button
-          type="button"
-          role="tab"
-          id="tab-btn-ops-recruit"
-          aria-selected="false"
-          aria-controls="panel-ops-recruit"
-          tabindex="-1"
-          class="tab-btn"
-          data-tab="ops-recruit"
-        >
-          M1·M2 채용·전자계약
-        </button>
-        <button
-          type="button"
-          role="tab"
-          id="tab-btn-ops-org"
-          aria-selected="false"
-          aria-controls="panel-ops-org"
-          tabindex="-1"
-          class="tab-btn"
-          data-tab="ops-org"
-        >
-          M3 인사·조직·발령
-        </button>
-        <button
-          type="button"
-          role="tab"
-          id="tab-btn-ops-attendance"
-          aria-selected="false"
-          aria-controls="panel-ops-attendance"
-          tabindex="-1"
-          class="tab-btn"
-          data-tab="ops-attendance"
-        >
-          M4 근태·교대·주52h
-        </button>
-        <button
-          type="button"
-          role="tab"
-          id="tab-btn-ops-leave"
-          aria-selected="false"
-          aria-controls="panel-ops-leave"
-          tabindex="-1"
-          class="tab-btn"
-          data-tab="ops-leave"
-        >
-          M5 연차·촉진·모성보호
-        </button>
-        <button
-          type="button"
-          role="tab"
-          id="tab-btn-ops-eval"
-          aria-selected="false"
-          aria-controls="panel-ops-eval"
-          tabindex="-1"
-          class="tab-btn"
-          data-tab="ops-eval"
-        >
-          M6 인사평가·보상
-        </button>
-        <button
-          type="button"
-          role="tab"
-          id="tab-btn-ops-discipline"
-          aria-selected="false"
-          aria-controls="panel-ops-discipline"
-          tabindex="-1"
-          class="tab-btn"
-          data-tab="ops-discipline"
-        >
-          M7 징계·고충처리
-        </button>
-        <button
-          type="button"
-          role="tab"
-          id="tab-btn-payroll"
-          aria-selected="false"
-          aria-controls="panel-payroll"
-          tabindex="-1"
-          class="tab-btn"
-          data-tab="payroll"
-        >
-          M8 자동급여·명세서
-        </button>
-        <button
-          type="button"
-          role="tab"
-          id="tab-btn-alumni"
-          aria-selected="false"
-          aria-controls="panel-alumni"
-          tabindex="-1"
-          class="tab-btn"
-          data-tab="alumni"
-        >
-          M9 퇴사자 사후관리
-        </button>
-        <button
-          type="button"
-          role="tab"
-          id="tab-btn-ops-statutory"
-          aria-selected="false"
-          aria-controls="panel-ops-statutory"
-          tabindex="-1"
-          class="tab-btn"
-          data-tab="ops-statutory"
-        >
-          M10 노사·안전·법정교육
-        </button>
-        <button
-          type="button"
-          role="tab"
-          id="tab-btn-compliance"
-          aria-selected="false"
-          aria-controls="panel-compliance"
-          tabindex="-1"
-          class="tab-btn tab-btn-sub"
-          data-tab="compliance"
-        >
-          관공서 신고·분기감독
-        </button>
-        <button
-          type="button"
-          role="tab"
-          id="tab-btn-lifecycle"
-          aria-selected="false"
-          aria-controls="panel-lifecycle"
-          tabindex="-1"
-          class="tab-btn tab-btn-sub"
-          data-tab="lifecycle"
-        >
-          법령 검증 실습기
-        </button>
-        <button
-          type="button"
-          role="tab"
-          id="tab-btn-onboarding"
-          aria-selected="false"
-          aria-controls="panel-onboarding"
-          tabindex="-1"
-          class="tab-btn tab-btn-sub"
-          data-tab="onboarding"
-        >
-          사업장 문서세팅(M0)
-        </button>
-        <button
-          type="button"
-          role="tab"
-          id="tab-btn-floor"
-          aria-selected="false"
-          aria-controls="panel-floor"
-          tabindex="-1"
-          class="tab-btn tab-btn-sub"
-          data-tab="floor"
-        >
-          설계도면(4F~1F)
-        </button>
-      </div>
-    </div>
+      <!-- 우측 메인 업무 영역: 좌측 대항목에서 선택한 시스템의 상세 데이터 및 제어판 -->
+      <main id="main-content" class="workspace-inner main-area">
 
     <!-- 신규 관리 패널 0: 전사 실무 통합 관리 홈 (M1~M10 전체 현황판) -->
     <section
@@ -852,7 +959,9 @@
 
       <div id="alumni-table-container"></div>
     </section>
-  </main>
+      </main>
+    </div>
+  </div>
 
   <!-- 하단 스크롤 위치에서도 즉시 보이는 고정 알림창 -->
   <div id="floating-toast" class="floating-toast" role="alert" aria-live="assertive" hidden>
