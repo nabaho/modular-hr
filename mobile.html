@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'self'; form-action 'self'" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#1d4ed8" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <title>MODULAR HR 모바일 앱 — 대표·관리자 실시간 관제 &amp; 전자결재</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="./mobile.css?v=ded2c66c4e77" />
+</head>
+<body>
+  <a href="#mobile-main" class="skip-link">모바일 본문 바로가기</a>
+
+  <!-- 데스크톱에서 열었을 때 편리한 상단 전환 안내바 (스마트폰 전체화면 모드에서도 깔끔히 동작) -->
+  <header class="top-utility-bar">
+    <div class="utility-inner">
+      <div class="utility-brand">
+        <span class="pwa-pill">PWA · REAL-TIME SSE</span>
+        <span class="utility-title">대표·관리자·근로자 모바일 앱</span>
+      </div>
+      <div class="utility-actions">
+        <a href="./" class="util-btn">PC 통합 대시보드</a>
+        <button type="button" id="m-theme-btn" class="util-btn" aria-label="모바일 테마 전환">
+          어두운 화면
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- 스마트폰 앱 프레임 컨테이너 -->
+  <div class="phone-stage">
+    <main id="mobile-main" class="phone-shell">
+      <!-- 스마트폰 상단 앱 헤더 (역할 배지 · 실시간 연결 상태 · 로그아웃) -->
+      <div class="app-topbar">
+        <div class="app-topbar-left">
+          <span id="live-dot" class="live-indicator" data-live="false">OFFLINE</span>
+          <strong id="app-header-role" class="app-role-title">MODULAR HR 모바일 로그인</strong>
+        </div>
+        <button type="button" id="m-logout-btn" class="util-btn btn-logout" hidden>
+          로그아웃
+        </button>
+      </div>
+
+      <!-- 실시간 푸시 알림 배너 (SSE 수신 시 즉시 표시) -->
+      <div id="m-push-banner" class="push-banner" role="status" aria-live="polite" hidden>
+        <div class="push-banner-content">
+          <strong id="m-push-title" class="push-title"></strong>
+          <p id="m-push-body" class="push-body"></p>
+        </div>
+        <button type="button" id="m-push-close" class="push-close-btn" aria-label="실시간 알림 닫기">
+          닫기
+        </button>
+      </div>
+
+      <!-- 화면 1: 1차 계정 로그인 화면 -->
+      <section id="view-login" class="app-view" aria-labelledby="login-heading">
+        <div class="hero-box">
+          <span class="hero-eyebrow">CEO · ADMIN · WORKER APP</span>
+          <h1 id="login-heading" class="hero-title">모바일 실시간 인사·급여 관제 로그인</h1>
+          <p class="hero-desc">
+            대표·관리자는 1차 로그인 후 <strong>6자리 보안 PIN 또는 생체 패스키 2차 인증</strong>을 거쳐 실시간 출근·주52h·법정신고 D-Day·급여 승인을 처리합니다.
+          </p>
+        </div>
+
+        <div class="card-block">
+          <h2 id="demo-card-title" class="card-title">역할 계정 빠른 선택</h2>
+          <div id="demo-account-list" class="demo-grid" role="group" aria-label="역할 계정 선택"></div>
+        </div>
+
+        <form id="login-form" class="card-block form-stack" novalidate>
+          <h2 class="card-title">계정 로그인 (비동기 scrypt 검증 · 5회 오류 잠금)</h2>
+          <div class="m-field">
+            <label for="login-id">계정 아이디 (사번/ID)</label>
+            <input id="login-id" name="loginId" type="text" autocomplete="username" value="ceo" required />
+          </div>
+          <div class="m-field">
+            <label for="login-pw">비밀번호</label>
+            <input
+              id="login-pw"
+              name="password"
+              type="password"
+              autocomplete="current-password"
+              placeholder="비밀번호 입력"
+              required
+            />
+          </div>
+          <div class="m-field-row">
+            <div class="m-field">
+              <label for="login-device">접속 기기 별칭</label>
+              <input id="login-device" name="deviceLabel" type="text" maxlength="60" value="대표님 iPhone 16 Pro" />
+            </div>
+            <div class="m-field">
+              <label for="login-platform">단말 환경</label>
+              <select id="login-platform" name="platformType">
+                <option value="IOS_PWA">iOS 홈화면 앱(PWA)</option>
+                <option value="ANDROID_PWA">Android 앱(PWA)</option>
+                <option value="MOBILE_WEB">모바일 웹 브라우저</option>
+                <option value="HYBRID_APP">하이브리드 스토어 앱</option>
+              </select>
+            </div>
+          </div>
+          <button type="submit" id="login-submit-btn" class="m-btn m-btn-primary">
+            1차 로그인 및 보안 세션 시작
+          </button>
+        </form>
+      </section>
+
+      <!-- 화면 2: 대표·관리자 필수 2차 인증(MFA: 간편 PIN / 패스키) 화면 -->
+      <section id="view-mfa" class="app-view" aria-labelledby="mfa-heading" hidden>
+        <div class="hero-box">
+          <span class="hero-eyebrow">STEP 2 · MULTI-FACTOR AUTH</span>
+          <h1 id="mfa-heading" class="hero-title">대표·관리자 2차 보안 인증</h1>
+          <p id="mfa-user-desc" class="hero-desc"></p>
+        </div>
+
+        <div class="card-block form-stack">
+          <div class="mfa-hint-box" id="mfa-demo-hint"></div>
+          <p id="mfa-passkey-note" class="card-sub"></p>
+
+          <button type="button" id="btn-passkey-auth" class="m-btn m-btn-accent" hidden>
+            등록된 단말 패스키(ECDSA P-256 전자서명) 원터치 인증
+          </button>
+
+          <div id="mfa-passkey-divider" class="divider-label" hidden>또는 6자리 보안 PIN 입력</div>
+
+          <form id="mfa-pin-form" class="form-stack" novalidate>
+            <div class="m-field">
+              <label for="mfa-pin-input">6자리 숫자 보안 PIN</label>
+              <input
+                id="mfa-pin-input"
+                type="password"
+                inputmode="numeric"
+                maxlength="6"
+                pattern="[0-9]{6}"
+                placeholder="6자리 숫자 입력"
+                autocomplete="one-time-code"
+              />
+            </div>
+
+            <div class="pin-keypad" role="group" aria-label="보안 PIN 숫자 키패드">
+              <button type="button" class="pin-key" data-digit="1">1</button>
+              <button type="button" class="pin-key" data-digit="2">2</button>
+              <button type="button" class="pin-key" data-digit="3">3</button>
+              <button type="button" class="pin-key" data-digit="4">4</button>
+              <button type="button" class="pin-key" data-digit="5">5</button>
+              <button type="button" class="pin-key" data-digit="6">6</button>
+              <button type="button" class="pin-key" data-digit="7">7</button>
+              <button type="button" class="pin-key" data-digit="8">8</button>
+              <button type="button" class="pin-key" data-digit="9">9</button>
+              <button type="button" class="pin-key pin-key-sub" data-action="clear">전체지움</button>
+              <button type="button" class="pin-key" data-digit="0">0</button>
+              <button type="button" class="pin-key pin-key-sub" data-action="back">지우기</button>
+            </div>
+
+            <button type="submit" id="mfa-pin-submit" class="m-btn m-btn-primary">
+              PIN 검증 후 실시간 대시보드 입장
+            </button>
+          </form>
+        </div>
+      </section>
+
+      <!-- 화면 3: 역할별 실시간 관제 · 전자결재 · 근로자 셀프서비스 메인 화면 -->
+      <section id="view-authenticated" class="app-view app-view-with-nav" aria-label="모바일 실시간 업무 화면" hidden>
+        <div id="role-banner-strip" class="role-strip"></div>
+        <div id="mobile-tab-content" class="tab-scroll-body" role="tabpanel"></div>
+
+        <!-- 하단 고정 모바일 앱 내비게이션 탭바 -->
+        <nav id="mobile-bottom-nav" class="bottom-tabbar" role="tablist" aria-label="모바일 하단 메뉴"></nav>
+      </section>
+    </main>
+  </div>
+
+  <!-- 고정 오류/상태 토스트 -->
+  <div id="m-toast" class="m-toast" role="alert" aria-live="assertive" hidden>
+    <span id="m-toast-text"></span>
+    <button type="button" id="m-toast-close" class="util-btn" aria-label="토스트 닫기">닫기</button>
+  </div>
+
+  <!-- 모바일 문서 초안 / 임금명세서 전체 열람 모달 -->
+  <div
+    id="m-modal"
+    class="m-modal-backdrop"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="m-modal-title"
+    hidden
+  >
+    <div class="m-modal-sheet">
+      <div class="m-modal-header">
+        <div>
+          <h2 id="m-modal-title" class="m-modal-title">문서 열람</h2>
+          <p id="m-modal-sub" class="m-modal-sub"></p>
+        </div>
+        <button type="button" id="m-modal-close" class="util-btn" aria-label="모달 닫기">
+          닫기
+        </button>
+      </div>
+      <pre id="m-modal-body" class="m-modal-pre" tabindex="0"></pre>
+    </div>
+  </div>
+
+  <script type="module" src="./static-api-runtime.mjs?v=ded2c66c4e77"></script>
+  <script type="module" src="./mobile.js?v=ded2c66c4e77"></script>
+</body>
+</html>

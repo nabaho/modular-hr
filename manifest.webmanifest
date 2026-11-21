@@ -1,0 +1,20 @@
+{
+  "name": "MODULAR HR 대표·관리자 실시간 인사노무 앱",
+  "short_name": "MODULAR HR",
+  "description": "채용~퇴사 인사노무·급여·법정신고 실시간 관제 및 원터치 전자결재 모바일 앱",
+  "start_url": "./mobile.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b1120",
+  "theme_color": "#1d4ed8",
+  "lang": "ko",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
