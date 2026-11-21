@@ -52,6 +52,13 @@ function buildStatutoryDocumentInternal(templateId, context = {}) {
   const referenceDate = safeText(context.referenceDate, '2026-11-15');
   const dueDate = safeText(context.dueDate, '2026-11-25');
   const hasUnion = context.hasMajorityUnion === true;
+  const pol = context.policySettings || {};
+  const payDayLabel = safeText(pol.payDayLabel, '매월 25일');
+  const isFiscalLeave = pol.leaveAccrualBasis === 'FISCAL_YEAR';
+  const fyStartLabel = safeText(pol.fiscalYearStartMonthDay, '01-01');
+  const leavePolicySummary = isFiscalLeave
+    ? `회계연도 일괄 기준 (매년 ${fyStartLabel} 부여 · 퇴직 시 입사일 기준과 비교해 유리한 조건 정산)`
+    : '개별 입사일 기준 부여 (근로기준법 제60조 원칙)';
 
   const refYear = /^\d{4}/.test(referenceDate) ? Number(referenceDate.slice(0, 4)) : 2026;
   const refMonth = /^\d{4}-(\d{2})/.test(referenceDate) ? Number(referenceDate.slice(5, 7)) : 11;
@@ -221,14 +228,17 @@ ${companyName} ${refYear}년 제${quarterNum}분기 산업안전보건위원회 
 취업규칙 제정(변경) 신고서 및 근로자 과반수 의견청취(동의)서 (초안)
 ======================================================================
 1. 사업장명 : ${companyName} (상시근로자 ${lsaCount}명)
-2. 근로기준법 제93조 필수 기재 항목 포함 여부 자가점검란
+2. 환경설정 연동 사내 표준 기준
+   - 정기 임금지급일 : ${payDayLabel}
+   - 연차유급휴가 산정 기준 : ${leavePolicySummary}
+3. 근로기준법 제93조 필수 기재 항목 포함 여부 자가점검란
    [ ] 업무의 시작과 종료 시각, 휴게시간, 휴일, 휴가 및 교대근로에 관한 사항
-   [ ] 임금의 결정·계산·지급방법, 임금의 산정기간·지급시기 및 승급에 관한 사항
+   [ ] 임금의 결정·계산·지급방법, 임금의 산정기간·지급시기(${payDayLabel}) 및 승급에 관한 사항
    [ ] 가족수당의 계산·지급방법, 퇴직급여(퇴직금·DB·DC)에 관한 사항
    [ ] 표창과 제재(감봉 시 제95조 한도 준수 여부 포함)에 관한 사항
    [ ] 직장 내 괴롭힘의 예방 및 발생 시 조치 등에 관한 사항
    [ ] 출산전후휴가·육아휴직 등 모성보호 및 일·가정 양립 지원에 관한 사항
-3. 의견청취 / 동의 절차 구분 :
+4. 의견청취 / 동의 절차 구분 :
    - ${hasUnion ? '[과반수 노동조합 있음] 노동조합 대표자의 의견서(불이익 변경 시 동의서) 첨부 필요' : '[과반수 노동조합 없음] 전체 근로자 과반수의 의견청취서(불이익 변경 시 집단적 과반수 동의서) 첨부 필요'}`,
       };
 
@@ -340,7 +350,8 @@ ${referenceDate}
 ======================================================================
 1. 수신 근로자 : ${wkName} (${safeText(wk.empCode)}) / 소속 : ${safeText(wk.deptName)}
 2. 입사일자    : ${safeText(wk.hireDate, '2023-03-02')}
-3. 당해 연차 산정 및 잔여 내역 (기준일: ${referenceDate})
+3. 당해 연차 산정 및 잔여 내역 (기준일: ${referenceDate} | 운영기준: ${leavePolicySummary})
+   - 사용기한 만료일 : ${safeText(wk.cycleExpiryDate, `${referenceDate.slice(0, 4)}-12-31`)}
    - 총 발생 연차일수 : ${Number(wk.accruedDays ?? 15)}일
    - 기 사용 연차일수 : ${Number(wk.usedDays ?? 3)}일
    - 미사용 잔여일수  : ${Number(wk.remainingDays ?? 12)}일
@@ -577,8 +588,8 @@ ${companyName}(이하 "사용자")와 근로자 ____________(이하 "근로자")
 5. 임금의 구성항목·계산방법·지급방법
    - 월 기본급 : 금 ________________원 / 고정수당(________) : 금 ________________원 / 식대 : 금 ________________원
    - 연장·야간·휴일 가산 기준 : ${lsaCount >= 5 ? '상시 5인 이상 법정 가산율(50% / 8시간 초과 휴일 100%) 적용' : '상시 5인 미만 가산수당 미적용 특례 (실근로시간 1.0배, 별도 약정 시 기재)'}
-   - 임금지급일 : 매월 ___일 (근로자 본인 명의 계좌 직접 지급 및 산출식 명시 임금명세서 교부)
-6. 연차유급휴가 : ${lsaCount >= 5 ? '근로기준법 제60조에 따라 부여' : '상시 5인 미만 법정 의무 면제 (약정 부여 시 일수 기재: ____일)'}
+   - 임금지급일 : ${payDayLabel} (근로자 본인 명의 계좌 직접 지급 및 산출식 명시 임금명세서 교부)
+6. 연차유급휴가 : ${lsaCount >= 5 ? `근로기준법 제60조에 따라 부여 (${leavePolicySummary})` : '상시 5인 미만 법정 의무 면제 (약정 부여 시 일수 기재: ____일)'}
 
 ______년 ___월 ___일
 사용자 : ${companyName} 대표 ____________ (서명/인)  |  근로자 : ____________ (서명/인)

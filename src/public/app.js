@@ -9,7 +9,9 @@ const appState = {
   csrfToken: '',
   snapshot: null,
   selectedModuleId: 'M10_LMC',
+  activeGroup: 'home',
   activeTab: 'ops-home',
+  lastSubTabByGroup: {},
   onboardingLoadedOnce: false,
   latestStaging: null,
   lastFocusedBeforeModal: null,
@@ -24,22 +26,75 @@ const appState = {
   toastTimer: null,
 };
 
-const ALL_PANEL_SPECS = [
-  { key: 'ops-home', label: '통합 관리 홈 (전사 대시보드)' },
-  { key: 'ops-recruit', label: 'M1·M2 채용 파이프라인 & 전자근로계약' },
-  { key: 'ops-org', label: 'M3 인사명부 · 조직 · 발령 · 재직증명서' },
-  { key: 'ops-attendance', label: 'M4 실시간 출퇴근 · 교대 · 주52시간 관제' },
-  { key: 'ops-leave', label: 'M5 연차 자동원장 · 제61조 사용촉진 · 모성보호' },
-  { key: 'ops-eval', label: 'M6 인사평가(KPI·역량) · 보상 시뮬레이션' },
-  { key: 'ops-discipline', label: 'M7 적법 징계 4대절차 · 제95조 감봉 · 고충처리' },
-  { key: 'payroll', label: 'M8 자동 급여·세무·4대보험 & 임금명세서' },
-  { key: 'alumni', label: 'M9 퇴사자 14일 청산 · 상실신고 · 3년 보존/파기' },
-  { key: 'ops-statutory', label: 'M10 노사협의회 · 산업안전보건 · 5대 법정교육' },
-  { key: 'compliance', label: '관공서 신고 카운트다운 & 분기 정기감독' },
-  { key: 'lifecycle', label: '채용~퇴사 법령 가드레일 시뮬레이션 검증기' },
-  { key: 'onboarding', label: 'M0 사업장 4종 문서 무입력 자동온보딩' },
-  { key: 'floor', label: '시스템 4계층 모듈형 설계도면 (4F~1F)' },
+const MAJOR_MENU_GROUPS = [
+  {
+    groupKey: 'home',
+    groupTitle: '대시보드',
+    tabs: [{ key: 'ops-home', label: '전사 현황 요약' }],
+  },
+  {
+    groupKey: 'hr',
+    groupTitle: '인사 관리',
+    tabs: [
+      { key: 'ops-org', label: '인사명부 · 발령' },
+      { key: 'ops-recruit', label: '채용 · 근로계약' },
+      { key: 'ops-discipline', label: '징계 · 고충처리' },
+      { key: 'alumni', label: '퇴사자 관리' },
+    ],
+  },
+  {
+    groupKey: 'attendance',
+    groupTitle: '근태 관리',
+    tabs: [
+      { key: 'ops-attendance', label: '출퇴근 · 연장근로 현황' },
+      { key: 'lifecycle', label: '근로시간 · 법령 시뮬레이터' },
+    ],
+  },
+  {
+    groupKey: 'leave',
+    groupTitle: '연차 관리',
+    tabs: [
+      { key: 'ops-leave', label: '연차 발생 · 사용 원장' },
+      { key: 'ops-leave-promo', label: '연차 사용촉진 · 모성보호' },
+    ],
+  },
+  {
+    groupKey: 'payroll',
+    groupTitle: '급여 관리',
+    tabs: [
+      { key: 'payroll', label: '월 급여대장 · 임금명세서' },
+      { key: 'ops-eval', label: '인사평가 · 성과보상 반영' },
+    ],
+  },
+  {
+    groupKey: 'legal',
+    groupTitle: '법정 · 서식',
+    tabs: [
+      { key: 'forms-center', label: '표준 서식함 (14종)' },
+      { key: 'ops-statutory', label: '노사협의회 · 안전보건 · 교육' },
+      { key: 'compliance', label: '관공서 신고 기한' },
+      { key: 'floor', label: '규모별 모듈 현황' },
+    ],
+  },
+  {
+    groupKey: 'settings',
+    groupTitle: '환경 설정',
+    tabs: [
+      { key: 'settings-master', label: '기업 · 근로자수 · 연차 · 급여 기준' },
+      { key: 'onboarding', label: '4종 문서 자동세팅' },
+    ],
+  },
 ];
+
+const ALL_PANEL_SPECS = MAJOR_MENU_GROUPS.flatMap((g) =>
+  g.tabs.map((t) => ({
+    key: t.key,
+    label: `${g.groupTitle} > ${t.label}`,
+    subLabel: t.label,
+    groupKey: g.groupKey,
+    groupTitle: g.groupTitle,
+  }))
+);
 
 const LIFECYCLE_STEPS = [
   { step: '01', title: 'M1 채용', desc: '30인+ 공정채용·최저임금 검증' },
@@ -195,8 +250,18 @@ async function apiPost(path, payload, triggerControl = null) {
    상단 시뮬레이터 제어판 & KPI 렌더링
    ========================================================================== */
 
+function syncFiscalControlState() {
+  const basisSel = document.getElementById('select-leave-basis');
+  const fiscalStartSel = document.getElementById('select-fiscal-start');
+  const roundingSel = document.getElementById('select-leave-rounding');
+  const isFiscal = basisSel?.value === 'FISCAL_YEAR';
+  if (fiscalStartSel) fiscalStartSel.disabled = !isFiscal;
+  if (roundingSel) roundingSel.disabled = !isFiscal;
+}
+
 function syncSimFormControls(snapshot) {
   const { company, industries, presets, emptyRosterMode } = snapshot;
+  const policy = snapshot.operationsSuite?.policySettings || company.policySettings || {};
 
   const ksicSelect = document.getElementById('select-ksic');
   if (ksicSelect && ksicSelect.options.length === 0) {
@@ -219,7 +284,7 @@ function syncSimFormControls(snapshot) {
             try {
               const data = await apiPost('/api/simulate-company', { presetId: p.id }, e.currentTarget);
               updateSnapshot(data.snapshot);
-              showBanner(`프리셋 적용 완료: ${data.snapshot.company.companyName} (${p.badge})`);
+              showBanner(`기업 규모 시나리오 적용 완료: ${data.snapshot.company.companyName} (${p.badge})`);
             } catch (err) {
               showBanner(err.message, true);
             }
@@ -231,23 +296,17 @@ function syncSimFormControls(snapshot) {
     presetWrap.replaceChildren(...buttons);
   }
 
-  for (const selId of ['popup-preset-select', 'sidebar-preset-select']) {
-    const presetSel = document.getElementById(selId);
-    if (presetSel) {
-      const matchedPreset = presets.some((p) => p.id === company.id);
-      const opts = presets.map((p) =>
-        h(
-          'option',
-          { value: p.id },
-          selId === 'sidebar-preset-select' ? p.badge : `사업장 규모: ${p.badge}`
-        )
-      );
-      if (!matchedPreset) {
-        opts.unshift(h('option', { value: '' }, `현재 개통: ${company.companyName}`));
-      }
-      presetSel.replaceChildren(...opts);
-      presetSel.value = matchedPreset ? company.id : '';
+  const presetSel = document.getElementById('popup-preset-select');
+  if (presetSel) {
+    const matchedPreset = presets.some((p) => p.id === company.id);
+    const opts = presets.map((p) =>
+      h('option', { value: p.id }, `사업장 규모: ${p.badge}`)
+    );
+    if (!matchedPreset) {
+      opts.unshift(h('option', { value: '' }, `현재 설정: ${company.companyName}`));
     }
+    presetSel.replaceChildren(...opts);
+    presetSel.value = matchedPreset ? company.id : '';
   }
 
   const setVal = (id, val) => {
@@ -262,6 +321,16 @@ function syncSimFormControls(snapshot) {
   setVal('input-operating-days', company.headcountInput.operatingDays);
   setVal('input-trigger-date', company.triggerDate);
 
+  setVal('select-leave-basis', policy.leaveAccrualBasis || 'HIRE_DATE');
+  setVal('select-fiscal-start', policy.fiscalYearStartMonthDay || '01-01');
+  setVal('select-leave-rounding', policy.leaveRoundingRule || 'ROUND_TENTH');
+  setVal('select-leave-settlement', policy.leaveSettlementPolicy || 'PROMOTE_FIRST');
+  setVal('input-weekly-warn', policy.weeklyWarnHours ?? 48);
+  setVal('select-pay-day', policy.payDayLabel || '매월 25일');
+  setVal('select-tax-rate', policy.withholdingTaxRatePct ?? 100);
+  setVal('input-meal-limit', policy.nonTaxableMealLimit ?? 200000);
+  syncFiscalControlState();
+
   const unionCheck = document.getElementById('check-majority-union');
   if (unionCheck) unionCheck.checked = Boolean(company.hasMajorityUnion);
 
@@ -272,11 +341,20 @@ function syncSimFormControls(snapshot) {
   if (emptyToggle) emptyToggle.checked = Boolean(emptyRosterMode);
 }
 
+function formatLeaveBasisShort(policy) {
+  if (!policy || policy.leaveAccrualBasis !== 'FISCAL_YEAR') {
+    return '입사일 기준';
+  }
+  return `회계연도(${policy.fiscalYearStartMonthDay || '01-01'}) 기준`;
+}
+
 function renderHeadcountKpis(snapshot) {
   const { compliance } = snapshot;
   const hc = compliance.headcounts;
+  const policy = snapshot.operationsSuite?.policySettings || snapshot.company.policySettings || {};
   const autoCount = compliance.floorPlan.filter((m) => m.status === 'AUTO_PROVISIONED').length;
   const pendingFilings = compliance.statutoryFilings.filter((f) => !f.isCompleted).length;
+  const leaveBasisLabel = formatLeaveBasisShort(policy);
 
   const cards = [
     h(
@@ -293,36 +371,40 @@ function renderHeadcountKpis(snapshot) {
     h(
       'div',
       { className: 'kpi-card' },
-      h('div', { className: 'kpi-label' }, '산안법 현장 관리 인원 (파견포함)'),
-      h('div', { className: 'kpi-value' }, `${hc.oshRegularCount}명`),
+      h('div', { className: 'kpi-label' }, '산안법 관리 인원 · 자동 모듈'),
+      h('div', { className: 'kpi-value' }, `산안법 ${hc.oshRegularCount}명 · ${autoCount}개 모듈`),
       h(
         'div',
         { className: 'kpi-sub' },
         compliance.oshFlags.needsSafetyOfficer
-          ? '안전·보건관리자 선임 및 산안위 의무 발동'
-          : '현재 업종·규모 선임 의무 미해당'
+          ? '50인+ 안전·보건관리자 및 산안위 가동 중'
+          : hc.is30OrMore
+            ? '30인+ 노사협의회 · 고충처리위원 가동 중'
+            : '규모 성장 시 법정기구 자동 개설'
       )
     ),
     h(
       'div',
       { className: 'kpi-card' },
-      h('div', { className: 'kpi-label' }, '자동 프로비저닝 활성 모듈'),
-      h('div', { className: 'kpi-value' }, `${autoCount}개 자동개설`),
+      h('div', { className: 'kpi-label' }, '적용 중인 연차 · 근태 정책'),
+      h('div', { className: 'kpi-value' }, leaveBasisLabel),
       h(
         'div',
         { className: 'kpi-sub' },
-        hc.is30OrMore ? '노사협의회(30+) · 공정채용 가동 중' : '규모 성장 시 즉시 자동 활성화'
+        `주 ${policy.weeklyWarnHours ?? 48}h 사전주의 / 52h 상한 · ${
+          policy.leaveSettlementPolicy === 'FULL_PAYOUT' ? '잔여연차 전액보상' : '제61조 사용촉진 우선'
+        }`
       )
     ),
     h(
       'div',
       { className: 'kpi-card' },
-      h('div', { className: 'kpi-label' }, '미이행 법정 신고·제정 과제'),
-      h('div', { className: 'kpi-value' }, `${pendingFilings}건 감독 중`),
+      h('div', { className: 'kpi-label' }, '적용 중인 급여 · 세무 기준'),
+      h('div', { className: 'kpi-value' }, `${policy.payDayLabel || '매월 25일'} 지급`),
       h(
         'div',
         { className: 'kpi-sub' },
-        `분기별 정기 운영 일정 ${compliance.quarterlySchedule.reduce((s, q) => s + q.items.length, 0)}건 예약됨`
+        `원천세 ${policy.withholdingTaxRatePct ?? 100}% · 식대비과세 ${fmtWon(policy.nonTaxableMealLimit ?? 200000)}`
       )
     ),
   ];
@@ -334,23 +416,10 @@ function renderHeadcountKpis(snapshot) {
   if (compactLine) {
     const indObj = (snapshot.industries || []).find((i) => i.code === snapshot.company.ksicMajor);
     compactLine.replaceChildren(
-      ...[
-        h('span', { className: 'font-extrabold' }, snapshot.company.companyName),
-        h(
-          'span',
-          { className: 'tag tag-blue' },
-          `[${snapshot.company.ksicMajor}] ${indObj ? indObj.name : '제조업'}`
-        ),
-        h('span', { className: 'tag tag-gray' }, `근기법 상시 ${hc.lsaRegularCount}명`),
-        h('span', { className: 'tag tag-gray' }, `산안법 ${hc.oshRegularCount}명`),
-        hc.is30OrMore ? h('span', { className: 'tag tag-green' }, '30인+ 노사협의회·고충위원 가동') : null,
-        compliance.oshFlags.needsSafetyOfficer
-          ? h('span', { className: 'tag tag-amber' }, '50인+ 안전·보건관리자·산안위 가동')
-          : null,
-        pendingFilings > 0
-          ? h('span', { className: 'tag tag-red' }, `법정기한 감독 ${pendingFilings}건`)
-          : null,
-      ].filter(Boolean)
+      h('span', { className: 'font-extrabold' }, snapshot.company.companyName),
+      h('span', {}, `· 상시 ${hc.lsaRegularCount}명 (${indObj ? indObj.name.split(' ')[0] : '제조업'})`),
+      h('span', { className: 'tag tag-blue' }, `연차: ${leaveBasisLabel}`),
+      h('span', { className: 'tag tag-gray' }, `급여: ${policy.payDayLabel || '매월 25일'}`)
     );
   }
 
@@ -362,74 +431,31 @@ function renderHeadcountKpis(snapshot) {
   if (sbName) sbName.textContent = snapshot.company.companyName;
   const sbMeta = document.getElementById('sidebar-company-meta');
   if (sbMeta) {
-    const scaleNote = hc.is30OrMore
-      ? '30인+ 노사협의회'
-      : hc.is5OrMore
-        ? '5인+ 가산·연차'
-        : '5인 미만 특례';
-    const oshNote = compliance.oshFlags.needsSafetyOfficer ? ' · 50인+ 안전보건' : '';
-    sbMeta.textContent = `근기법 상시 ${hc.lsaRegularCount}명 · 산안법 ${hc.oshRegularCount}명 · ${scaleNote}${oshNote}`;
+    sbMeta.textContent = `상시 ${hc.lsaRegularCount}명 · ${leaveBasisLabel} · ${policy.payDayLabel || '매월 25일'}`;
   }
 
   const k = snapshot.operationsSuite?.overviewKpis;
-  const setNavBadge = (tabKey, text) => {
-    const el = document.getElementById(`nav-badge-${tabKey}`);
+  const setMajorBadge = (groupKey, text) => {
+    const el = document.getElementById(`major-badge-${groupKey}`);
     if (el) el.textContent = text;
   };
   if (k) {
-    setNavBadge('ops-home', '전사');
-    setNavBadge(
-      'ops-recruit',
-      k.unsignedContractCount > 0 ? `미서명 ${k.unsignedContractCount}` : `후보 ${k.applicantOpenCount}`
+    setMajorBadge('home', '요약');
+    setMajorBadge(
+      'hr',
+      k.unsignedContractCount > 0 ? `계약 ${k.unsignedContractCount}` : `${k.activeRosterCount}명`
     );
-    setNavBadge('ops-org', `${k.activeRosterCount}명`);
-    setNavBadge(
-      'ops-attendance',
+    setMajorBadge(
+      'attendance',
       k.over52Count > 0 ? `초과 ${k.over52Count}` : k.near52Count > 0 ? `주의 ${k.near52Count}` : '정상'
     );
-    setNavBadge('ops-leave', k.leavePromoPendingCount > 0 ? `촉진 ${k.leavePromoPendingCount}` : '완료');
-    setNavBadge('ops-eval', k.pendingEvalApplyCount > 0 ? `대기 ${k.pendingEvalApplyCount}` : '반영');
-    setNavBadge('ops-discipline', k.openGrievanceCount > 0 ? `고충 ${k.openGrievanceCount}` : '정상');
-    setNavBadge('payroll', `${snapshot.payrollSummary?.workerCount || 0}명`);
-    setNavBadge(
-      'alumni',
-      k.pendingOffboardSettlementCount > 0
-        ? `청산 ${k.pendingOffboardSettlementCount}`
-        : `${snapshot.offboardedWorkers?.length || 0}건`
+    setMajorBadge(
+      'leave',
+      policy.leaveAccrualBasis === 'FISCAL_YEAR' ? '회계연도' : '입사일'
     );
-    setNavBadge('ops-statutory', `${k.avgStatutoryEduRatePct}%`);
-    setNavBadge('compliance', pendingFilings > 0 ? `신고 ${pendingFilings}` : '완료');
-    setNavBadge('lifecycle', '검증');
-    setNavBadge('onboarding', 'M0');
-    setNavBadge('floor', `${autoCount}개`);
-  }
-
-  const globalFormsWrap = document.getElementById('global-forms-drawer-buttons');
-  if (globalFormsWrap && globalFormsWrap.childElementCount === 0) {
-    const formSpecs = [
-      { id: 'DOC_PRIVACY_CONSENT', label: '개인정보 수집·이용·제3자제공 동의서', primary: true },
-      { id: 'DOC_NDA_SECURITY_PLEDGE', label: '비밀유지 및 정보보안 서약서 (입사·재직)', primary: true },
-      { id: 'DOC_EXIT_SECURITY_NONCOMPETE', label: '퇴사 시 보안·자산반납·경업금지 서약서', primary: true },
-      { id: 'DOC_EMPLOYMENT_CONTRACT', label: '제17조 표준 근로계약서', primary: false },
-      { id: 'DOC_WORK_RULES_REPORT', label: '10인+ 취업규칙 신고·의견청취서', primary: false },
-      { id: 'DOC_LMC_REGULATION_AND_FILING', label: '30인+ 노사협의회 규정·신고서', primary: false },
-      { id: 'DOC_LMC_MINUTES', label: '노사협의회 분기 정기회의록', primary: false },
-      { id: 'DOC_OSH_OFFICER_APPOINTMENT', label: '50인+ 안전·보건관리자 선임보고서', primary: false },
-      { id: 'DOC_OSH_MINUTES', label: '산업안전보건위 회의록·위험성평가표', primary: false },
-    ];
-    globalFormsWrap.replaceChildren(
-      ...formSpecs.map((f) =>
-        h(
-          'button',
-          {
-            type: 'button',
-            className: f.primary ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm',
-            onClick: (e) => openDocumentPreview(f.id, e.currentTarget),
-          },
-          f.label
-        )
-      )
-    );
+    setMajorBadge('payroll', `${snapshot.payrollSummary?.workerCount || 0}명`);
+    setMajorBadge('legal', pendingFilings > 0 ? `신고 ${pendingFilings}` : '14종');
+    setMajorBadge('settings', `${hc.lsaRegularCount}인`);
   }
 }
 
@@ -753,6 +779,7 @@ function renderLifecycleTab(snapshot) {
   }
 
   const workerSelect = document.getElementById('evt-worker');
+  const evtSubmitBtn = document.querySelector('#worker-event-form button[type="submit"]');
   if (workerSelect) {
     const regularWorkers = snapshot.workers.filter(
       (w) =>
@@ -761,17 +788,25 @@ function renderLifecycleTab(snapshot) {
         w.workerCategory === 'PART_TIME'
     );
     const prevVal = workerSelect.value;
-    workerSelect.replaceChildren(
-      ...regularWorkers.map((w) =>
-        h('option', { value: w.empCode }, `[${w.empCode}] ${w.displayName} (${w.deptName})`)
-      )
-    );
-    if (regularWorkers.some((w) => w.empCode === prevVal)) {
-      workerSelect.value = prevVal;
-    } else if (regularWorkers[1]) {
-      workerSelect.value = regularWorkers[1].empCode;
+    if (regularWorkers.length === 0) {
+      workerSelect.replaceChildren(h('option', { value: '' }, '대상 근로자 없음 (0명 빈 명부)'));
+      workerSelect.disabled = true;
+      if (evtSubmitBtn) evtSubmitBtn.disabled = true;
+    } else {
+      workerSelect.disabled = false;
+      if (evtSubmitBtn) evtSubmitBtn.disabled = false;
+      workerSelect.replaceChildren(
+        ...regularWorkers.map((w) =>
+          h('option', { value: w.empCode }, `[${w.empCode}] ${w.displayName} (${w.deptName})`)
+        )
+      );
+      if (regularWorkers.some((w) => w.empCode === prevVal)) {
+        workerSelect.value = prevVal;
+      } else if (regularWorkers[1]) {
+        workerSelect.value = regularWorkers[1].empCode;
+      }
+      syncSelectedWorkerInputs();
     }
-    syncSelectedWorkerInputs();
   }
 }
 
@@ -808,6 +843,36 @@ function syncSelectedWorkerInputs() {
 
 function renderPayrollTab(snapshot) {
   const { payrollLines, payrollSummary, compliance } = snapshot;
+  const policy = snapshot.operationsSuite?.policySettings || snapshot.company.policySettings || {};
+
+  const policyBar = document.getElementById('payroll-policy-bar');
+  if (policyBar) {
+    policyBar.replaceChildren(
+      h(
+        'div',
+        { className: 'policy-sync-items' },
+        h('span', { className: 'tag tag-blue' }, '환경 설정 연동 중'),
+        h('span', {}, `정기 급여일: ${policy.payDayLabel || '매월 25일'}`),
+        h('span', {}, `· 원천징수: 간이세액 ${policy.withholdingTaxRatePct ?? 100}%`),
+        h('span', {}, `· 식대 비과세 한도: ${fmtWon(policy.nonTaxableMealLimit ?? 200000)}`),
+        h(
+          'span',
+          {},
+          `· 연장가산: ${compliance.headcounts.is5OrMore ? '5인 이상 (50%/100%)' : '5인 미만 (1.0배)'}`
+        )
+      ),
+      h(
+        'button',
+        {
+          type: 'button',
+          className: 'btn btn-secondary btn-sm',
+          onClick: () => switchTab('settings-master', false),
+        },
+        '급여·세율 기준 변경'
+      )
+    );
+  }
+
   const sumStrip = document.getElementById('payroll-summary-cards');
   if (sumStrip) {
     sumStrip.replaceChildren(
@@ -839,9 +904,9 @@ function renderPayrollTab(snapshot) {
       h(
         'div',
         { className: 'kpi-card' },
-        h('div', { className: 'kpi-label' }, '실지급액 합계 (세후)'),
+        h('div', { className: 'kpi-label' }, `실지급액 합계 (${policy.payDayLabel || '매월 25일'})`),
         h('div', { className: 'kpi-value' }, fmtWon(payrollSummary.totalNet)),
-        h('div', { className: 'kpi-sub' }, `법령 점검 경보 ${payrollSummary.warningCount}건`)
+        h('div', { className: 'kpi-sub' }, `원천세 ${policy.withholdingTaxRatePct ?? 100}% · 경보 ${payrollSummary.warningCount}건`)
       )
     );
   }
@@ -1152,18 +1217,7 @@ function openModuleDetailPopup(tabKey, triggerEl = null) {
     appState.lastFocusedBeforeModulePopup = triggerEl || document.activeElement;
   }
 
-  appState.activeTab = targetKey;
-  const tabButtons = Array.from(document.querySelectorAll('.tab-btn'));
-  for (const btn of tabButtons) {
-    const isMatch = btn.dataset.tab === targetKey;
-    btn.setAttribute('aria-selected', String(isMatch));
-    btn.tabIndex = isMatch ? 0 : -1;
-  }
-  for (const s of ALL_PANEL_SPECS) {
-    const p = document.getElementById(`panel-${s.key}`);
-    if (p) p.hidden = s.key !== targetKey;
-  }
-  syncReviewTourLabel();
+  syncActiveNavigationState(targetKey, false);
 
   appState.popupModalTabKey = targetKey;
   const placeholder = document.createComment(`slot-panel-${targetKey}`);
@@ -1874,186 +1928,103 @@ function renderOpsHomeTab(snapshot) {
   const ops = snapshot.operationsSuite;
   const k = ops.overviewKpis;
   const paySum = snapshot.payrollSummary;
+  const hc = snapshot.compliance.headcounts;
+  const policy = ops.policySettings || snapshot.company.policySettings || {};
+  const leaveBasisLabel = formatLeaveBasisShort(policy);
+  const warnHours = policy.weeklyWarnHours ?? 48;
   const pendingFilings = snapshot.compliance.statutoryFilings.filter((f) => !f.isCompleted).length;
+  const totalRemainingLeave = ops.leaveAndMaternity.ledger.reduce(
+    (s, r) => s + (r.remainingDays || 0),
+    0
+  );
+
+  const policySyncBar = h(
+    'div',
+    { className: 'policy-sync-bar' },
+    h(
+      'div',
+      { className: 'policy-sync-items' },
+      h('span', { className: 'tag tag-blue' }, '적용 기준'),
+      h('span', { className: 'font-extrabold' }, `${snapshot.company.companyName} (상시 ${hc.lsaRegularCount}명)`),
+      h('span', {}, `· 연차: ${leaveBasisLabel}`),
+      h('span', {}, `· 급여: ${policy.payDayLabel || '매월 25일'} (원천세 ${policy.withholdingTaxRatePct ?? 100}%)`),
+      h('span', {}, `· 근태주의: 주 ${warnHours}h / 상한 52h`)
+    ),
+    h(
+      'button',
+      {
+        type: 'button',
+        className: 'btn btn-secondary btn-sm',
+        onClick: () => switchTab('settings-master', false),
+      },
+      '환경 설정 변경'
+    )
+  );
+
+  const jumpTo = (tabKey, triggerEl) => {
+    if (appState.popupModalTabKey) openModuleDetailPopup(tabKey, triggerEl);
+    else switchTab(tabKey, false);
+  };
 
   const topKpis = h(
     'div',
     { className: 'kpi-strip' },
     h(
-      'div',
-      { className: 'kpi-card' },
-      h('div', { className: 'kpi-label' }, '재직 인원 · 진행중 채용'),
-      h('div', { className: 'kpi-value' }, `재직 ${k.activeRosterCount}명 · 채용 ${k.applicantOpenCount}명`),
+      'button',
+      {
+        type: 'button',
+        className: 'kpi-card kpi-card-clickable',
+        onClick: (e) => jumpTo('ops-org', e.currentTarget),
+      },
+      h('div', { className: 'kpi-label' }, '인사 관리 (재직 · 계약)'),
+      h('div', { className: 'kpi-value' }, `재직 ${k.activeRosterCount}명`),
       h(
         'div',
         { className: 'kpi-sub' },
         k.unsignedContractCount > 0
-          ? `전자근로계약 미체결 ${k.unsignedContractCount}건 즉시 서명 필요`
-          : '전 직원 제17조 전자계약 체결 완료'
+          ? `채용 ${k.applicantOpenCount}명 · 미서명 계약 ${k.unsignedContractCount}건`
+          : `채용 진행 ${k.applicantOpenCount}명 · 전자계약 완료`
       )
     ),
     h(
-      'div',
-      { className: 'kpi-card' },
-      h('div', { className: 'kpi-label' }, '주 52시간 관제 · 연차촉진'),
+      'button',
+      {
+        type: 'button',
+        className: 'kpi-card kpi-card-clickable',
+        onClick: (e) => jumpTo('ops-attendance', e.currentTarget),
+      },
+      h('div', { className: 'kpi-label' }, '근태 관리 (주52시간 관제)'),
       h(
         'div',
         { className: 'kpi-value' },
-        `52h초과 ${k.over52Count}명 · 주의 ${k.near52Count}명`
+        `초과 ${k.over52Count}명 · 주의 ${k.near52Count}명`
       ),
-      h('div', { className: 'kpi-sub' }, `제61조 연차촉진 발송 대기 ${k.leavePromoPendingCount}명`)
+      h('div', { className: 'kpi-sub' }, `주 ${warnHours}h 사전주의 · 52h 법정상한 적용`)
     ),
     h(
-      'div',
-      { className: 'kpi-card' },
-      h('div', { className: 'kpi-label' }, '당월 자동급여 · 퇴사청산(14일)'),
+      'button',
+      {
+        type: 'button',
+        className: 'kpi-card kpi-card-clickable',
+        onClick: (e) => jumpTo('ops-leave', e.currentTarget),
+      },
+      h('div', { className: 'kpi-label' }, `연차 관리 (${leaveBasisLabel})`),
+      h('div', { className: 'kpi-value' }, `잔여 ${Number(totalRemainingLeave.toFixed(1))}일`),
+      h('div', { className: 'kpi-sub' }, `제61조 사용촉진 대상 ${k.leavePromoPendingCount}명`)
+    ),
+    h(
+      'button',
+      {
+        type: 'button',
+        className: 'kpi-card kpi-card-clickable',
+        onClick: (e) => jumpTo('payroll', e.currentTarget),
+      },
+      h('div', { className: 'kpi-label' }, `급여 관리 (${policy.payDayLabel || '매월 25일'})`),
       h('div', { className: 'kpi-value' }, fmtWon(paySum.totalNet)),
       h(
         'div',
         { className: 'kpi-sub' },
-        `급여 법령경보 ${paySum.warningCount}건 · 퇴사 14일 청산대기 ${k.pendingOffboardSettlementCount}명`
-      )
-    ),
-    h(
-      'div',
-      { className: 'kpi-card' },
-      h('div', { className: 'kpi-label' }, '법정기구 · 고충 · 5대 의무교육'),
-      h('div', { className: 'kpi-value' }, `신고과제 ${pendingFilings}건 · 교육 ${k.avgStatutoryEduRatePct}%`),
-      h('div', { className: 'kpi-sub' }, `고충처리(10일 기한) 진행중 ${k.openGrievanceCount}건`)
-    )
-  );
-
-  const moduleCardsSpec = [
-    {
-      tab: 'ops-recruit',
-      badge: 'M1 · M2',
-      badgeClass: 'tag tag-blue',
-      title: '채용 파이프라인 & 전자근로계약 · 4대보험 취득',
-      desc: '채용절차법 블라인드 필터·최저임금 심사 후 합격자 원클릭 입사 발령, 제17조 근로계약 서명·교부 및 4대보험 취득신고를 관리합니다.',
-      metric: `진행 후보 ${k.applicantOpenCount}명 · 미서명 계약 ${k.unsignedContractCount}건`,
-    },
-    {
-      tab: 'ops-org',
-      badge: 'M3',
-      badgeClass: 'tag tag-blue',
-      title: '인사명부 · 부서 조직현황 · 인사발령 · 재직증명서',
-      desc: '부서별 정원·인건비 현황을 조회하고 승진·전보·육아휴직(4대보험 납부예외 자동연동)·복직 발령과 재직증명서를 즉시 처리합니다.',
-      metric: `운영 부서 ${ops.orgAndAssignments.departments.length}개 · 최근 발령 ${ops.orgAndAssignments.assignmentLogs.length}건`,
-    },
-    {
-      tab: 'ops-attendance',
-      badge: 'M4',
-      badgeClass: k.over52Count > 0 ? 'tag tag-red' : 'tag tag-green',
-      title: '실시간 출퇴근 · 교대/선택근무 · 주 52시간 관제',
-      desc: '통상·2교대·선택근무제 근로자의 연장·야간·휴일 시간을 집계하고 주 48h 예고 / 52h 상한(제53조) 경보를 M8 가산수당에 직결합니다.',
-      metric: `주52h 초과 ${k.over52Count}명 · 48h+ 주의 ${k.near52Count}명`,
-    },
-    {
-      tab: 'ops-leave',
-      badge: 'M5',
-      badgeClass: 'tag tag-green',
-      title: '연차휴가 자동원장 · 제61조 사용촉진 · 모성보호',
-      desc: '입사일 기준 제60조 연차(11일/15~25일) 자동 산정, 만료 6개월·2개월 전 서면 사용촉진 통지서 발송, 출산·육아단축 지원금을 관리합니다.',
-      metric: `촉진 발송 대기 ${k.leavePromoPendingCount}명 · 모성보호 ${ops.leaveAndMaternity.maternityProtections.length}건`,
-    },
-    {
-      tab: 'ops-eval',
-      badge: 'M6',
-      badgeClass: 'tag tag-amber',
-      title: '인사평가(KPI·역량) · 보상 시뮬레이션 · 연봉갱신',
-      desc: '업적·역량 평가등급(S~D)에 따른 기본급 인상률(%)과 성과급을 시뮬레이션하고 확정 즉시 M8 자동 급여대장에 일괄 반영합니다.',
-      metric: `급여 미반영 평가안 ${k.pendingEvalApplyCount}명`,
-    },
-    {
-      tab: 'ops-discipline',
-      badge: 'M7',
-      badgeClass: 'tag tag-red',
-      title: '적법 징계 4대절차 · 제95조 감봉한도 · 고충처리위원',
-      desc: '출석통지·소명·징계위의결·서면통지 누락을 방지하고 제95조 감봉 상한(일급 1/2·월 1/10) 캡핑 및 고충 접수 10일 내 통보를 감독합니다.',
-      metric: `제95조 초과차단 ${fmtWon(paySum.totalCutBlocked)} · 진행 고충 ${k.openGrievanceCount}건`,
-    },
-    {
-      tab: 'payroll',
-      badge: 'M8',
-      badgeClass: 'tag tag-blue',
-      title: '자동 급여·세무·4대보험 정산 & 산출식 임금명세서',
-      desc: '상용·단시간·일용·3.3% 통합 정산, 5인 이상 가산율 분기, 식대 비과세 한도 분리 및 근기법 제48조 산출식 임금명세서를 자동 생성합니다.',
-      metric: `정산 ${paySum.workerCount}명 · 실지급 합계 ${fmtWon(paySum.totalNet)}`,
-    },
-    {
-      tab: 'alumni',
-      badge: 'M9',
-      badgeClass: 'tag tag-amber',
-      title: '전 주기 퇴사자 통합 사후관리 (14일 청산 · 3년 보존)',
-      desc: '퇴직금(평균vs통상 하한)·연차수당 14일 지급 타이머, 건보·고보 상실/이직확인서, 지원금 감원방지 경보, 제39조 증명서 및 제42조 3년 보존/파기를 수행합니다.',
-      metric: `14일 청산대기 ${k.pendingOffboardSettlementCount}명 · 보존중 ${snapshot.offboardedSummary?.activeRetentionCount || 0}명`,
-    },
-    {
-      tab: 'ops-statutory',
-      badge: 'M10 · 법정기구',
-      badgeClass: 'tag tag-green',
-      title: '노사협의회(30+) · 산업안전보건(50+) · 5대 법정의무교육',
-      desc: '노사협의회 위원·분기안건, 안전·보건관리자 선임 및 공정별 위험성평가, 5대 법정의무교육 부서별 이수율·미이수 독촉을 통합 운영합니다.',
-      metric: `5대 법정교육 평균 이수율 ${k.avgStatutoryEduRatePct}% · 관공서 신고 ${pendingFilings}건`,
-    },
-  ];
-
-  const hubGrid = h(
-    'div',
-    { className: 'ops-hub-grid' },
-    moduleCardsSpec.map((m) =>
-      h(
-        'article',
-        { className: 'ops-module-card' },
-        h(
-          'div',
-          {},
-          h(
-            'div',
-            { className: 'ops-module-top' },
-            h('span', { className: m.badgeClass }, m.badge),
-            h(
-              'div',
-              { className: 'step-pill-group' },
-              h(
-                'button',
-                {
-                  type: 'button',
-                  className: 'btn btn-secondary btn-sm',
-                  onClick: (e) => openModuleDetailPopup(m.tab, e.currentTarget),
-                },
-                '상세 팝업'
-              ),
-              h(
-                'button',
-                {
-                  type: 'button',
-                  className: 'btn btn-secondary btn-sm',
-                  onClick: () => openStandalonePopupWindow(m.tab),
-                },
-                '새 창 팝업'
-              ),
-              h(
-                'button',
-                {
-                  type: 'button',
-                  className: 'btn btn-primary btn-sm',
-                  onClick: (e) => {
-                    if (appState.popupModalTabKey) {
-                      openModuleDetailPopup(m.tab, e.currentTarget);
-                    } else {
-                      switchTab(m.tab, true);
-                    }
-                  },
-                },
-                '관리 열기'
-              )
-            )
-          ),
-          h('h3', { className: 'ops-module-title' }, m.title),
-          h('p', { className: 'ops-module-desc' }, m.desc)
-        ),
-        h('div', { className: 'ops-module-metrics' }, m.metric)
+        `정산 ${paySum.workerCount}명 · 퇴사 정산대기 ${k.pendingOffboardSettlementCount}명`
       )
     )
   );
@@ -2062,16 +2033,16 @@ function renderOpsHomeTab(snapshot) {
   if (k.unsignedContractCount > 0) {
     actionItems.push({
       tagClass: 'tag tag-red',
-      tagText: '즉시 필요',
-      text: `전자근로계약 미체결 ${k.unsignedContractCount}명 — 근로기준법 제17조 서면교부 필요`,
+      tagText: '근로계약',
+      text: `전자근로계약 미체결 ${k.unsignedContractCount}명 — 서면·전자교부 필요`,
       tab: 'ops-recruit',
     });
   }
   if (k.over52Count > 0 || k.near52Count > 0) {
     actionItems.push({
       tagClass: k.over52Count > 0 ? 'tag tag-red' : 'tag tag-amber',
-      tagText: '주52h 관제',
-      text: `주 52시간 초과 ${k.over52Count}명 · 48h+ 임박 ${k.near52Count}명 연장근로 점검`,
+      tagText: '근태주의',
+      text: `주 52시간 초과 ${k.over52Count}명 · 주 ${warnHours}h+ 주의 ${k.near52Count}명 점검`,
       tab: 'ops-attendance',
     });
   }
@@ -2079,30 +2050,31 @@ function renderOpsHomeTab(snapshot) {
     actionItems.push({
       tagClass: 'tag tag-amber',
       tagText: '연차촉진',
-      text: `제61조 미사용 연차 서면 사용촉진 발송 대상 ${k.leavePromoPendingCount}명`,
-      tab: 'ops-leave',
+      text: `미사용 연차 서면 사용촉진 대상 ${k.leavePromoPendingCount}명 (${leaveBasisLabel})`,
+      tab: 'ops-leave-promo',
     });
   }
   if (k.pendingOffboardSettlementCount > 0) {
     actionItems.push({
       tagClass: 'tag tag-amber',
-      tagText: '14일 청산',
+      tagText: '퇴사청산',
       text: `퇴사자 14일 이내 금품청산·상실신고 대기 ${k.pendingOffboardSettlementCount}명`,
       tab: 'alumni',
     });
   }
-  for (const f of snapshot.compliance.statutoryFilings.filter((x) => !x.isCompleted).slice(0, 2)) {
+  if (pendingFilings > 0) {
+    const firstFiling = snapshot.compliance.statutoryFilings.find((x) => !x.isCompleted);
     actionItems.push({
       tagClass: 'tag tag-blue',
-      tagText: `기한 ${f.dueDate}`,
-      text: f.title,
+      tagText: `법정신고 ${pendingFilings}건`,
+      text: firstFiling ? `${firstFiling.title} 외 ${Math.max(0, pendingFilings - 1)}건` : `미이행 신고 ${pendingFilings}건`,
       tab: 'compliance',
     });
   }
   if (actionItems.length === 0) {
     actionItems.push({
       tagClass: 'tag tag-green',
-      tagText: '전수 적합',
+      tagText: '정상 운영',
       text: '현재 즉시 조치가 필요한 미결 법정 기한·계약 누락 항목이 없습니다.',
       tab: 'compliance',
     });
@@ -2114,8 +2086,8 @@ function renderOpsHomeTab(snapshot) {
     h(
       'div',
       { className: 'ops-section-head' },
-      h('h3', { className: 'ops-section-title' }, '오늘 즉시 점검할 인사노무 과제 · 법정 기한'),
-      h('span', { className: 'tag tag-amber' }, `점검 항목 ${actionItems.length}건`)
+      h('h3', { className: 'ops-section-title' }, '처리 필요 업무 · 법정 기한'),
+      h('span', { className: 'tag tag-amber' }, `${actionItems.length}건`)
     ),
     h(
       'div',
@@ -2135,12 +2107,9 @@ function renderOpsHomeTab(snapshot) {
             {
               type: 'button',
               className: 'btn btn-secondary btn-sm',
-              onClick: (e) => {
-                if (appState.popupModalTabKey) openModuleDetailPopup(item.tab, e.currentTarget);
-                else switchTab(item.tab, true);
-              },
+              onClick: (e) => jumpTo(item.tab, e.currentTarget),
             },
-            '화면 이동'
+            '바로가기'
           )
         )
       )
@@ -2153,21 +2122,21 @@ function renderOpsHomeTab(snapshot) {
     h(
       'div',
       { className: 'ops-section-head' },
+      h('h3', { className: 'ops-section-title' }, '필수 표준 서식 바로 열기'),
       h(
-        'div',
-        {},
-        h(
-          'h3',
-          { className: 'ops-section-title' },
-          '필수 인사 · 개인정보 · 정보보안 · 퇴사 표준 서식함'
-        ),
-        h(
-          'p',
-          { className: 'ops-module-desc' },
-          '입사 동의·보안서약부터 퇴사 시 경업금지(대법원 2009다82244 가드레일)·취업규칙·노사협의회 규정까지 클릭 즉시 열람·복사합니다.'
-        )
-      ),
-      h('span', { className: 'tag tag-blue' }, '즉시 열람 · 복사')
+        'button',
+        {
+          type: 'button',
+          className: 'btn btn-secondary btn-sm',
+          onClick: (e) => jumpTo('forms-center', e.currentTarget),
+        },
+        '전체 14종 서식함 보기'
+      )
+    ),
+    h(
+      'p',
+      { className: 'ops-module-desc mb-6' },
+      '환경 설정의 기업 정보·연차 기준·급여일이 자동 반영된 표준 서식을 즉시 열람하고 복사합니다.'
     ),
     h(
       'div',
@@ -2179,7 +2148,7 @@ function renderOpsHomeTab(snapshot) {
           className: 'btn btn-primary btn-sm',
           onClick: (e) => openDocumentPreview('DOC_PRIVACY_CONSENT', e.currentTarget),
         },
-        '개인정보 수집·이용·제3자제공 동의서'
+        '개인정보 수집·이용 동의서'
       ),
       h(
         'button',
@@ -2188,7 +2157,7 @@ function renderOpsHomeTab(snapshot) {
           className: 'btn btn-primary btn-sm',
           onClick: (e) => openDocumentPreview('DOC_NDA_SECURITY_PLEDGE', e.currentTarget),
         },
-        '비밀유지 및 정보보안 서약서 (입사·재직)'
+        '비밀유지·정보보안 서약서'
       ),
       h(
         'button',
@@ -2197,7 +2166,7 @@ function renderOpsHomeTab(snapshot) {
           className: 'btn btn-primary btn-sm',
           onClick: (e) => openDocumentPreview('DOC_EXIT_SECURITY_NONCOMPETE', e.currentTarget),
         },
-        '퇴사 시 보안·자산반납 및 경업금지 서약서'
+        '퇴사 보안·경업금지 서약서'
       ),
       h(
         'button',
@@ -2206,7 +2175,7 @@ function renderOpsHomeTab(snapshot) {
           className: 'btn btn-secondary btn-sm',
           onClick: (e) => openDocumentPreview('DOC_EMPLOYMENT_CONTRACT', e.currentTarget),
         },
-        '제17조 표준 근로계약서'
+        '표준 근로계약서'
       ),
       h(
         'button',
@@ -2224,14 +2193,14 @@ function renderOpsHomeTab(snapshot) {
           className: 'btn btn-secondary btn-sm',
           onClick: (e) => openDocumentPreview('DOC_LMC_REGULATION_AND_FILING', e.currentTarget),
         },
-        '30인+ 노사협의회 규정·신고서'
+        '30인+ 노사협의회 규정'
       )
     )
   );
 
   const executiveSplit = h('div', { className: 'ops-two-col' }, actionCenterCard, essentialFormsBar);
 
-  wrap.replaceChildren(topKpis, executiveSplit, hubGrid);
+  wrap.replaceChildren(policySyncBar, topKpis, executiveSplit);
 }
 
 function renderOpsRecruitTab(snapshot) {
@@ -2657,10 +2626,12 @@ function renderOpsOrgTab(snapshot) {
       h('label', { for: 'asg-emp-select' }, '발령 대상 근로자'),
       h(
         'select',
-        { id: 'asg-emp-select', name: 'asgEmp' },
-        regularWorkers.map((w) =>
-          h('option', { value: w.empCode }, `[${w.empCode}] ${w.displayName} (${w.deptName})`)
-        )
+        { id: 'asg-emp-select', name: 'asgEmp', disabled: regularWorkers.length === 0 },
+        regularWorkers.length === 0
+          ? [h('option', { value: '' }, '대상 근로자 없음 (0명 빈 명부)')]
+          : regularWorkers.map((w) =>
+              h('option', { value: w.empCode }, `[${w.empCode}] ${w.displayName} (${w.deptName})`)
+            )
       )
     ),
     h(
@@ -2685,7 +2656,11 @@ function renderOpsOrgTab(snapshot) {
     h(
       'div',
       { className: 'field' },
-      h('button', { type: 'submit', className: 'btn btn-primary full-width' }, '인사발령 즉시 실행')
+      h(
+        'button',
+        { type: 'submit', className: 'btn btn-primary full-width', disabled: regularWorkers.length === 0 },
+        '인사발령 즉시 실행'
+      )
     )
   );
 
@@ -2886,6 +2861,33 @@ function renderOpsAttendanceTab(snapshot) {
   const wrap = document.getElementById('ops-attendance-container');
   if (!wrap || !snapshot.operationsSuite) return;
   const att = snapshot.operationsSuite.attendanceControl;
+  const warnH = att.weeklyWarnHours ?? 48;
+
+  const attPolicyBar = h(
+    'div',
+    { className: 'policy-sync-bar' },
+    h(
+      'div',
+      { className: 'policy-sync-items' },
+      h('span', { className: 'tag tag-blue' }, '환경 설정 연동 중'),
+      h('span', {}, `사전 주의 기준: 주 ${warnH}시간 이상`),
+      h('span', {}, '· 법정 상한: 주 52시간 (근로기준법 제53조)'),
+      h(
+        'span',
+        {},
+        `· 가산수당: ${att.is5OrMore ? '5인 이상 50%/100% 자동 반영' : '5인 미만 특례(1.0배)'}`
+      )
+    ),
+    h(
+      'button',
+      {
+        type: 'button',
+        className: 'btn btn-secondary btn-sm',
+        onClick: () => switchTab('settings-master', false),
+      },
+      '주의 기준시간 변경'
+    )
+  );
 
   const section = h(
     'div',
@@ -2893,12 +2895,12 @@ function renderOpsAttendanceTab(snapshot) {
     h(
       'div',
       { className: 'ops-section-head' },
-      h('h3', { className: 'ops-section-title' }, '근로자별 근무유형 · 연장/야간/휴일 집계 · 주 52시간(제53조) 실시간 게이지'),
+      h('h3', { className: 'ops-section-title' }, '근로자별 근무제도 · 연장/야간/휴일 집계 · 주 52시간 게이지'),
       h(
         'span',
         { className: att.is5OrMore ? 'tag tag-blue' : 'tag tag-amber' },
         att.is5OrMore
-          ? '5인 이상: 주52h 상한 적용 및 연장·야간·휴일 50%(100%) 가산수당 자동 반영'
+          ? '5인 이상: 연장·야간·휴일 가산수당 급여대장 직결'
           : '5인 미만: 가산수당 특례(1.0배) 적용'
       )
     ),
@@ -2919,7 +2921,7 @@ function renderOpsAttendanceTab(snapshot) {
             h('th', { scope: 'col', className: 'num' }, '월 연장 / 야간 / 휴일'),
             h('th', { scope: 'col' }, '주간 최대 실근로 게이지 (한도 52h)'),
             h('th', { scope: 'col' }, '법령 판정'),
-            h('th', { scope: 'col' }, '근태 시뮬레이션 (M8 직결)')
+            h('th', { scope: 'col' }, '근태 조정 (급여 자동반영)')
           )
         ),
         h(
@@ -2928,80 +2930,61 @@ function renderOpsAttendanceTab(snapshot) {
           att.board.length === 0
             ? [h('tr', {}, h('td', { colspan: '6' }, '현재 주52시간 관제 대상 상용·단시간 근로자가 없습니다 (0명).'))]
             : att.board.map((row) => {
-            const progClass =
-              row.maxWeeklyWorkedHours > 52
-                ? 'meter-progress meter-progress-danger'
-                : row.maxWeeklyWorkedHours >= 48
-                  ? 'meter-progress meter-progress-warn'
-                  : 'meter-progress';
-            return h(
-              'tr',
-              {},
-              h(
-                'td',
-                { 'data-label': '사번 · 성명 · 부서' },
-                h('div', { className: 'cell-emp-code' }, row.empCode),
-                h('div', { className: 'breakable-name' }, row.displayName),
-                h('div', { className: 'cell-dept-name' }, row.deptName)
-              ),
-              h('td', { 'data-label': '근무제도' }, h('span', { className: 'tag tag-gray' }, row.shiftType)),
-              h(
-                'td',
-                { className: 'num', 'data-label': '월 연장 / 야간 / 휴일' },
-                `연장 ${row.monthlyOvertimeHours}h · 야간 ${row.monthlyNightHours}h · 휴일 ${row.monthlyHolidayHours}h`
-              ),
-              h(
-                'td',
-                { 'data-label': '주간 최대 실근로' },
-                h(
-                  'div',
-                  { className: 'meter-wrap' },
-                  h('progress', {
-                    className: progClass,
-                    'aria-label': `${row.displayName} 주간 최대 실근로시간 게이지`,
-                    max: '52',
-                    value: String(Math.min(52, row.maxWeeklyWorkedHours)),
-                  }),
-                  h('span', { className: 'cell-dept-name' }, `주 최대 ${row.maxWeeklyWorkedHours}h / 52.0h`)
-                )
-              ),
-              h(
-                'td',
-                { 'data-label': '법령 판정' },
-                row.status === 'OVER_52H_ALERT'
-                  ? h('span', { className: 'tag tag-red' }, '제53조 주52h 초과 경보!')
-                  : row.status === 'NEAR_52H_WARN'
-                    ? h('span', { className: 'tag tag-amber' }, '48h+ 상한 임박 예고')
-                    : row.status === 'PARENTAL_OR_LEAVE'
-                      ? h('span', { className: 'tag tag-blue' }, '휴직/단축 보호중')
-                      : h('span', { className: 'tag tag-green' }, '적법 범위(정상)')
-              ),
-              h(
-                'td',
-                { 'data-label': '근태 시뮬레이션' },
-                h(
-                  'div',
-                  { className: 'step-pill-group' },
+                const progClass =
+                  row.maxWeeklyWorkedHours > 52
+                    ? 'meter-progress meter-progress-danger'
+                    : row.maxWeeklyWorkedHours >= warnH
+                      ? 'meter-progress meter-progress-warn'
+                      : 'meter-progress';
+                return h(
+                  'tr',
+                  {},
                   h(
-                    'button',
-                    {
-                      type: 'button',
-                      className: 'btn btn-secondary btn-sm',
-                      onClick: (e) =>
-                        runOpsAction(
-                          {
-                            actionType: 'QUICK_ATTENDANCE_UPDATE',
-                            empCode: row.empCode,
-                            overtimeHours: row.monthlyOvertimeHours + 4,
-                            maxWeeklyWorkedHours: Number((row.maxWeeklyWorkedHours + 4).toFixed(1)),
-                          },
-                          e.currentTarget
-                        ),
-                    },
-                    '+연장 4h 반영'
+                    'td',
+                    { 'data-label': '사번 · 성명 · 부서' },
+                    h('div', { className: 'cell-emp-code' }, row.empCode),
+                    h('div', { className: 'breakable-name' }, row.displayName),
+                    h('div', { className: 'cell-dept-name' }, row.deptName)
                   ),
-                  row.maxWeeklyWorkedHours > 40
-                    ? h(
+                  h('td', { 'data-label': '근무제도' }, h('span', { className: 'tag tag-gray' }, row.shiftType)),
+                  h(
+                    'td',
+                    { className: 'num', 'data-label': '월 연장 / 야간 / 휴일' },
+                    `연장 ${row.monthlyOvertimeHours}h · 야간 ${row.monthlyNightHours}h · 휴일 ${row.monthlyHolidayHours}h`
+                  ),
+                  h(
+                    'td',
+                    { 'data-label': '주간 최대 실근로' },
+                    h(
+                      'div',
+                      { className: 'meter-wrap' },
+                      h('progress', {
+                        className: progClass,
+                        'aria-label': `${row.displayName} 주간 최대 실근로시간 게이지`,
+                        max: '52',
+                        value: String(Math.min(52, row.maxWeeklyWorkedHours)),
+                      }),
+                      h('span', { className: 'cell-dept-name' }, `주 최대 ${row.maxWeeklyWorkedHours}h / 52.0h`)
+                    )
+                  ),
+                  h(
+                    'td',
+                    { 'data-label': '법령 판정' },
+                    row.status === 'OVER_52H_ALERT'
+                      ? h('span', { className: 'tag tag-red' }, '제53조 주52h 초과 경보!')
+                      : row.status === 'NEAR_52H_WARN'
+                        ? h('span', { className: 'tag tag-amber' }, `주 ${warnH}h+ 상한 임박 예고`)
+                        : row.status === 'PARENTAL_OR_LEAVE'
+                          ? h('span', { className: 'tag tag-blue' }, '휴직/단축 보호중')
+                          : h('span', { className: 'tag tag-green' }, '적법 범위(정상)')
+                  ),
+                  h(
+                    'td',
+                    { 'data-label': '근태 조정' },
+                    h(
+                      'div',
+                      { className: 'step-pill-group' },
+                      h(
                         'button',
                         {
                           type: 'button',
@@ -3011,19 +2994,38 @@ function renderOpsAttendanceTab(snapshot) {
                               {
                                 actionType: 'QUICK_ATTENDANCE_UPDATE',
                                 empCode: row.empCode,
-                                overtimeHours: Math.max(0, row.monthlyOvertimeHours - 4),
-                                maxWeeklyWorkedHours: 44,
+                                overtimeHours: row.monthlyOvertimeHours + 4,
+                                maxWeeklyWorkedHours: Number((row.maxWeeklyWorkedHours + 4).toFixed(1)),
                               },
                               e.currentTarget
                             ),
                         },
-                        '주44h 정상조정'
-                      )
-                    : null
-                )
-              )
-            );
-          })
+                        '+연장 4h 반영'
+                      ),
+                      row.maxWeeklyWorkedHours > 40
+                        ? h(
+                            'button',
+                            {
+                              type: 'button',
+                              className: 'btn btn-secondary btn-sm',
+                              onClick: (e) =>
+                                runOpsAction(
+                                  {
+                                    actionType: 'QUICK_ATTENDANCE_UPDATE',
+                                    empCode: row.empCode,
+                                    overtimeHours: Math.max(0, row.monthlyOvertimeHours - 4),
+                                    maxWeeklyWorkedHours: 43,
+                                  },
+                                  e.currentTarget
+                                ),
+                            },
+                            '주43h 정상조정'
+                          )
+                        : null
+                    )
+                  )
+                );
+              })
         )
       )
     )
@@ -3047,210 +3049,367 @@ function renderOpsAttendanceTab(snapshot) {
       { className: 'kpi-card' },
       h('div', { className: 'kpi-label' }, '당월 누적 연장근로'),
       h('div', { className: 'kpi-value' }, `${totalOt}시간`),
-      h('div', { className: 'kpi-sub' }, '야간 · 휴일근로 시간 M8 급여 직결')
+      h('div', { className: 'kpi-sub' }, '야간 · 휴일근로 급여 자동 반영')
     ),
     h(
       'div',
       { className: 'kpi-card' },
-      h('div', { className: 'kpi-label' }, '주 48시간+ 상한 임박'),
+      h('div', { className: 'kpi-label' }, `주 ${warnH}시간+ 주의 대상`),
       h('div', { className: 'kpi-value' }, `${near52}명`),
-      h('div', { className: 'kpi-sub' }, '사전 연장근로 통제 권고 대상')
+      h('div', { className: 'kpi-sub' }, '환경 설정 주의 기준 연동')
     ),
     h(
       'div',
       { className: 'kpi-card' },
       h('div', { className: 'kpi-label' }, '제53조 주 52시간 초과'),
       h('div', { className: 'kpi-value' }, `${over52}명`),
-      h('div', { className: 'kpi-sub' }, over52 > 0 ? '즉시 근무일정 조정 필요!' : '법정 한도 위반 0명')
+      h('div', { className: 'kpi-sub' }, over52 > 0 ? '즉시 근무일정 조정 필요' : '법정 한도 위반 0명')
     )
   );
 
-  wrap.replaceChildren(attKpis, section);
+  wrap.replaceChildren(attPolicyBar, attKpis, section);
 }
 
 function renderOpsLeaveTab(snapshot) {
   const wrap = document.getElementById('ops-leave-container');
-  if (!wrap || !snapshot.operationsSuite) return;
+  const promoWrap = document.getElementById('ops-leave-promo-container');
+  if ((!wrap && !promoWrap) || !snapshot.operationsSuite) return;
   const lv = snapshot.operationsSuite.leaveAndMaternity;
+  const policy = snapshot.operationsSuite.policySettings || snapshot.company.policySettings || {};
+  const isFiscal = policy.leaveAccrualBasis === 'FISCAL_YEAR';
+  const leaveBasisLabel = formatLeaveBasisShort(policy);
 
   const promoLabel = (stage) => {
     if (stage === 'STAGE_2_DESIGNATED') {
-      return h('span', { className: 'tag tag-green' }, '2차 시기지정 완료 (보상면제 요건 충족)');
+      return h('span', { className: 'tag tag-green' }, '2차 시기지정 완료 (보상면제)');
     }
     if (stage === 'STAGE_1_SENT') {
-      return h('span', { className: 'tag tag-blue' }, '1차 서면촉진 완료 (만료 6개월 전)');
+      return h('span', { className: 'tag tag-blue' }, '1차 서면촉진 완료');
     }
-    return h('span', { className: 'tag tag-amber' }, '미발송 (수당 추계 대상)');
+    return h('span', { className: 'tag tag-amber' }, '촉진 대기 (수당 추계)');
   };
 
-  const leaveSection = h(
-    'div',
-    { className: 'ops-section-block' },
+  const totAccrued = Number(lv.ledger.reduce((s, r) => s + (r.accruedDays || 0), 0).toFixed(1));
+  const totRemain = Number(lv.ledger.reduce((s, r) => s + (r.remainingDays || 0), 0).toFixed(1));
+  const totEstPayout = lv.ledger.reduce((s, r) => s + (r.estimatedUnusedPayout || 0), 0);
+  const promoWait = lv.ledger.filter((r) => r.promoStage !== 'STAGE_2_DESIGNATED').length;
+
+  const makeLeavePolicyBar = () =>
     h(
       'div',
-      { className: 'ops-section-head' },
-      h('h3', { className: 'ops-section-title' }, '근로기준법 제60조 연차 자동원장 & 제61조 1·2차 서면 사용촉진 대장'),
+      { className: 'policy-sync-bar' },
       h(
-        'span',
-        { className: lv.is5OrMore ? 'tag tag-green' : 'tag tag-gray' },
-        lv.is5OrMore ? '5인 이상 제60조·제61조 가동 중' : '5인 미만 법정 연차 적용 제외'
-      )
-    ),
-    h(
-      'div',
-      { className: 'table-scroll-wrap' },
-      h(
-        'table',
-        { className: 'payroll-table', 'aria-label': '연차유급휴가 발생·사용 및 사용촉진 대장' },
+        'div',
+        { className: 'policy-sync-items' },
+        h('span', { className: isFiscal ? 'tag tag-green' : 'tag tag-blue' }, `산정 기준: ${leaveBasisLabel}`),
         h(
-          'thead',
+          'span',
           {},
-          h(
-            'tr',
-            {},
-            h('th', { scope: 'col' }, '사번 · 성명 · 입사일'),
-            h('th', { scope: 'col' }, '제60조 산정 근거'),
-            h('th', { scope: 'col', className: 'num' }, '발생 / 사용 / 잔여'),
-            h('th', { scope: 'col' }, '제61조 연차사용촉진 단계'),
-            h('th', { scope: 'col', className: 'num' }, '미사용수당 추계액'),
-            h('th', { scope: 'col' }, '서면촉진 · 통지서')
-          )
+          isFiscal
+            ? `중도입사 비례부여 (${
+                policy.leaveRoundingRule === 'CEIL_INT'
+                  ? '1일 올림'
+                  : policy.leaveRoundingRule === 'CEIL_HALF'
+                    ? '0.5일 올림'
+                    : '0.1일 반올림'
+              }) · 퇴직 시 입사일 기준 유리한 조건 정산`
+            : '근로기준법 제60조 개별 입사일 기준 (1년 미만 월차 최대 11일 / 1년 이상 15~25일)'
+        )
+      ),
+      h(
+        'div',
+        { className: 'step-pill-group' },
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'btn btn-primary btn-sm',
+            onClick: async (e) => {
+              const nextBasis = isFiscal ? 'HIRE_DATE' : 'FISCAL_YEAR';
+              try {
+                const res = await apiPost(
+                  '/api/simulate-company',
+                  { policySettings: { leaveAccrualBasis: nextBasis } },
+                  e.currentTarget
+                );
+                updateSnapshot(res.snapshot);
+                showBanner(
+                  nextBasis === 'FISCAL_YEAR'
+                    ? `전사 연차 기준이 [회계연도(${res.snapshot.company.policySettings.fiscalYearStartMonthDay}) 기준]으로 전환되어 모든 연차원장·서식이 자동 재계산되었습니다.`
+                    : '전사 연차 기준이 [개별 입사일 기준]으로 전환되어 모든 연차원장·서식이 자동 재계산되었습니다.'
+                );
+              } catch (err) {
+                showBanner(err.message, true);
+              }
+            },
+          },
+          isFiscal ? '입사일 기준으로 전환' : '회계연도(1.1) 기준으로 전환'
         ),
         h(
-          'tbody',
-          {},
-          lv.ledger.length === 0
-            ? [h('tr', {}, h('td', { colspan: '6' }, '현재 연차유급휴가 산정 대상 재직자가 없습니다 (0명).'))]
-            : lv.ledger.map((r) =>
+          'button',
+          {
+            type: 'button',
+            className: 'btn btn-secondary btn-sm',
+            onClick: () => switchTab('settings-master', false),
+          },
+          '상세 환경 설정'
+        )
+      )
+    );
+
+  if (wrap) {
+    const leaveKpis = h(
+      'div',
+      { className: 'kpi-strip' },
+      h(
+        'div',
+        { className: 'kpi-card' },
+        h('div', { className: 'kpi-label' }, '현재 연차 산정 방식'),
+        h('div', { className: 'kpi-value' }, leaveBasisLabel),
+        h('div', { className: 'kpi-sub' }, lv.is5OrMore ? '5인 이상 법정 연차 적용 중' : '5인 미만 법정 연차 제외')
+      ),
+      h(
+        'div',
+        { className: 'kpi-card' },
+        h('div', { className: 'kpi-label' }, '전사 총 발생 연차'),
+        h('div', { className: 'kpi-value' }, `${totAccrued}일`),
+        h('div', { className: 'kpi-sub' }, isFiscal ? '회계연도 기준 자동 재계산됨' : '개별 입사일 기준 자동 계산됨')
+      ),
+      h(
+        'div',
+        { className: 'kpi-card' },
+        h('div', { className: 'kpi-label' }, '전사 미사용 잔여 연차'),
+        h('div', { className: 'kpi-value' }, `${totRemain}일`),
+        h('div', { className: 'kpi-sub' }, `사용촉진 대기 ${promoWait}명`)
+      ),
+      h(
+        'div',
+        { className: 'kpi-card' },
+        h('div', { className: 'kpi-label' }, '미사용 연차수당 추계액'),
+        h('div', { className: 'kpi-value' }, fmtWon(totEstPayout)),
+        h(
+          'div',
+          { className: 'kpi-sub' },
+          policy.leaveSettlementPolicy === 'FULL_PAYOUT'
+            ? '전액 수당보상 기준 추계'
+            : '제61조 2차 지정 완료자 보상면제 반영'
+        )
+      )
+    );
+
+    const ledgerSection = h(
+      'div',
+      { className: 'ops-section-block' },
+      h(
+        'div',
+        { className: 'ops-section-head' },
+        h('h3', { className: 'ops-section-title' }, `직원별 연차 발생 · 사용 · 잔여 원장 (${leaveBasisLabel})`),
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'btn btn-secondary btn-sm',
+            onClick: () => switchTab('ops-leave-promo', false),
+          },
+          '연차 사용촉진 · 모성보호 탭 이동'
+        )
+      ),
+      h(
+        'div',
+        { className: 'table-scroll-wrap' },
+        h(
+          'table',
+          { className: 'payroll-table', 'aria-label': '직원별 연차 발생·사용·잔여 원장' },
+          h(
+            'thead',
+            {},
             h(
               'tr',
               {},
-              h(
-                'td',
-                { 'data-label': '사번 · 성명 · 입사일' },
-                h('div', { className: 'cell-emp-code' }, `${r.empCode} · 입사 ${r.hireDate}`),
-                h('div', { className: 'breakable-name' }, r.displayName),
-                h('div', { className: 'cell-dept-name' }, r.deptName)
-              ),
-              h('td', { 'data-label': '제60조 산정 근거' }, r.ruleBasis),
-              h(
-                'td',
-                { className: 'num font-extrabold', 'data-label': '발생 / 사용 / 잔여' },
-                `${r.accruedDays}일 / ${r.usedDays}일 / 잔여 ${r.remainingDays}일`
-              ),
-              h('td', { 'data-label': '제61조 촉진 단계' }, promoLabel(r.promoStage)),
-              h(
-                'td',
-                { className: 'num', 'data-label': '미사용수당 추계액' },
-                fmtWon(r.estimatedUnusedPayout)
-              ),
-              h(
-                'td',
-                { 'data-label': '서면촉진 · 통지서' },
-                h(
-                  'div',
-                  { className: 'step-pill-group' },
-                  r.promoStage !== 'STAGE_2_DESIGNATED'
-                    ? h(
-                        'button',
-                        {
-                          type: 'button',
-                          className: 'btn btn-primary btn-sm',
-                          onClick: (e) =>
-                            runOpsAction(
-                              { actionType: 'ADVANCE_LEAVE_PROMOTION', empCode: r.empCode },
-                              e.currentTarget
-                            ),
-                        },
-                        r.promoStage === 'NONE' ? '1차 촉진 발송' : '2차 시기지정 완료'
-                      )
-                    : null,
+              h('th', { scope: 'col' }, '사번 · 성명 · 부서'),
+              h('th', { scope: 'col' }, '입사일 · 사용만료일'),
+              h('th', { scope: 'col' }, '적용 산정 근거'),
+              h('th', { scope: 'col', className: 'num' }, '발생 / 사용 / 잔여'),
+              h('th', { scope: 'col', className: 'num' }, '미사용수당 추계'),
+              h('th', { scope: 'col' }, '촉진 상태')
+            )
+          ),
+          h(
+            'tbody',
+            {},
+            lv.ledger.length === 0
+              ? [h('tr', {}, h('td', { colspan: '6' }, '현재 연차유급휴가 산정 대상 재직자가 없습니다 (0명).'))]
+              : lv.ledger.map((r) =>
                   h(
-                    'button',
-                    {
-                      type: 'button',
-                      className: 'btn btn-secondary btn-sm',
-                      onClick: (e) =>
-                        openDocumentPreview(
-                          'DOC_ANNUAL_LEAVE_PROMOTION',
-                          e.currentTarget,
-                          undefined,
-                          r.empCode
-                        ),
-                    },
-                    '촉진 통지서 열람'
+                    'tr',
+                    {},
+                    h(
+                      'td',
+                      { 'data-label': '사번 · 성명 · 부서' },
+                      h('div', { className: 'cell-emp-code' }, r.empCode),
+                      h('div', { className: 'breakable-name' }, r.displayName),
+                      h('div', { className: 'cell-dept-name' }, r.deptName)
+                    ),
+                    h(
+                      'td',
+                      { 'data-label': '입사일 · 만료일' },
+                      h('div', {}, `입사: ${r.hireDate}`),
+                      h('div', { className: 'cell-dept-name' }, `만료: ${r.cycleExpiryDate || '-'}`)
+                    ),
+                    h('td', { 'data-label': '산정 근거' }, r.ruleBasis),
+                    h(
+                      'td',
+                      { className: 'num font-extrabold', 'data-label': '발생 / 사용 / 잔여' },
+                      `${r.accruedDays}일 / ${r.usedDays}일 / 잔여 ${r.remainingDays}일`
+                    ),
+                    h(
+                      'td',
+                      { className: 'num', 'data-label': '미사용수당 추계' },
+                      fmtWon(r.estimatedUnusedPayout)
+                    ),
+                    h('td', { 'data-label': '촉진 상태' }, promoLabel(r.promoStage))
                   )
                 )
-              )
-            )
           )
         )
       )
-    )
-  );
+    );
 
-  const matSection = h(
-    'div',
-    { className: 'ops-section-block' },
-    h(
+    wrap.replaceChildren(makeLeavePolicyBar(), leaveKpis, ledgerSection);
+  }
+
+  if (promoWrap) {
+    const promoSection = h(
       'div',
-      { className: 'ops-section-head' },
-      h('h3', { className: 'ops-section-title' }, '모성보호 · 일가정양립 제도 및 고용보험 지원금 연계 현황')
-    ),
-    h(
-      'div',
-      { className: 'ops-two-col' },
-      lv.maternityProtections.map((m) =>
+      { className: 'ops-section-block' },
+      h(
+        'div',
+        { className: 'ops-section-head' },
+        h('h3', { className: 'ops-section-title' }, '근로기준법 제61조 1차(6개월 전) · 2차(2개월 전) 서면 사용촉진 실행'),
+        h('span', { className: 'tag tag-amber' }, `촉진 진행 대상 ${promoWait}명`)
+      ),
+      h(
+        'div',
+        { className: 'table-scroll-wrap' },
         h(
-          'div',
-          { className: 'dept-stat-card' },
-          h('span', { className: 'tag tag-blue' }, m.programType),
-          h('div', { className: 'ops-module-title' }, `${m.deptName} — ${m.beneficiaryLabel}`),
-          h('div', { className: 'dept-stat-meta' }, `적용 기간: ${m.periodLabel}`),
-          h('div', { className: 'dept-stat-meta' }, `정부지원금: ${m.govSubsidyStatus}`),
-          h('div', { className: 'dept-stat-meta' }, `사업주 준수사항: ${m.employerObligation}`)
+          'table',
+          { className: 'payroll-table', 'aria-label': '제61조 연차 사용촉진 발송 및 통지서 발급' },
+          h(
+            'thead',
+            {},
+            h(
+              'tr',
+              {},
+              h('th', { scope: 'col' }, '사번 · 성명'),
+              h('th', { scope: 'col', className: 'num' }, '미사용 잔여연차'),
+              h('th', { scope: 'col' }, '만료일 · 1차/2차 촉진 기한'),
+              h('th', { scope: 'col' }, '현재 진행 단계'),
+              h('th', { scope: 'col' }, '서면촉진 실행 · 통지서')
+            )
+          ),
+          h(
+            'tbody',
+            {},
+            lv.ledger.length === 0
+              ? [h('tr', {}, h('td', { colspan: '5' }, '연차 사용촉진 대상 재직자가 없습니다 (0명).'))]
+              : lv.ledger.map((r) =>
+                  h(
+                    'tr',
+                    {},
+                    h(
+                      'td',
+                      { 'data-label': '사번 · 성명' },
+                      h('div', { className: 'cell-emp-code' }, r.empCode),
+                      h('div', { className: 'breakable-name' }, `${r.displayName} (${r.deptName})`)
+                    ),
+                    h(
+                      'td',
+                      { className: 'num font-extrabold', 'data-label': '미사용 잔여연차' },
+                      `잔여 ${r.remainingDays}일`
+                    ),
+                    h(
+                      'td',
+                      { 'data-label': '만료일 · 촉진 기한' },
+                      h('div', {}, `사용만료: ${r.cycleExpiryDate || '-'}`),
+                      h(
+                        'div',
+                        { className: 'cell-dept-name' },
+                        `1차(~${r.firstPromoDeadline || '-'}) · 2차(~${r.secondPromoDeadline || '-'})`
+                      )
+                    ),
+                    h('td', { 'data-label': '진행 단계' }, promoLabel(r.promoStage)),
+                    h(
+                      'td',
+                      { 'data-label': '서면촉진 실행 · 통지서' },
+                      h(
+                        'div',
+                        { className: 'step-pill-group' },
+                        r.promoStage !== 'STAGE_2_DESIGNATED'
+                          ? h(
+                              'button',
+                              {
+                                type: 'button',
+                                className: 'btn btn-primary btn-sm',
+                                onClick: (e) =>
+                                  runOpsAction(
+                                    { actionType: 'ADVANCE_LEAVE_PROMOTION', empCode: r.empCode },
+                                    e.currentTarget
+                                  ),
+                              },
+                              r.promoStage === 'NONE' ? '1차 촉진 발송' : '2차 시기지정 완료'
+                            )
+                          : null,
+                        h(
+                          'button',
+                          {
+                            type: 'button',
+                            className: 'btn btn-secondary btn-sm',
+                            onClick: (e) =>
+                              openDocumentPreview(
+                                'DOC_ANNUAL_LEAVE_PROMOTION',
+                                e.currentTarget,
+                                undefined,
+                                r.empCode
+                              ),
+                          },
+                          '촉진 통지서 열람'
+                        )
+                      )
+                    )
+                  )
+                )
+          )
         )
       )
-    )
-  );
+    );
 
-  const totAccrued = lv.ledger.reduce((s, r) => s + (r.accruedDays || 0), 0);
-  const totRemain = lv.ledger.reduce((s, r) => s + (r.remainingDays || 0), 0);
-  const promoWait = lv.ledger.filter((r) => r.promoStage !== 'STAGE_2_DESIGNATED').length;
-  const leaveKpis = h(
-    'div',
-    { className: 'kpi-strip' },
-    h(
+    const matSection = h(
       'div',
-      { className: 'kpi-card' },
-      h('div', { className: 'kpi-label' }, '제60조 총 발생 연차'),
-      h('div', { className: 'kpi-value' }, `${totAccrued}일`),
-      h('div', { className: 'kpi-sub' }, '입사일 기준 월차·연차 자동 산정')
-    ),
-    h(
-      'div',
-      { className: 'kpi-card' },
-      h('div', { className: 'kpi-label' }, '전사 미사용 잔여 연차'),
-      h('div', { className: 'kpi-value' }, `${totRemain}일`),
-      h('div', { className: 'kpi-sub' }, '미촉진 시 연차미사용수당 추계 반영')
-    ),
-    h(
-      'div',
-      { className: 'kpi-card' },
-      h('div', { className: 'kpi-label' }, '제61조 서면촉진 진행대상'),
-      h('div', { className: 'kpi-value' }, `${promoWait}명`),
-      h('div', { className: 'kpi-sub' }, '1차(6개월 전) · 2차(2개월 전) 통지서')
-    ),
-    h(
-      'div',
-      { className: 'kpi-card' },
-      h('div', { className: 'kpi-label' }, '모성보호 · 육아지원 적용'),
-      h('div', { className: 'kpi-value' }, `${lv.maternityProtections.length}건`),
-      h('div', { className: 'kpi-sub' }, '출산전후휴가 · 육아기 단축 지원금')
-    )
-  );
+      { className: 'ops-section-block' },
+      h(
+        'div',
+        { className: 'ops-section-head' },
+        h('h3', { className: 'ops-section-title' }, '모성보호 · 일가정양립 제도 및 고용보험 지원금 연계 현황')
+      ),
+      h(
+        'div',
+        { className: 'ops-two-col' },
+        lv.maternityProtections.map((m) =>
+          h(
+            'div',
+            { className: 'dept-stat-card' },
+            h('span', { className: 'tag tag-blue' }, m.programType),
+            h('div', { className: 'ops-module-title' }, `${m.deptName} — ${m.beneficiaryLabel}`),
+            h('div', { className: 'dept-stat-meta' }, `적용 기간: ${m.periodLabel}`),
+            h('div', { className: 'dept-stat-meta' }, `정부지원금: ${m.govSubsidyStatus}`),
+            h('div', { className: 'dept-stat-meta' }, `사업주 준수사항: ${m.employerObligation}`)
+          )
+        )
+      )
+    );
 
-  wrap.replaceChildren(leaveKpis, leaveSection, matSection);
+    promoWrap.replaceChildren(makeLeavePolicyBar(), promoSection, matSection);
+  }
 }
 
 function renderOpsEvalTab(snapshot) {
@@ -3970,8 +4129,201 @@ function renderOpsStatutoryTab(snapshot) {
   wrap.replaceChildren(statKpis, lmcSection, oshSection, eduSection);
 }
 
+function renderFormsCenterTab(snapshot) {
+  const wrap = document.getElementById('forms-center-container');
+  if (!wrap) return;
+
+  const firstWorker = (snapshot.workers || [])[0] || null;
+  const firstAlumni =
+    (snapshot.offboardedWorkers || []).find((a) => a.dataLifecycleStatus !== 'ANONYMIZED_PURGED') ||
+    null;
+
+  const openSmartTemplate = (tplId, mode, triggerBtn) => {
+    if (mode === 'worker') {
+      if (!firstWorker) {
+        showBanner('현재 재직자 명부가 비어 있습니다(0명). 급여 관리에서 기본 명부를 복원해 주세요.', true);
+        return;
+      }
+      openDocumentPreview(tplId, triggerBtn, undefined, firstWorker.empCode);
+      return;
+    }
+    if (mode === 'alumni') {
+      if (!firstAlumni) {
+        showBanner('발급 가능한 퇴사자 레코드가 없습니다.', true);
+        return;
+      }
+      openDocumentPreview(tplId, triggerBtn, undefined, firstAlumni.empCode);
+      return;
+    }
+    if (mode === 'q4') {
+      openDocumentPreview(tplId, triggerBtn, 4);
+      return;
+    }
+    openDocumentPreview(tplId, triggerBtn);
+  };
+
+  const categories = [
+    {
+      badge: '1. 입사 · 계약 · 개인정보',
+      badgeClass: 'tag tag-blue',
+      title: '입사 계약 · 개인정보동의 · 정보보안',
+      items: [
+        {
+          id: 'DOC_EMPLOYMENT_CONTRACT',
+          title: '근로기준법 제17조 표준 근로계약서',
+          sub: '환경 설정의 급여지급일 · 연차 산정기준 자동 반영',
+          mode: 'company',
+        },
+        {
+          id: 'DOC_PRIVACY_CONSENT',
+          title: '개인정보 수집·이용·제3자제공 동의서',
+          sub: '고유식별정보 분리 동의 · 퇴직 후 3년 보존 명시',
+          mode: 'company',
+        },
+        {
+          id: 'DOC_NDA_SECURITY_PLEDGE',
+          title: '비밀유지 및 정보보안 서약서 (입사·재직)',
+          sub: '영업비밀보호법 · 산업기술보호법 준수 서약',
+          mode: 'company',
+        },
+      ],
+    },
+    {
+      badge: '2. 퇴사 · 경업금지 · 증명서',
+      badgeClass: 'tag tag-amber',
+      title: '퇴사 보안·경업금지 · 경력증명 · 이직확인',
+      items: [
+        {
+          id: 'DOC_EXIT_SECURITY_NONCOMPETE',
+          title: '퇴사 시 보안·자산반납 및 경업금지 서약서',
+          sub: '대법원 2009다82244 유효성 가드레일 내장',
+          mode: 'company',
+        },
+        {
+          id: 'DOC_EMPLOYMENT_CERT',
+          title: '재직증명서 (현 재직 근로자)',
+          sub: firstWorker ? `샘플 대상: ${firstWorker.displayName} (${firstWorker.empCode})` : '재직자 명부 연동',
+          mode: 'worker',
+        },
+        {
+          id: 'DOC_CAREER_CERTIFICATE',
+          title: '근로기준법 제39조 사용(경력)증명서',
+          sub: firstAlumni ? `샘플 대상: ${firstAlumni.displayName} (${firstAlumni.empCode})` : '퇴사자 원장 연동',
+          mode: 'alumni',
+        },
+        {
+          id: 'DOC_EI_SEPARATION_CERT',
+          title: '고용보험 피보험자격 상실·이직확인서',
+          sub: firstAlumni ? `샘플 대상: ${firstAlumni.displayName} (${firstAlumni.empCode})` : '퇴사자 원장 연동',
+          mode: 'alumni',
+        },
+      ],
+    },
+    {
+      badge: '3. 취업규칙 · 연차 · 징계',
+      badgeClass: 'tag tag-green',
+      title: '취업규칙 · 연차 사용촉진 · 징계 서면통지',
+      items: [
+        {
+          id: 'DOC_WORK_RULES_REPORT',
+          title: '10인 이상 취업규칙 제정·변경 신고서',
+          sub: '환경 설정의 회계연도/입사일 연차조항 · 급여일 자동 반영',
+          mode: 'company',
+        },
+        {
+          id: 'DOC_ANNUAL_LEAVE_PROMOTION',
+          title: '제61조 미사용 연차 서면 사용촉진 통지서',
+          sub: firstWorker ? `샘플 대상: ${firstWorker.displayName} (${firstWorker.empCode})` : '재직자 연차원장 연동',
+          mode: 'worker',
+        },
+        {
+          id: 'DOC_DISCIPLINE_WRITTEN_NOTICE',
+          title: '징계 출석통지 및 의결 서면통지서',
+          sub: firstWorker ? `샘플 대상: ${firstWorker.displayName} (${firstWorker.empCode})` : '징계절차 검증 연동',
+          mode: 'worker',
+        },
+      ],
+    },
+    {
+      badge: '4. 노사협의회 · 산업안전보건',
+      badgeClass: 'tag tag-gray',
+      title: '노사협의회(30인+) · 안전보건(50인+) 양식',
+      items: [
+        {
+          id: 'DOC_LMC_REGULATION_AND_FILING',
+          title: '30인 이상 노사협의회 규정 및 설치신고서',
+          sub: '근로자참여법 제4조 · 15일 이내 관할 노동청 신고',
+          mode: 'company',
+        },
+        {
+          id: 'DOC_LMC_MINUTES',
+          title: '노사협의회 분기 정기회의록 초안',
+          sub: '분기별 보고·협의·의결사항 표준 회의록',
+          mode: 'q4',
+        },
+        {
+          id: 'DOC_OSH_OFFICER_APPOINTMENT',
+          title: '50인 이상 안전·보건관리자 선임보고서',
+          sub: '산업안전보건법 제17조·제18조 · 14일 이내 보고',
+          mode: 'company',
+        },
+        {
+          id: 'DOC_OSH_MINUTES',
+          title: '산업안전보건위원회 회의록 · 위험성평가표',
+          sub: '산안법 제24조·제36조 분기 심의·의결 양식',
+          mode: 'q4',
+        },
+      ],
+    },
+  ];
+
+  const grid = h(
+    'div',
+    { className: 'forms-category-grid' },
+    categories.map((cat) =>
+      h(
+        'article',
+        { className: 'forms-category-card' },
+        h(
+          'div',
+          {},
+          h('span', { className: cat.badgeClass }, cat.badge),
+          h('h3', { className: 'ops-module-title' }, cat.title)
+        ),
+        h(
+          'div',
+          { className: 'forms-item-list' },
+          cat.items.map((it) =>
+            h(
+              'div',
+              { className: 'forms-item-row' },
+              h(
+                'div',
+                {},
+                h('div', { className: 'forms-item-title' }, it.title),
+                h('div', { className: 'forms-item-sub' }, it.sub)
+              ),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'btn btn-secondary btn-sm',
+                  onClick: (e) => openSmartTemplate(it.id, it.mode, e.currentTarget),
+                },
+                '열람 · 복사'
+              )
+            )
+          )
+        )
+      )
+    )
+  );
+
+  wrap.replaceChildren(grid);
+}
+
 /* ==========================================================================
-   전체 스냅샷 반영 및 이벤트 바인딩 초기화
+   전체 스냅샷 반영 및 2단계(대분류 → 하부 탭) 네비게이션 컨트롤러
    ========================================================================== */
 
 function updateSnapshot(snapshot) {
@@ -3987,6 +4339,7 @@ function updateSnapshot(snapshot) {
   renderOpsLeaveTab(snapshot);
   renderOpsEvalTab(snapshot);
   renderOpsDisciplineTab(snapshot);
+  renderFormsCenterTab(snapshot);
   renderOpsStatutoryTab(snapshot);
   renderOnboardingTab(snapshot);
   renderFloorPlan(snapshot);
@@ -4000,31 +4353,126 @@ function setMobileSidebarOpen(isOpen) {
   const sidebar = document.getElementById('left-sidebar');
   const backdrop = document.getElementById('sidebar-backdrop');
   const toggleBtn = document.getElementById('btn-mobile-sidebar-toggle');
+  const workspacePane = document.getElementById('workspace-pane');
   if (!sidebar) return;
   if (isOpen) {
     sidebar.setAttribute('data-sidebar-open', 'true');
     if (backdrop) backdrop.hidden = false;
     toggleBtn?.setAttribute('aria-expanded', 'true');
+    if (workspacePane && window.innerWidth <= 1080) {
+      workspacePane.inert = true;
+      workspacePane.setAttribute('aria-hidden', 'true');
+    }
   } else {
     sidebar.removeAttribute('data-sidebar-open');
     if (backdrop) backdrop.hidden = true;
     toggleBtn?.setAttribute('aria-expanded', 'false');
+    if (workspacePane) {
+      workspacePane.inert = false;
+      workspacePane.removeAttribute('aria-hidden');
+    }
+  }
+}
+
+function renderSubtabsBar(groupKey, activeTabKey, focusActive = false) {
+  const wrap = document.getElementById('domain-subtabs-wrap');
+  const bar = document.getElementById('domain-subtabs-bar');
+  if (!wrap || !bar) return;
+  const group = MAJOR_MENU_GROUPS.find((g) => g.groupKey === groupKey) || MAJOR_MENU_GROUPS[0];
+  if (!group || group.tabs.length <= 1) {
+    wrap.hidden = true;
+    bar.replaceChildren();
+    return;
+  }
+
+  wrap.hidden = false;
+  const buttons = group.tabs.map((t, idx) => {
+    const isSel = t.key === activeTabKey;
+    return h(
+      'button',
+      {
+        type: 'button',
+        role: 'tab',
+        id: `tab-btn-${t.key}`,
+        className: 'subtab-btn tab-btn',
+        'aria-selected': String(isSel),
+        'aria-controls': `panel-${t.key}`,
+        tabindex: isSel ? '0' : '-1',
+        dataset: { tab: t.key, group: groupKey },
+        onClick: () => switchTab(t.key, false),
+        onKeydown: (e) => {
+          let nextIdx = null;
+          if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+            nextIdx = (idx + 1) % group.tabs.length;
+          } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+            nextIdx = (idx - 1 + group.tabs.length) % group.tabs.length;
+          } else if (e.key === 'Home') {
+            nextIdx = 0;
+          } else if (e.key === 'End') {
+            nextIdx = group.tabs.length - 1;
+          }
+          if (nextIdx !== null) {
+            e.preventDefault();
+            switchTab(group.tabs[nextIdx].key, true);
+          }
+        },
+      },
+      t.label
+    );
+  });
+  bar.replaceChildren(...buttons);
+  if (focusActive) {
+    const targetBtn = bar.querySelector(`.subtab-btn[data-tab="${activeTabKey}"]`);
+    targetBtn?.focus();
   }
 }
 
 function syncReviewTourLabel() {
-  const lbl = document.getElementById('review-step-label');
-  const idx = ALL_PANEL_SPECS.findIndex((s) => s.key === appState.activeTab);
-  const pos = idx >= 0 ? idx + 1 : 1;
-  const title = idx >= 0 ? ALL_PANEL_SPECS[idx].label : appState.activeTab;
-  if (lbl) {
-    lbl.textContent = `${pos} / ${ALL_PANEL_SPECS.length} · ${title}`;
+  const spec = ALL_PANEL_SPECS.find((s) => s.key === appState.activeTab) || ALL_PANEL_SPECS[0];
+  const majorTitleEl = document.getElementById('workspace-major-title');
+  if (majorTitleEl && spec) {
+    majorTitleEl.textContent = spec.groupTitle;
   }
-  const catBadge = document.getElementById('workspace-category-badge');
-  const activeBtn = document.getElementById(`tab-btn-${appState.activeTab}`);
-  if (catBadge && activeBtn?.dataset?.category) {
-    catBadge.textContent = activeBtn.dataset.category;
+  const subLblEl = document.getElementById('review-step-label');
+  if (subLblEl && spec) {
+    subLblEl.textContent = spec.subLabel;
   }
+}
+
+function syncActiveNavigationState(tabKey, focusTabBtn = false) {
+  const spec = ALL_PANEL_SPECS.find((s) => s.key === tabKey) || ALL_PANEL_SPECS[0];
+  const resolvedTabKey = spec.key;
+  const resolvedGroupKey = spec.groupKey;
+
+  appState.activeTab = resolvedTabKey;
+  appState.activeGroup = resolvedGroupKey;
+  appState.lastSubTabByGroup[resolvedGroupKey] = resolvedTabKey;
+
+  const majorButtons = Array.from(document.querySelectorAll('.major-nav-btn'));
+  for (const btn of majorButtons) {
+    if (btn.dataset.group === resolvedGroupKey) {
+      btn.setAttribute('aria-current', 'page');
+    } else {
+      btn.removeAttribute('aria-current');
+    }
+  }
+
+  renderSubtabsBar(resolvedGroupKey, resolvedTabKey, focusTabBtn);
+
+  for (const item of ALL_PANEL_SPECS) {
+    const panelEl = document.getElementById(`panel-${item.key}`);
+    if (panelEl) panelEl.hidden = item.key !== resolvedTabKey;
+  }
+  syncReviewTourLabel();
+}
+
+function switchMajorGroup(groupKey, focusSubtab = false) {
+  const group = MAJOR_MENU_GROUPS.find((g) => g.groupKey === groupKey);
+  if (!group) return;
+  const remembered = appState.lastSubTabByGroup[groupKey];
+  const targetTab =
+    group.tabs.some((t) => t.key === remembered) ? remembered : group.tabs[0].key;
+  switchTab(targetTab, focusSubtab && group.tabs.length > 1);
 }
 
 function switchTab(tabKey, focusTabBtn = false) {
@@ -4032,19 +4480,7 @@ function switchTab(tabKey, focusTabBtn = false) {
     closeModuleDetailPopup(false);
   }
   setMobileSidebarOpen(false);
-  appState.activeTab = tabKey;
-  const tabButtons = Array.from(document.querySelectorAll('.tab-btn'));
-  for (const btn of tabButtons) {
-    const isMatch = btn.dataset.tab === tabKey;
-    btn.setAttribute('aria-selected', String(isMatch));
-    btn.tabIndex = isMatch ? 0 : -1;
-    if (isMatch && focusTabBtn) btn.focus();
-  }
-  for (const spec of ALL_PANEL_SPECS) {
-    const panelEl = document.getElementById(`panel-${spec.key}`);
-    if (panelEl) panelEl.hidden = spec.key !== tabKey;
-  }
-  syncReviewTourLabel();
+  syncActiveNavigationState(tabKey, focusTabBtn);
 }
 
 function bindEvents() {
@@ -4053,7 +4489,7 @@ function bindEvents() {
     const root = document.documentElement;
     const next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
     root.setAttribute('data-theme', next);
-    themeBtn.textContent = next === 'dark' ? '밝은 화면 전환' : '어두운 화면 전환';
+    themeBtn.textContent = next === 'dark' ? '밝은 화면' : '어두운 화면';
   });
 
   document.getElementById('floating-toast-close')?.addEventListener('click', () => {
@@ -4066,7 +4502,7 @@ function bindEvents() {
     const isOpen = sidebar?.getAttribute('data-sidebar-open') === 'true';
     setMobileSidebarOpen(!isOpen);
     if (!isOpen) {
-      document.getElementById(`tab-btn-${appState.activeTab}`)?.focus();
+      document.getElementById(`major-nav-${appState.activeGroup}`)?.focus();
     }
   });
 
@@ -4079,44 +4515,33 @@ function bindEvents() {
     setMobileSidebarOpen(false);
   });
 
-  document.getElementById('btn-toggle-forms-drawer')?.addEventListener('click', (e) => {
-    const btn = e.currentTarget;
-    const drawer = document.getElementById('quick-forms-drawer');
-    if (!drawer) return;
-    const nextOpen = drawer.hidden;
-    drawer.hidden = !nextOpen;
-    btn.setAttribute('aria-expanded', String(nextOpen));
-    btn.textContent = nextOpen ? '필수 서식함 접기' : '필수 법정·보안 서식함';
-  });
-
-  document.getElementById('btn-toggle-sim-drawer')?.addEventListener('click', (e) => {
-    const btn = e.currentTarget;
-    const drawer = document.getElementById('sim-settings-drawer');
-    if (!drawer) return;
-    const nextOpen = drawer.hidden;
-    drawer.hidden = !nextOpen;
-    btn.setAttribute('aria-expanded', String(nextOpen));
-    btn.textContent = nextOpen ? '사업장 규모·환경설정 접기' : '사업장 규모·환경설정 열기';
-  });
-
-  document.getElementById('sidebar-preset-apply-btn')?.addEventListener('click', async (e) => {
-    const selectEl = document.getElementById('sidebar-preset-select');
-    const presetId = selectEl?.value || '';
-    if (!presetId) {
-      showBanner('전환할 사업장 규모 시나리오 프리셋을 선택해 주세요.', true);
-      return;
-    }
-    try {
-      const data = await apiPost('/api/simulate-company', { presetId }, e.currentTarget);
-      updateSnapshot(data.snapshot);
-      showBanner(`사업장 규모 시나리오 전환 완료: ${data.snapshot.company.companyName}`);
-    } catch (err) {
-      showBanner(err.message, true);
+  window.addEventListener('resize', () => {
+    if (window.innerWidth > 1080) {
+      setMobileSidebarOpen(false);
     }
   });
 
-  document.getElementById('btn-jump-onboarding')?.addEventListener('click', () => {
-    switchTab('onboarding', true);
+  document.getElementById('sidebar-company-card')?.addEventListener('click', () => {
+    switchTab('settings-master', false);
+  });
+
+  document.getElementById('btn-quick-forms-jump')?.addEventListener('click', () => {
+    switchTab('forms-center', false);
+  });
+
+  document.getElementById('btn-quick-settings-jump')?.addEventListener('click', () => {
+    switchTab('settings-master', false);
+  });
+
+  document.getElementById('select-leave-basis')?.addEventListener('change', () => {
+    syncFiscalControlState();
+  });
+
+  const majorNavButtons = Array.from(document.querySelectorAll('.major-nav-btn'));
+  majorNavButtons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      switchMajorGroup(btn.dataset.group, false);
+    });
   });
 
   document.getElementById('btn-open-dashboard-popup')?.addEventListener('click', () => {
@@ -4127,24 +4552,8 @@ function bindEvents() {
     openMobilePopupWindow();
   });
 
-  document.getElementById('btn-tour-prev')?.addEventListener('click', () => {
-    const idx = ALL_PANEL_SPECS.findIndex((s) => s.key === appState.activeTab);
-    const prevIdx = (idx - 1 + ALL_PANEL_SPECS.length) % ALL_PANEL_SPECS.length;
-    switchTab(ALL_PANEL_SPECS[prevIdx].key, false);
-  });
-
-  document.getElementById('btn-tour-next')?.addEventListener('click', () => {
-    const idx = ALL_PANEL_SPECS.findIndex((s) => s.key === appState.activeTab);
-    const nextIdx = (idx + 1) % ALL_PANEL_SPECS.length;
-    switchTab(ALL_PANEL_SPECS[nextIdx].key, false);
-  });
-
   document.getElementById('btn-open-current-module-modal')?.addEventListener('click', (e) => {
     openModuleDetailPopup(appState.activeTab, e.currentTarget);
-  });
-
-  document.getElementById('btn-detach-current-module-popup')?.addEventListener('click', () => {
-    openStandalonePopupWindow(appState.activeTab);
   });
 
   document.getElementById('module-popup-close-btn')?.addEventListener('click', () => {
@@ -4197,23 +4606,6 @@ function bindEvents() {
     if (e.target.id === 'module-popup-modal') closeModuleDetailPopup(true);
   });
 
-  const tabButtons = Array.from(document.querySelectorAll('.tab-btn'));
-  tabButtons.forEach((btn, idx) => {
-    btn.addEventListener('click', () => switchTab(btn.dataset.tab, false));
-    btn.addEventListener('keydown', (e) => {
-      let nextIdx = null;
-      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') nextIdx = (idx + 1) % tabButtons.length;
-      else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
-        nextIdx = (idx - 1 + tabButtons.length) % tabButtons.length;
-      } else if (e.key === 'Home') nextIdx = 0;
-      else if (e.key === 'End') nextIdx = tabButtons.length - 1;
-      if (nextIdx !== null) {
-        e.preventDefault();
-        switchTab(tabButtons[nextIdx].dataset.tab, true);
-      }
-    });
-  });
-
   const simForm = document.getElementById('sim-form');
   simForm?.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -4232,11 +4624,22 @@ function bindEvents() {
           dispatchedWorkers: Number(document.getElementById('input-dispatched-workers').value),
           operatingDays: Number(document.getElementById('input-operating-days').value),
         },
+        policySettings: {
+          leaveAccrualBasis: document.getElementById('select-leave-basis').value,
+          fiscalYearStartMonthDay: document.getElementById('select-fiscal-start').value,
+          leaveRoundingRule: document.getElementById('select-leave-rounding').value,
+          leaveSettlementPolicy: document.getElementById('select-leave-settlement').value,
+          weeklyWarnHours: Number(document.getElementById('input-weekly-warn').value),
+          payDayLabel: document.getElementById('select-pay-day').value,
+          withholdingTaxRatePct: Number(document.getElementById('select-tax-rate').value),
+          nonTaxableMealLimit: Number(document.getElementById('input-meal-limit').value),
+        },
       };
       const data = await apiPost('/api/simulate-company', payload, btn);
       updateSnapshot(data.snapshot);
+      const p = data.snapshot.company.policySettings;
       showBanner(
-        `재산정 완료: 근로기준법 상시 ${data.snapshot.compliance.headcounts.lsaRegularCount}명 / 산안법 ${data.snapshot.compliance.headcounts.oshRegularCount}명 기준 갱신됨`
+        `환경 설정 저장 완료: 상시 ${data.snapshot.compliance.headcounts.lsaRegularCount}명 · 연차 [${formatLeaveBasisShort(p)}] · 급여 [${p.payDayLabel}, 원천세 ${p.withholdingTaxRatePct}%] 기준이 전 메뉴에 일괄 반영되었습니다.`
       );
     } catch (err) {
       showBanner(err.message, true);
@@ -4480,10 +4883,14 @@ function bindEvents() {
     inputEl.setAttribute('aria-busy', 'true');
     labelEl?.setAttribute('aria-busy', 'true');
     try {
+      const maskClientPii = (txt) =>
+        String(txt || '')
+          .replace(/\b(\d{6})-[1-4]\d{6}\b/g, '$1-*******')
+          .replace(/\b(01[016789])-\d{3,4}-(\d{4})\b/g, '$1-****-$2');
       const files = [];
       for (const f of selected.slice(0, 10)) {
-        const content = await f.text();
-        files.push({ fileName: f.name, content });
+        const rawText = await f.text();
+        files.push({ fileName: f.name, content: maskClientPii(rawText) });
       }
       const res = await apiPost('/api/onboarding/stage', { files });
       for (const item of res.staging.classifiedFiles || []) {
@@ -4800,10 +5207,13 @@ async function loadAuthorizedBootstrap() {
   updateSnapshot(data.snapshot);
 
   const requestedTab = params.get('tab');
+  const requestedGroup = params.get('group');
   if (requestedTab && ALL_PANEL_SPECS.some((s) => s.key === requestedTab)) {
     switchTab(requestedTab, false);
+  } else if (requestedGroup && MAJOR_MENU_GROUPS.some((g) => g.groupKey === requestedGroup)) {
+    switchMajorGroup(requestedGroup, false);
   } else {
-    syncReviewTourLabel();
+    syncActiveNavigationState(appState.activeTab, false);
   }
   syncPopupModuleSelectOptions();
   if (params.get('openmodal') === '1') {

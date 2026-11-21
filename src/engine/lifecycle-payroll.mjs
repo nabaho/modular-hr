@@ -291,7 +291,11 @@ export function computeEmployeePayrollLine(worker = {}, context = {}) {
   const basePayApplied = floorWon(raisedBasePay * activeRatio);
   const fixedAllowanceApplied = floorWon(fixedOrdinaryAllowance * activeRatio);
   const mealAllowanceApplied = floorWon(contractMealTotal * activeRatio);
-  const nonTaxableMealApplied = Math.min(mealAllowanceApplied, LAW_BASELINE.nonTaxableMealLimit);
+  const configuredMealCap = Math.min(
+    LAW_BASELINE.nonTaxableMealLimit,
+    cleanNonNeg(context.nonTaxableMealLimit, LAW_BASELINE.nonTaxableMealLimit)
+  );
+  const nonTaxableMealApplied = Math.min(mealAllowanceApplied, configuredMealCap);
   const taxableMealExcess = Math.max(0, mealAllowanceApplied - nonTaxableMealApplied);
 
   const monthlyOrdinaryTotal = raisedBasePay + fixedOrdinaryAllowance;
@@ -321,17 +325,21 @@ export function computeEmployeePayrollLine(worker = {}, context = {}) {
   const recordedPeakWeekly = cleanNonNeg(worker.maxWeeklyWorkedHours, 0);
   const maxWeeklyWorkedHours = Math.max(recordedPeakWeekly, avgWeeklyFromMonthly);
 
+  const weeklyWarnThreshold = Math.min(
+    LAW_BASELINE.weeklyHardCapHours,
+    Math.max(40, cleanNonNeg(context.weeklyWarnHours, 48))
+  );
   if (is5OrMore && maxWeeklyWorkedHours > LAW_BASELINE.weeklyHardCapHours) {
     warnings.push({
       code: 'WEEKLY_52H_EXCEEDED',
       level: 'CRITICAL',
       message: `주 최대 근로시간 ${maxWeeklyWorkedHours.toFixed(1)}h > 법정 상한 52h 초과 (근로기준법 제53조 위반 위험)`,
     });
-  } else if (is5OrMore && maxWeeklyWorkedHours >= 48) {
+  } else if (is5OrMore && maxWeeklyWorkedHours >= weeklyWarnThreshold) {
     warnings.push({
       code: 'WEEKLY_52H_NEAR',
       level: 'WARN',
-      message: `주 최대 근로시간 ${maxWeeklyWorkedHours.toFixed(1)}h — 주 52시간 한도 근접 주의`,
+      message: `주 최대 근로시간 ${maxWeeklyWorkedHours.toFixed(1)}h — 사내 경고기준(${weeklyWarnThreshold}h) 도달`,
     });
   }
 
@@ -419,7 +427,10 @@ export function computeEmployeePayrollLine(worker = {}, context = {}) {
   } else {
     rawIncomeTax = 307500 + (taxBaseApprox - 4500000) * 0.16;
   }
-  const incomeTax = floorTenWon(rawIncomeTax);
+  const withholdingPct = [80, 100, 120].includes(Number(context.withholdingTaxRatePct))
+    ? Number(context.withholdingTaxRatePct)
+    : 100;
+  const incomeTax = floorTenWon(rawIncomeTax * (withholdingPct / 100));
   const localTax = floorTenWon(incomeTax * 0.1);
   const incomeTaxTotal = incomeTax + localTax;
 
@@ -429,6 +440,9 @@ export function computeEmployeePayrollLine(worker = {}, context = {}) {
   formulaLines.push(
     `통상시급 = (${raisedBasePay.toLocaleString('ko-KR')} + ${fixedOrdinaryAllowance.toLocaleString('ko-KR')}) ÷ ${monthlyRefHours}h = ${Math.round(ordinaryHourlyWage).toLocaleString('ko-KR')}원`
   );
+  if (withholdingPct !== 100) {
+    formulaLines.push(`소득세 원천징수 선택비율 = 간이세액표 ${withholdingPct}% 기준 적용`);
+  }
   if (mealAllowanceApplied > 0) {
     formulaLines.push(
       `식대 지급 = 총 ${mealAllowanceApplied.toLocaleString('ko-KR')}원 (비과세 ${nonTaxableMealApplied.toLocaleString('ko-KR')}원 / 과세전환 ${taxableMealExcess.toLocaleString('ko-KR')}원)`

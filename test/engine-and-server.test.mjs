@@ -2920,3 +2920,164 @@ test('22. 필수 인사·보안 서식 3종(개인정보동의서 · 비밀유�
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+
+test('23. 깔끔한 7대 메뉴·서브탭 UI 구조 및 환경 설정(회계연도 연차 · 원천세율 · 식대비과세 · 주간경보 · 급여일) 전사 자동연동 검증', async () => {
+  const indexHtml = fs.readFileSync(path.join(PROJECT_ROOT, 'src/public/index.html'), 'utf8');
+  for (const requiredId of [
+    'major-nav-home',
+    'major-nav-hr',
+    'major-nav-attendance',
+    'major-nav-leave',
+    'major-nav-payroll',
+    'major-nav-legal',
+    'major-nav-settings',
+    'domain-subtabs-bar',
+    'panel-settings-master',
+    'panel-forms-center',
+    'panel-ops-leave-promo',
+    'select-leave-basis',
+    'select-fiscal-start',
+    'select-pay-day',
+    'select-tax-rate',
+  ]) {
+    assert.ok(indexHtml.includes(`id="${requiredId}"`), `index.html에 ${requiredId} 요소가 존재해야 함`);
+  }
+
+  const { server } = createAppServer({ requirePcAuth: false, demoMode: true });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  const baseUrl = `http://modular-hr.localhost:${port}`;
+  const localLoopback = `http://127.0.0.1:${port}`;
+
+  try {
+    const bootRes = await fetch(`${localLoopback}/api/bootstrap`, {
+      headers: { Host: `modular-hr.localhost:${port}` },
+    });
+    assert.equal(bootRes.status, 200);
+    const { csrfToken, snapshot: snap0 } = await bootRes.json();
+
+    assert.equal(snap0.company.policySettings.leaveAccrualBasis, 'HIRE_DATE');
+    const emp201HireLeave = snap0.operationsSuite.leaveAndMaternity.ledger.find(
+      (r) => r.empCode === 'EMP-201'
+    );
+    const emp203HireLeave = snap0.operationsSuite.leaveAndMaternity.ledger.find(
+      (r) => r.empCode === 'EMP-203'
+    );
+    assert.ok(emp201HireLeave.ruleBasis.includes('입사일 기준'));
+    assert.notEqual(emp201HireLeave.cycleExpiryDate, '2026-12-31');
+    const netBefore = snap0.payrollSummary.totalNet;
+    const taxBefore = snap0.payrollSummary.totalTax;
+    const nearBefore = snap0.operationsSuite.overviewKpis.near52Count;
+
+    // 1. 잘못된 policySettings 입력 시 400 거부 및 기존 상태 무결성 보존 확인
+    const invalidPolicyRes = await fetch(`${localLoopback}/api/simulate-company`, {
+      method: 'POST',
+      headers: {
+        Host: `modular-hr.localhost:${port}`,
+        Origin: baseUrl,
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': csrfToken,
+      },
+      body: JSON.stringify({
+        policySettings: { withholdingTaxRatePct: 95 },
+        ksicMajor: 'INVALID_CODE',
+      }),
+    });
+    assert.equal(invalidPolicyRes.status, 400);
+
+    // 2. 환경 설정 변경: 회계연도(01-01) 일괄 연차 + 원천세 80% + 식대 비과세 10만 원 + 주간 주의 44h + 매월 10일 급여일
+    const updateRes = await fetch(`${localLoopback}/api/simulate-company`, {
+      method: 'POST',
+      headers: {
+        Host: `modular-hr.localhost:${port}`,
+        Origin: baseUrl,
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': csrfToken,
+      },
+      body: JSON.stringify({
+        policySettings: {
+          leaveAccrualBasis: 'FISCAL_YEAR',
+          fiscalYearStartMonthDay: '01-01',
+          leaveRoundingRule: 'CEIL_HALF',
+          leaveSettlementPolicy: 'FULL_PAYOUT',
+          weeklyWarnHours: 44,
+          payDayLabel: '매월 10일',
+          withholdingTaxRatePct: 80,
+          nonTaxableMealLimit: 100000,
+        },
+      }),
+    });
+    assert.equal(updateRes.status, 200);
+    const { snapshot: snapFiscal } = await updateRes.json();
+
+    assert.equal(snapFiscal.company.policySettings.leaveAccrualBasis, 'FISCAL_YEAR');
+    assert.equal(snapFiscal.operationsSuite.policySettings.payDayLabel, '매월 10일');
+
+    // 전 직원 연차 만료일이 회계연도 말일(2026-12-31)로 일괄 정렬되고 산정 근거가 회계연도로 전환되는지 확인
+    const emp201FiscalLeave = snapFiscal.operationsSuite.leaveAndMaternity.ledger.find(
+      (r) => r.empCode === 'EMP-201'
+    );
+    const emp203FiscalLeave = snapFiscal.operationsSuite.leaveAndMaternity.ledger.find(
+      (r) => r.empCode === 'EMP-203'
+    );
+    assert.ok(emp201FiscalLeave.ruleBasis.includes('회계연도(2026-01-01'));
+    assert.equal(emp201FiscalLeave.cycleExpiryDate, '2026-12-31');
+    assert.equal(emp203FiscalLeave.cycleExpiryDate, '2026-12-31');
+    assert.notEqual(
+      emp203FiscalLeave.accruedDays,
+      emp203HireLeave.accruedDays,
+      '중도입사자의 회계연도 비례부여 연차는 개별 입사일 기준과 구분 산정되어야 함'
+    );
+
+    // 주간 주의 기준 48h -> 44h 하향 시 EMP-202(44h)가 주의 대상에 자동 편입되는지 확인
+    assert.ok(
+      snapFiscal.operationsSuite.overviewKpis.near52Count > nearBefore,
+      '환경 설정의 주간 주의 시간(44h) 변경 시 근태 관제 주의 인원이 자동 연동되어야 함'
+    );
+
+    // 급여 원천세 80% 및 식대 비과세 한도 10만 원 반영 확인
+    const emp201Line = snapFiscal.payrollLines.find((l) => l.empCode === 'EMP-201');
+    assert.equal(emp201Line.nonTaxableMealApplied, 100000);
+    assert.equal(emp201Line.taxableMealExcess, 100000);
+    assert.ok(
+      emp201Line.formulaLines.some((f) => f.includes('간이세액표 80% 기준 적용')),
+      '임금명세서 산출식에 80% 원천징수 선택세율이 명시되어야 함'
+    );
+    assert.notEqual(snapFiscal.payrollSummary.totalNet, netBefore);
+    assert.notEqual(snapFiscal.payrollSummary.totalTax, taxBefore);
+
+    // 3. 표준 근로계약서 및 취업규칙 신고서에 환경 설정(매월 10일, 회계연도 일괄 기준)이 자동 반영되는지 확인
+    const contractDocRes = await fetch(`${localLoopback}/api/document`, {
+      method: 'POST',
+      headers: {
+        Host: `modular-hr.localhost:${port}`,
+        Origin: baseUrl,
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': csrfToken,
+      },
+      body: JSON.stringify({ templateId: 'DOC_EMPLOYMENT_CONTRACT' }),
+    });
+    assert.equal(contractDocRes.status, 200);
+    const { document: contractDoc } = await contractDocRes.json();
+    assert.ok(contractDoc.body.includes('매월 10일'));
+    assert.ok(contractDoc.body.includes('회계연도 일괄 기준 (매년 01-01 부여'));
+
+    const workRulesDocRes = await fetch(`${localLoopback}/api/document`, {
+      method: 'POST',
+      headers: {
+        Host: `modular-hr.localhost:${port}`,
+        Origin: baseUrl,
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': csrfToken,
+      },
+      body: JSON.stringify({ templateId: 'DOC_WORK_RULES_REPORT' }),
+    });
+    assert.equal(workRulesDocRes.status, 200);
+    const { document: workRulesDoc } = await workRulesDocRes.json();
+    assert.ok(workRulesDoc.body.includes('매월 10일'));
+    assert.ok(workRulesDoc.body.includes('회계연도 일괄 기준 (매년 01-01 부여'));
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

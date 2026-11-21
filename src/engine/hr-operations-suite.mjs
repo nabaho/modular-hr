@@ -34,24 +34,163 @@ function assertBoundedFiniteNumber(raw, fieldName, min, max) {
   return raw;
 }
 
+export const DEFAULT_POLICY_SETTINGS = Object.freeze({
+  leaveAccrualBasis: 'HIRE_DATE', // 'HIRE_DATE' | 'FISCAL_YEAR'
+  fiscalYearStartMonthDay: '01-01', // '01-01' | '04-01' | '07-01'
+  leaveRoundingRule: 'ROUND_TENTH', // 'ROUND_TENTH' | 'CEIL_HALF' | 'CEIL_INT'
+  leaveSettlementPolicy: 'PROMOTE_FIRST', // 'PROMOTE_FIRST' | 'FULL_PAYOUT'
+  payDayLabel: '매월 25일',
+  withholdingTaxRatePct: 100, // 80 | 100 | 120
+  nonTaxableMealLimit: 200000, // 0 ~ 200000
+  weeklyWarnHours: 48, // 44 ~ 51
+});
+
+export function normalizePolicySettings(raw = {}) {
+  const src = raw && typeof raw === 'object' ? raw : {};
+  return {
+    leaveAccrualBasis: src.leaveAccrualBasis === 'FISCAL_YEAR' ? 'FISCAL_YEAR' : 'HIRE_DATE',
+    fiscalYearStartMonthDay: ['01-01', '04-01', '07-01'].includes(src.fiscalYearStartMonthDay)
+      ? src.fiscalYearStartMonthDay
+      : '01-01',
+    leaveRoundingRule: ['ROUND_TENTH', 'CEIL_HALF', 'CEIL_INT'].includes(src.leaveRoundingRule)
+      ? src.leaveRoundingRule
+      : 'ROUND_TENTH',
+    leaveSettlementPolicy: src.leaveSettlementPolicy === 'FULL_PAYOUT' ? 'FULL_PAYOUT' : 'PROMOTE_FIRST',
+    payDayLabel: ['매월 10일', '매월 15일', '매월 25일', '매월 말일'].includes(src.payDayLabel)
+      ? src.payDayLabel
+      : '매월 25일',
+    withholdingTaxRatePct: [80, 100, 120].includes(Number(src.withholdingTaxRatePct))
+      ? Number(src.withholdingTaxRatePct)
+      : 100,
+    nonTaxableMealLimit:
+      typeof src.nonTaxableMealLimit === 'number' &&
+      Number.isFinite(src.nonTaxableMealLimit) &&
+      src.nonTaxableMealLimit >= 0 &&
+      src.nonTaxableMealLimit <= 200000
+        ? Math.round(src.nonTaxableMealLimit)
+        : 200000,
+    weeklyWarnHours:
+      typeof src.weeklyWarnHours === 'number' &&
+      Number.isFinite(src.weeklyWarnHours) &&
+      src.weeklyWarnHours >= 44 &&
+      src.weeklyWarnHours <= 51
+        ? Number(src.weeklyWarnHours)
+        : 48,
+  };
+}
+
+function applyLeaveRounding(rawDays, rule) {
+  if (rule === 'CEIL_INT') return Math.ceil(rawDays);
+  if (rule === 'CEIL_HALF') return Math.ceil(rawDays * 2) / 2;
+  return Math.round(rawDays * 10) / 10;
+}
+
 /**
- * 입사일과 기준일로 근로기준법 제60조 법정 연차유급휴가 발생일수 자동 산정
- * - 계속근로 1년 미만: 1개월 개근 시 1일 (최대 11일)
- * - 계속근로 1년 이상: 15일 + 매 2년 초과 계속근로마다 1일 가산 (한도 25일)
+ * 입사일·기준일 및 회사 환경설정(입사일 기준 vs 회계연도 일괄 기준)에 따른 연차유급휴가 자동 산정
+ * - HIRE_DATE(입사일 기준): 제60조 원칙 (1년 미만 월차 최대 11일 / 1년 이상 15~25일)
+ * - FISCAL_YEAR(회계연도 기준): 회계연도 개시일(예: 매년 01-01) 일괄 부여 (직전연도 중도입사자 비례연차 + 퇴직 시 입사일 기준 비교 안내 포함)
  */
-export function computeStatutoryAnnualLeaveDays(hireDate, referenceDate = '2026-11-15') {
+export function computeStatutoryAnnualLeaveDays(hireDate, referenceDate = '2026-11-15', policyInput = {}) {
+  const policy = normalizePolicySettings(policyInput);
   if (!isValidIsoDate(hireDate) || !isValidIsoDate(referenceDate) || hireDate > referenceDate) {
-    return { accruedDays: 15, ruleBasis: '기본 15일 (입사일 미정 표준치)', serviceMonths: 12, serviceYears: 1 };
+    const fallbackYear = isValidIsoDate(referenceDate) ? referenceDate.slice(0, 4) : '2026';
+    return {
+      accruedDays: 15,
+      hireBasisDays: 15,
+      ruleBasis: '기본 15일 (입사일 미정 표준치)',
+      cycleExpiryDate: `${fallbackYear}-12-31`,
+      promoWindowLabel: '만료 6개월·2개월 전',
+      serviceMonths: 12,
+      serviceYears: 1,
+    };
   }
   const days = diffDaysISO(hireDate, referenceDate);
   const serviceMonths = Math.max(0, Math.floor(days / 30.4375));
   const serviceYears = Math.floor(days / 365);
 
+  const hireBasisDays =
+    days < 365
+      ? Math.min(11, Math.max(1, serviceMonths))
+      : Math.min(25, 15 + Math.floor(Math.max(0, serviceYears - 1) / 2));
+
+  if (policy.leaveAccrualBasis === 'FISCAL_YEAR') {
+    const refYear = Number(referenceDate.slice(0, 4));
+    const candidateStart = `${refYear}-${policy.fiscalYearStartMonthDay}`;
+    const fyStartYear = referenceDate >= candidateStart ? refYear : refYear - 1;
+    const fyStart = `${fyStartYear}-${policy.fiscalYearStartMonthDay}`;
+    const nextFyStart = `${fyStartYear + 1}-${policy.fiscalYearStartMonthDay}`;
+    const fyEnd = addDaysISO(nextFyStart, -1);
+    const stage1Start = addDaysISO(nextFyStart, -183);
+    const stage2Due = addDaysISO(nextFyStart, -61);
+    const promoWindowLabel = `1차 ${stage1Start.slice(5)} · 2차 ${stage2Due.slice(5)} (만료 ${fyEnd})`;
+
+    if (hireDate >= fyStart) {
+      const curMonths = Math.min(11, Math.max(1, serviceMonths));
+      return {
+        accruedDays: curMonths,
+        hireBasisDays,
+        ruleBasis: `회계연도(${policy.fiscalYearStartMonthDay}) 당해입사 · 1개월 개근 월차 ${curMonths}일`,
+        cycleExpiryDate: fyEnd,
+        promoWindowLabel,
+        serviceMonths,
+        serviceYears: 0,
+      };
+    }
+
+    const daysBeforeFy = diffDaysISO(hireDate, fyStart);
+    if (daysBeforeFy < 365) {
+      const rawProportional = (15 * Math.max(1, daysBeforeFy)) / 365;
+      const proportionalDays = applyLeaveRounding(rawProportional, policy.leaveRoundingRule);
+      const remainingFirstYearMonths = Math.max(
+        0,
+        11 - Math.floor(daysBeforeFy / 30.4375)
+      );
+      const combinedDays = applyLeaveRounding(
+        proportionalDays + Math.min(remainingFirstYearMonths, serviceMonths),
+        policy.leaveRoundingRule
+      );
+      const cappedCombined = Math.min(26, Math.max(proportionalDays, combinedDays));
+      return {
+        accruedDays: cappedCombined,
+        hireBasisDays,
+        ruleBasis: `회계연도(${fyStart}) 비례 ${proportionalDays}일 + 1년미만 월차분 (퇴직 시 입사일기준 ${hireBasisDays}일 비교)`,
+        cycleExpiryDate: fyEnd,
+        promoWindowLabel,
+        serviceMonths,
+        serviceYears: 0,
+      };
+    }
+
+    const fyYears = Math.floor(daysBeforeFy / 365);
+    const fyExtra = Math.floor(Math.max(0, fyYears - 1) / 2);
+    const fyTotal = Math.min(25, 15 + fyExtra);
+    return {
+      accruedDays: fyTotal,
+      hireBasisDays,
+      ruleBasis: `회계연도(${fyStart} 일괄) 근속 ${fyYears}년: 15일 + 가산 ${fyTotal - 15}일 (입사일기준 ${hireBasisDays}일)`,
+      cycleExpiryDate: fyEnd,
+      promoWindowLabel,
+      serviceMonths,
+      serviceYears: fyYears,
+    };
+  }
+
+  const annivYear = Number(hireDate.slice(0, 4)) + (serviceYears + 1);
+  const nextAnnivCandidate = `${annivYear}-${hireDate.slice(5, 10)}`;
+  const safeNextAnniv = isValidIsoDate(nextAnnivCandidate)
+    ? nextAnnivCandidate
+    : `${annivYear}-02-28`;
+  const cycleExpiryDate = addDaysISO(safeNextAnniv, -1);
+  const promoWindowLabel = `개별만료 ${cycleExpiryDate} (6개월·2개월 전)`;
+
   if (days < 365) {
     const monthlyAccrued = Math.min(11, Math.max(1, serviceMonths));
     return {
       accruedDays: monthlyAccrued,
-      ruleBasis: `제60조 제2항 (1년 미만 월차 최대 11일 · 현재 ${serviceMonths}개월)`,
+      hireBasisDays,
+      ruleBasis: `입사일 기준 제60조② (1년 미만 월차 최대 11일 · 현재 ${serviceMonths}개월)`,
+      cycleExpiryDate,
+      promoWindowLabel,
       serviceMonths,
       serviceYears: 0,
     };
@@ -60,7 +199,10 @@ export function computeStatutoryAnnualLeaveDays(hireDate, referenceDate = '2026-
   const total = Math.min(25, 15 + extraDays);
   return {
     accruedDays: total,
-    ruleBasis: `제60조 제1·4항 (근속 ${serviceYears}년: 기본 15일 + 가산 ${total - 15}일)`,
+    hireBasisDays,
+    ruleBasis: `입사일 기준 제60조①·④ (근속 ${serviceYears}년: 기본 15일 + 가산 ${total - 15}일)`,
+    cycleExpiryDate,
+    promoWindowLabel,
     serviceMonths,
     serviceYears,
   };
@@ -362,6 +504,7 @@ export function createOperationsSuiteManager() {
    */
   function buildView({ company, workers, payrollLines, compliance, offboardedSummary }) {
     const refDate = company.referenceDate || '2026-11-15';
+    const policy = normalizePolicySettings(company.policySettings);
     const hc = compliance.headcounts;
     const regularRoster = workers.filter(
       (w) =>
@@ -408,7 +551,7 @@ export function createOperationsSuiteManager() {
     }
     const orgDepartments = Array.from(deptMap.values());
 
-    // 3) M4 근태 · 주52시간 상한 관제 보드
+    // 3) M4 근태 · 주52시간 상한 관제 보드 (환경설정 weeklyWarnHours 실시간 반영)
     const attendanceBoard = regularRoster.map((w, idx) => {
       const maxWeekly = Number((w.maxWeeklyWorkedHours ?? w.weeklyHours ?? 40).toFixed(1));
       const status =
@@ -416,7 +559,7 @@ export function createOperationsSuiteManager() {
           ? 'PARENTAL_OR_LEAVE'
           : maxWeekly > 52
             ? 'OVER_52H_ALERT'
-            : maxWeekly >= 48
+            : maxWeekly >= policy.weeklyWarnHours
               ? 'NEAR_52H_WARN'
               : 'NORMAL_WORKING';
       const shiftType =
@@ -431,14 +574,15 @@ export function createOperationsSuiteManager() {
         monthlyNightHours: w.nightHours || 0,
         monthlyHolidayHours: (w.holidayLe8Hours || 0) + (w.holidayGt8Hours || 0),
         maxWeeklyWorkedHours: maxWeekly,
+        warnThresholdHours: policy.weeklyWarnHours,
         status,
       };
     });
 
-    // 4) M5 연차원장 · 제61조 1/2차 사용촉진 · 미사용수당 추계
+    // 4) M5 연차원장 · 제61조 1/2차 사용촉진 · 미사용수당 추계 (환경설정 입사일/회계연도 기준 실시간 반영)
     const leaveLedger = regularRoster.map((w) => {
       const hireDate = w.hireDate || '2023-03-02';
-      const statutory = computeStatutoryAnnualLeaveDays(hireDate, refDate);
+      const statutory = computeStatutoryAnnualLeaveDays(hireDate, refDate, policy);
       const usage = leaveUsageMap.get(w.empCode) || { usedDays: 3, promoStage: 'NONE' };
       const accruedDays = hc.is5OrMore ? statutory.accruedDays : 0;
       const usedDays = hc.is5OrMore ? Math.min(accruedDays, usage.usedDays) : 0;
@@ -448,14 +592,21 @@ export function createOperationsSuiteManager() {
         (payLine?.ordinaryHourlyWage || payLine?.ordinaryHourly || LAW_BASELINE.minimumHourlyWage) *
           (w.dailyHours || 8)
       );
-      const estimatedPayout =
-        usage.promoStage === 'STAGE_2_DESIGNATED' ? 0 : Math.round(remainingDays * dailyOrdinary);
+      const exemptByPromo =
+        policy.leaveSettlementPolicy === 'PROMOTE_FIRST' &&
+        usage.promoStage === 'STAGE_2_DESIGNATED';
+      const estimatedPayout = exemptByPromo ? 0 : Math.round(remainingDays * dailyOrdinary);
       return {
         empCode: w.empCode,
         displayName: w.displayName,
         deptName: w.deptName,
         hireDate,
         ruleBasis: hc.is5OrMore ? statutory.ruleBasis : '5인 미만 사업장 법정 연차 의무 미적용',
+        cycleExpiryDate: statutory.cycleExpiryDate,
+        firstPromoDeadline: addDaysISO(statutory.cycleExpiryDate, -180),
+        secondPromoDeadline: addDaysISO(statutory.cycleExpiryDate, -60),
+        promoWindowLabel: statutory.promoWindowLabel,
+        hireBasisDays: statutory.hireBasisDays,
         accruedDays,
         usedDays,
         remainingDays,
@@ -552,10 +703,8 @@ export function createOperationsSuiteManager() {
     ];
 
     const unsignedContractCount = contractLedger.filter((c) => !c.contractSigned).length;
-    const over52Count = attendanceBoard.filter((a) => a.maxWeeklyWorkedHours > 52).length;
-    const near52Count = attendanceBoard.filter(
-      (a) => a.maxWeeklyWorkedHours >= 48 && a.maxWeeklyWorkedHours <= 52
-    ).length;
+    const over52Count = attendanceBoard.filter((a) => a.status === 'OVER_52H_ALERT').length;
+    const near52Count = attendanceBoard.filter((a) => a.status === 'NEAR_52H_WARN').length;
     const leavePromoPendingCount = leaveLedger.filter(
       (l) => l.remainingDays >= 5 && l.promoStage === 'NONE'
     ).length;
@@ -565,6 +714,7 @@ export function createOperationsSuiteManager() {
     );
 
     return {
+      policySettings: policy,
       overviewKpis: {
         activeRosterCount: workers.length,
         applicantOpenCount: applicants.filter((a) => !a.hiredEmpCode && a.stage !== 'DOC_RETENTION').length,
@@ -588,6 +738,7 @@ export function createOperationsSuiteManager() {
       },
       attendanceControl: {
         is5OrMore: hc.is5OrMore,
+        weeklyWarnHours: policy.weeklyWarnHours,
         board: attendanceBoard,
       },
       leaveAndMaternity: {
@@ -605,6 +756,7 @@ export function createOperationsSuiteManager() {
       },
       statutoryOpsCenter: {
         lmcRequired: hc.is30OrMore,
+        oshOfficerRequired: Boolean(compliance.oshFlags?.needsSafetyOfficer),
         hasMajorityUnion: Boolean(company.hasMajorityUnion),
         lmcCommitteeCountEachSide: hc.lsaRegularCount >= 100 ? 5 : 3,
         lmcAgendaItems: structuredClone(lmcAgendaItems),

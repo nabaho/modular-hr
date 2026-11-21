@@ -40,7 +40,11 @@ import {
   summarizeOffboardedRegistry,
   updateOffboardedChecklist,
 } from './engine/offboarding-registry.mjs';
-import { createOperationsSuiteManager } from './engine/hr-operations-suite.mjs';
+import {
+  createOperationsSuiteManager,
+  DEFAULT_POLICY_SETTINGS,
+  normalizePolicySettings,
+} from './engine/hr-operations-suite.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -254,6 +258,7 @@ function createDefaultWorkers() {
       empCode: 'EMP-203',
       displayName: 'Alexandria Maria Gonzalez-Hernandez',
       deptName: '글로벌조달·해외인증파트',
+      hireDate: '2025-07-01',
       workerCategory: 'FIXED_TERM',
       weeklyHours: 40,
       dailyHours: 8,
@@ -281,6 +286,7 @@ function createDefaultWorkers() {
       empCode: 'EMP-204',
       displayName: '박산들',
       deptName: '고객지원파트 (단시간)',
+      hireDate: '2026-04-01',
       workerCategory: 'PART_TIME',
       weeklyHours: 20,
       dailyHours: 4,
@@ -537,7 +543,10 @@ export function createAppServer(options = {}) {
   });
 
   let state = {
-    company: structuredClone(WORKPLACE_PRESETS.MFG_62_OSH),
+    company: {
+      ...structuredClone(WORKPLACE_PRESETS.MFG_62_OSH),
+      policySettings: { ...DEFAULT_POLICY_SETTINGS },
+    },
     completedTaskIds: [],
     workers: createDefaultWorkers(),
     offboardedWorkers: createInitialOffboardedWorkers('2026-11-15'),
@@ -636,11 +645,16 @@ export function createAppServer(options = {}) {
       completedTaskIds: state.completedTaskIds,
     });
 
+    const activePolicy = normalizePolicySettings(state.company.policySettings);
+    state.company.policySettings = activePolicy;
     const activeWorkers = state.emptyRosterMode ? [] : state.workers;
     const payrollLines = activeWorkers.map((w) =>
       computeEmployeePayrollLine(w, {
         lsaRegularCount: compliance.headcounts.exactLsaRatio,
         monthCalendarDays: 30,
+        nonTaxableMealLimit: activePolicy.nonTaxableMealLimit,
+        withholdingTaxRatePct: activePolicy.withholdingTaxRatePct,
+        weeklyWarnHours: activePolicy.weeklyWarnHours,
       })
     );
 
@@ -1084,6 +1098,7 @@ export function createAppServer(options = {}) {
               dueDate: filingMatch?.dueDate || state.company.referenceDate,
               hasMajorityUnion: state.company.hasMajorityUnion,
               quarterNumber: body.quarterNumber,
+              policySettings: state.company.policySettings,
               alumniRecord,
               workerRecord,
             });
@@ -1220,11 +1235,69 @@ export function createAppServer(options = {}) {
             throw lockErr;
           }
 
+          if (body.policySettings !== undefined) {
+            if (
+              body.policySettings === null ||
+              typeof body.policySettings !== 'object' ||
+              Array.isArray(body.policySettings)
+            ) {
+              throw badRequest('policySettings는 객체여야 합니다.');
+            }
+            const ps = body.policySettings;
+            if (
+              ps.leaveAccrualBasis !== undefined &&
+              ps.leaveAccrualBasis !== 'HIRE_DATE' &&
+              ps.leaveAccrualBasis !== 'FISCAL_YEAR'
+            ) {
+              throw badRequest('유효하지 않은 연차 산정 기준(leaveAccrualBasis)입니다.');
+            }
+            if (
+              ps.fiscalYearStartMonthDay !== undefined &&
+              !['01-01', '04-01', '07-01'].includes(ps.fiscalYearStartMonthDay)
+            ) {
+              throw badRequest('유효하지 않은 회계연도 개시일(fiscalYearStartMonthDay)입니다.');
+            }
+            if (
+              ps.leaveRoundingRule !== undefined &&
+              !['ROUND_TENTH', 'CEIL_HALF', 'CEIL_INT'].includes(ps.leaveRoundingRule)
+            ) {
+              throw badRequest('유효하지 않은 연차 단수 처리 기준(leaveRoundingRule)입니다.');
+            }
+            if (
+              ps.leaveSettlementPolicy !== undefined &&
+              !['PROMOTE_FIRST', 'FULL_PAYOUT'].includes(ps.leaveSettlementPolicy)
+            ) {
+              throw badRequest('유효하지 않은 미사용 연차 정산 정책(leaveSettlementPolicy)입니다.');
+            }
+            if (
+              ps.payDayLabel !== undefined &&
+              !['매월 10일', '매월 15일', '매월 25일', '매월 말일'].includes(ps.payDayLabel)
+            ) {
+              throw badRequest('유효하지 않은 급여지급일(payDayLabel)입니다.');
+            }
+            if (
+              ps.withholdingTaxRatePct !== undefined &&
+              ![80, 100, 120].includes(ps.withholdingTaxRatePct)
+            ) {
+              throw badRequest('원천징수 세액 비율(withholdingTaxRatePct)은 80, 100, 120 중 하나여야 합니다.');
+            }
+            assertOptionalInteger(ps, 'nonTaxableMealLimit', 0, 200000);
+            assertOptionalFiniteNumber(ps, 'weeklyWarnHours', 44, 51);
+          }
+
+          const preservedPolicy = normalizePolicySettings({
+            ...state.company.policySettings,
+            ...(body.policySettings || {}),
+          });
+
           if (body.presetId !== undefined) {
             if (typeof body.presetId !== 'string' || !Object.hasOwn(WORKPLACE_PRESETS, body.presetId)) {
               throw badRequest('유효하지 않은 presetId입니다.');
             }
-            state.company = structuredClone(WORKPLACE_PRESETS[body.presetId]);
+            state.company = {
+              ...structuredClone(WORKPLACE_PRESETS[body.presetId]),
+              policySettings: preservedPolicy,
+            };
             state.completedTaskIds = [];
             state.emptyRosterMode = false;
             mobileHub.syncWorkerAccessWithRoster(
@@ -1274,6 +1347,7 @@ export function createAppServer(options = {}) {
               assertOptionalInteger(hIn, 'disabledSevere', 0, 1000);
             }
 
+            state.company.policySettings = preservedPolicy;
             const prevPeak = state.company.historicalPeakHeadcount || 0;
             if (typeof body.companyName === 'string' && body.companyName.trim()) {
               state.company.companyName = body.companyName.trim().slice(0, 80);
@@ -1500,6 +1574,7 @@ export function createAppServer(options = {}) {
             dueDate: filingMatch?.dueDate || state.company.referenceDate,
             hasMajorityUnion: state.company.hasMajorityUnion,
             quarterNumber: body.quarterNumber,
+            policySettings: state.company.policySettings,
             alumniRecord,
             workerRecord,
           });
@@ -1577,7 +1652,11 @@ export function createAppServer(options = {}) {
             staging.stagedCompany.bizRegNo,
             safeActiveWorkers
           );
-          state.company = structuredClone(staging.stagedCompany);
+          const prevPolicy = normalizePolicySettings(state.company.policySettings);
+          state.company = {
+            ...structuredClone(staging.stagedCompany),
+            policySettings: prevPolicy,
+          };
           state.completedTaskIds = [];
           state.emptyRosterMode = false;
           state.workers = nextWorkersWithIds;
