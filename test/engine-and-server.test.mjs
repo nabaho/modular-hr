@@ -22,6 +22,10 @@ import {
   stageMultiDocumentBundle,
 } from '../src/engine/document-ingestion.mjs';
 import { createMobileHub } from '../src/engine/mobile-auth-realtime.mjs';
+import {
+  computeAutoClassifiedShift,
+  getKoreanStatutoryHolidayName,
+} from '../src/engine/hr-operations-suite.mjs';
 import { createAppServer } from '../src/server.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -3369,4 +3373,258 @@ test('24. 환경설정 서류 자동저장 · 전 메뉴 번호/사번/체크/�
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test('근태 팝업 캘린더 출퇴근 자동체크(8h초과 연장 · 22~07시 야간 · 법정공휴일 휴일근로) 및 5인 미만/이상 전환 · 월초 변경 표시 검증', async () => {
+  // 1. 정적 HTML 모달 요소 존재 검증
+  const html = fs.readFileSync(path.join(PROJECT_ROOT, 'src', 'public', 'index.html'), 'utf8');
+  assert.ok(html.includes('id="att-calendar-modal"'), '근태 관리 전용 월간 캘린더 팝업 모달 존재 필수');
+  assert.ok(html.includes('id="monthly-change-banner"'), '월초 급여·규모 변경 표시 배너 존재 필수');
+  assert.ok(html.includes('id="settings-scale-check-box"'), '환경설정 5인 미만/이상 판정 박스 존재 필수');
+
+  // 2. 출근~퇴근 시각 기반 자동 분류 엔진 검증
+  assert.equal(getKoreanStatutoryHolidayName('2026-10-09'), '한글날');
+  assert.equal(getKoreanStatutoryHolidayName('2026-12-25'), '성탄절');
+  assert.equal(getKoreanStatutoryHolidayName('2026-05-01'), '근로자의 날');
+
+  // 평일 09:00 ~ 23:30 (휴게 1h) -> 실근로 13.5h = 정상 8h + 연장 5.5h(자동체크) + 야간(22:00~23:30) 1.5h(자동체크)
+  const shiftWeekdayLate = computeAutoClassifiedShift({
+    date: '2026-11-12',
+    clockIn: '09:00',
+    clockOut: '23:30',
+    breakHours: 1,
+  });
+  assert.equal(shiftWeekdayLate.workStatus, 'WORK');
+  assert.equal(shiftWeekdayLate.normalHours, 8);
+  assert.equal(shiftWeekdayLate.overtimeHours, 5.5);
+  assert.equal(shiftWeekdayLate.nightHours, 1.5);
+  assert.equal(shiftWeekdayLate.autoOvertime, true);
+  assert.equal(shiftWeekdayLate.autoNight, true);
+  assert.equal(shiftWeekdayLate.autoHoliday, false);
+
+  // 심야 익일 퇴근 22:00 ~ 07:00 (휴게 1h) -> 밤 10시~새벽 7시 전체 야간근로 8h 자동체크
+  const shiftOvernight = computeAutoClassifiedShift({
+    date: '2026-11-12',
+    clockIn: '22:00',
+    clockOut: '07:00',
+    breakHours: 1,
+  });
+  assert.equal(shiftOvernight.normalHours, 8);
+  assert.equal(shiftOvernight.nightHours, 8);
+  assert.equal(shiftOvernight.autoNight, true);
+
+  // 새벽 조기출근 05:30 ~ 14:30 (휴게 1h) -> 05:30~07:00 새벽 7시까지 1.5h 야간근로 자동체크
+  const shiftEarly = computeAutoClassifiedShift({
+    date: '2026-11-13',
+    clockIn: '05:30',
+    clockOut: '14:30',
+    breakHours: 1,
+  });
+  assert.equal(shiftEarly.normalHours, 8);
+  assert.equal(shiftEarly.nightHours, 1.5);
+  assert.equal(shiftEarly.autoNight, true);
+
+  // 법정공휴일(2026-10-09 한글날) 출근 09:00 ~ 19:00 (휴게 1h) -> 휴일근로 9h(8h이내 8h + 8h초과 1h) 자동체크
+  const shiftHoliday = computeAutoClassifiedShift({
+    date: '2026-10-09',
+    clockIn: '09:00',
+    clockOut: '19:00',
+    breakHours: 1,
+  });
+  assert.equal(shiftHoliday.workStatus, 'HOLIDAY_WORK');
+  assert.equal(shiftHoliday.holidayName, '한글날');
+  assert.equal(shiftHoliday.isStatutoryHoliday, true);
+  assert.equal(shiftHoliday.holidayHours, 9);
+  assert.equal(shiftHoliday.holidayLe8Hours, 8);
+  assert.equal(shiftHoliday.holidayGt8Hours, 1);
+  assert.equal(shiftHoliday.autoHoliday, true);
+  assert.equal(shiftHoliday.autoOvertime, true);
+
+  // 동일 출퇴근 시각 오류 차단
+  assert.throws(() =>
+    computeAutoClassifiedShift({ date: '2026-11-12', clockIn: '09:00', clockOut: '09:00' })
+  );
+
+  // 3. 서버 통합 API: 자동체크 저장 + 5인 이상 ↔ 5인 미만 전환 + 월초(YYYY-MM-01) 변경 표시 · 서명검증(409) · 영속화 복원 검증
+  let savedDiskBlob = null;
+  let simulateDiskError = false;
+  const memPersistence = {
+    load() {
+      return savedDiskBlob ? structuredClone(savedDiskBlob) : null;
+    },
+    save(payload) {
+      if (simulateDiskError) {
+        const err = new Error('디스크 쓰기 실패');
+        err.statusCode = 500;
+        throw err;
+      }
+      savedDiskBlob = structuredClone(payload);
+    },
+  };
+
+  const { server } = createAppServer({
+    requirePcAuth: false,
+    demoMode: true,
+    statePersistence: memPersistence,
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  const baseUrl = `http://127.0.0.1:${port}`;
+
+  const postJson = (urlPath, payload, token) =>
+    fetch(`${baseUrl}${urlPath}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': token,
+        Origin: baseUrl,
+      },
+      body: JSON.stringify(payload),
+    });
+
+  try {
+    const bootRes = await fetch(`${baseUrl}/api/bootstrap`);
+    const { csrfToken, snapshot: initSnap } = await bootRes.json();
+
+    assert.equal(initSnap.monthlyStartNotice.is5OrMore, true);
+    assert.equal(initSnap.monthlyStartNotice.monthStartDate, '2026-11-01');
+    assert.equal(initSnap.monthlyStartNotice.hasChanges, false);
+
+    // 캘린더 자동 분류 저장 -> 급여 변동 발생 -> 월초(2026-11-01) 변경 표시 활성화
+    const autoAttRes = await postJson(
+      '/api/ops/action',
+      {
+        actionType: 'SET_DAILY_ATTENDANCE',
+        empCode: 'EMP-201',
+        date: '2026-11-12',
+        workStatus: 'AUTO',
+        autoClassify: true,
+        clockIn: '09:00',
+        clockOut: '23:30',
+        breakHours: 1,
+        memo: '야간 연장 자동판정 테스트',
+      },
+      csrfToken
+    );
+    assert.equal(autoAttRes.status, 200);
+    const { snapshot: snapAfterAtt } = await autoAttRes.json();
+    const empCalDay = snapAfterAtt.operationsSuite.attendanceControl.board
+      .find((w) => w.empCode === 'EMP-201')
+      .monthlyCalendar.days.find((d) => d.date === '2026-11-12');
+    assert.equal(empCalDay.normalHours, 8);
+    assert.equal(empCalDay.overtimeHours, 5.5);
+    assert.equal(empCalDay.nightHours, 1.5);
+    assert.equal(empCalDay.autoOvertime, true);
+    assert.equal(empCalDay.autoNight, true);
+    assert.equal(snapAfterAtt.monthlyStartNotice.hasChanges, true);
+    assert.equal(snapAfterAtt.monthlyStartNotice.payrollChanged, true);
+    assert.ok(snapAfterAtt.monthlyStartNotice.monthStartBadgeText.includes('월초(2026-11-01)'));
+
+    // 환경 설정에서 5인 미만(4인) 사업장으로 전환 -> 5인 미만 판정 + 월초 규모변경 표시 + 1.0배 정산 반영
+    const scaleDownRes = await postJson(
+      '/api/simulate-company',
+      {
+        headcountInput: {
+          regularWorkers: 4,
+          partTimeWorkers: 0,
+          dailyWorkerManDays: 0,
+          dispatchedWorkers: 0,
+          operatingDays: 22,
+        },
+        resetPeak: true,
+      },
+      csrfToken
+    );
+    assert.equal(scaleDownRes.status, 200);
+    const { snapshot: snapUnder5 } = await scaleDownRes.json();
+    assert.equal(snapUnder5.monthlyStartNotice.is5OrMore, false);
+    assert.equal(snapUnder5.monthlyStartNotice.scaleBadge, '5인 미만 사업장');
+    assert.equal(snapUnder5.monthlyStartNotice.scaleTransitioned, true);
+    assert.equal(snapUnder5.monthlyStartNotice.hasChanges, true);
+    assert.equal(snapUnder5.monthlyStartNotice.checked, false);
+
+    // 구 서명(stale expectedSignature) 전달 시 409 충돌 차단 검증
+    const staleAckRes = await postJson(
+      '/api/ops/action',
+      {
+        actionType: 'ACK_MONTHLY_CHANGE_NOTICE',
+        checked: true,
+        expectedSignature: snapAfterAtt.monthlyStartNotice.signature,
+      },
+      csrfToken
+    );
+    assert.equal(staleAckRes.status, 409, '구 변경 서명으로 확인 요청 시 409로 거부되어야 함');
+
+    // 현재 서명(expectedSignature) 일치 시 정상 확인 체크 전환
+    const ackRes = await postJson(
+      '/api/ops/action',
+      {
+        actionType: 'ACK_MONTHLY_CHANGE_NOTICE',
+        checked: true,
+        expectedSignature: snapUnder5.monthlyStartNotice.signature,
+      },
+      csrfToken
+    );
+    assert.equal(ackRes.status, 200);
+    const { snapshot: snapAcked } = await ackRes.json();
+    assert.equal(snapAcked.monthlyStartNotice.checked, true);
+
+    // 디스크 저장 오류 시 메모리 상태 롤백 및 500 반환 검증
+    simulateDiskError = true;
+    const failSaveRes = await postJson(
+      '/api/ops/action',
+      {
+        actionType: 'SET_DAILY_ATTENDANCE',
+        empCode: 'EMP-201',
+        date: '2026-11-13',
+        workStatus: 'AUTO',
+        autoClassify: true,
+        clockIn: '09:00',
+        clockOut: '22:00',
+        breakHours: 1,
+      },
+      csrfToken
+    );
+    assert.equal(failSaveRes.status, 500);
+    simulateDiskError = false;
+
+    // 서버 재시작 시 일별 출퇴근(09:00~23:30 · 메모) 및 월초 확인 상태가 그대로 복원되는지 검증
+    const restarted = createAppServer({
+      requirePcAuth: false,
+      demoMode: true,
+      statePersistence: memPersistence,
+    });
+    const restoredSnap = restarted.getSnapshot();
+    const restoredDay = restoredSnap.operationsSuite.attendanceControl.board
+      .find((w) => w.empCode === 'EMP-201')
+      .monthlyCalendar.days.find((d) => d.date === '2026-11-12');
+    assert.equal(restoredDay.clockIn, '09:00');
+    assert.equal(restoredDay.clockOut, '23:30');
+    assert.equal(restoredDay.memo, '야간 연장 자동판정 테스트');
+    assert.equal(restoredSnap.monthlyStartNotice.checked, true);
+
+    // 다시 5인 이상(10인)으로 변경 시 이전 확인 체크가 자동 해제되어 재확인 유도 검증
+    const scaleUpRes = await postJson(
+      '/api/simulate-company',
+      {
+        headcountInput: {
+          regularWorkers: 10,
+          partTimeWorkers: 0,
+          dailyWorkerManDays: 0,
+          dispatchedWorkers: 0,
+          operatingDays: 22,
+        },
+        resetPeak: true,
+      },
+      csrfToken
+    );
+    assert.equal(scaleUpRes.status, 200);
+    const { snapshot: snapOver5 } = await scaleUpRes.json();
+    assert.equal(snapOver5.monthlyStartNotice.is5OrMore, true);
+    assert.equal(snapOver5.monthlyStartNotice.scaleBadge, '5인 이상 사업장');
+    assert.equal(snapOver5.monthlyStartNotice.checked, false, '새로운 규모·급여 변경 발생 시 확인 체크가 미확인으로 리셋되어야 함');
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 

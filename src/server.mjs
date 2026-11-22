@@ -564,6 +564,20 @@ export function createAppServer(options = {}) {
     ],
   };
 
+  const monthlyChangeState = {
+    initialized: false,
+    baselineYearMonth: '',
+    initialIs5OrMore: true,
+    initialLsaCount: 0,
+    initialNetPay: 0,
+    initialGrossPay: 0,
+    initialPayLinesHash: '',
+    initialPolicySig: '',
+    ackSignature: '',
+    checkedByAdmin: false,
+    checkedAt: null,
+  };
+
   if (options.statePersistence && typeof options.statePersistence.load === 'function') {
     const loaded = options.statePersistence.load();
     if (loaded && typeof loaded === 'object') {
@@ -576,6 +590,12 @@ export function createAppServer(options = {}) {
       }
       if (Array.isArray(loaded.workers)) state.workers = loaded.workers;
       if (Array.isArray(loaded.offboardedWorkers)) state.offboardedWorkers = loaded.offboardedWorkers;
+      if (loaded.monthlyChangeState && typeof loaded.monthlyChangeState === 'object') {
+        Object.assign(monthlyChangeState, loaded.monthlyChangeState);
+      }
+      if (loaded.opsPersistence && typeof loaded.opsPersistence === 'object') {
+        opsSuite.restorePersistenceState(loaded.opsPersistence);
+      }
     }
   }
 
@@ -586,6 +606,8 @@ export function createAppServer(options = {}) {
       company: state.company,
       workers: state.workers,
       offboardedWorkers: state.offboardedWorkers,
+      monthlyChangeState,
+      opsPersistence: opsSuite.exportPersistenceState(),
     });
   }
 
@@ -800,6 +822,116 @@ export function createAppServer(options = {}) {
       compliance,
       payrollLines: enrichedPayrollLines,
       payrollSummary,
+      monthlyStartNotice: (() => {
+        const policySig = JSON.stringify(activePolicy);
+        const perWorkerPayHash = crypto
+          .createHash('sha256')
+          .update(
+            JSON.stringify(
+              payrollLines.map((l) => ({
+                personId: l.personId || null,
+                empCode: l.empCode,
+                basePayApplied: l.basePayApplied,
+                fixedAllowanceApplied: l.fixedAllowanceApplied,
+                mealAllowanceApplied: l.mealAllowanceApplied,
+                nonTaxableMealApplied: l.nonTaxableMealApplied,
+                taxableMealExcess: l.taxableMealExcess,
+                overtimeNightHolidayPay: l.overtimeNightHolidayPay,
+                unusedLeavePay: l.unusedLeavePay,
+                evalBonusPay: l.evalBonusPay,
+                grossPay: l.grossPay,
+                disciplinaryCutApplied: l.disciplinaryCutApplied,
+                socialInsuranceTotal: l.socialInsuranceTotal,
+                incomeTaxTotal: l.incomeTaxTotal,
+                netPay: l.netPay,
+              }))
+            )
+          )
+          .digest('hex');
+        const yearMonth = String(state.company.referenceDate || '2026-11-15').slice(0, 7);
+        const monthStartDate = `${yearMonth}-01`;
+        const is5OrMore = Boolean(compliance.headcounts.is5OrMore);
+        const lsaRegularCount = Number(compliance.headcounts.lsaRegularCount || 0);
+
+        if (!monthlyChangeState.initialized) {
+          monthlyChangeState.initialized = true;
+          monthlyChangeState.baselineYearMonth = yearMonth;
+          monthlyChangeState.initialIs5OrMore = is5OrMore;
+          monthlyChangeState.initialLsaCount = lsaRegularCount;
+          monthlyChangeState.initialNetPay = payrollSummary.totalNet;
+          monthlyChangeState.initialGrossPay = payrollSummary.totalGross;
+          monthlyChangeState.initialPayLinesHash = perWorkerPayHash;
+          monthlyChangeState.initialPolicySig = policySig;
+        }
+
+        const scaleTransitioned = is5OrMore !== monthlyChangeState.initialIs5OrMore;
+        const payrollChanged =
+          payrollSummary.totalGross !== monthlyChangeState.initialGrossPay ||
+          payrollSummary.totalNet !== monthlyChangeState.initialNetPay ||
+          perWorkerPayHash !== monthlyChangeState.initialPayLinesHash;
+        const policyChanged = policySig !== monthlyChangeState.initialPolicySig;
+
+        const changeReasons = [];
+        if (scaleTransitioned) {
+          changeReasons.push(
+            is5OrMore
+              ? `사업장 규모 전환: 5인 미만 → 5인 이상 (상시 ${lsaRegularCount}명 · 연장/야간/휴일 50%~100% 가산 및 법정연차 적용)`
+              : `사업장 규모 전환: 5인 이상 → 5인 미만 (상시 ${lsaRegularCount}명 · 연장/야간/휴일 1.0배 정산 · 법정연차 제외)`
+          );
+        } else if (lsaRegularCount !== monthlyChangeState.initialLsaCount) {
+          changeReasons.push(
+            `상시 근로자 수 변동: ${monthlyChangeState.initialLsaCount}명 → ${lsaRegularCount}명 (${is5OrMore ? '5인 이상 유지' : '5인 미만 유지'})`
+          );
+        }
+        if (payrollChanged) {
+          const deltaGross = payrollSummary.totalGross - monthlyChangeState.initialGrossPay;
+          const sign = deltaGross >= 0 ? '+' : '';
+          changeReasons.push(
+            deltaGross === 0
+              ? `당월 개인별 급여·수당 내역 변동: 지급총액 ${payrollSummary.totalGross.toLocaleString('ko-KR')}원 · 실지급 ${payrollSummary.totalNet.toLocaleString('ko-KR')}원`
+              : `당월 급여총액 변동: 지급총액 ${payrollSummary.totalGross.toLocaleString('ko-KR')}원 (${sign}${deltaGross.toLocaleString('ko-KR')}원) · 실지급 ${payrollSummary.totalNet.toLocaleString('ko-KR')}원`
+          );
+        }
+        if (policyChanged) {
+          changeReasons.push(
+            `전사 급여·연차 환경설정 변경 (${activePolicy.leaveAccrualBasis === 'FISCAL_YEAR' ? '회계연도 기준' : '입사일 기준'} · ${activePolicy.payDayLabel})`
+          );
+        }
+        if (yearMonth !== monthlyChangeState.baselineYearMonth) {
+          changeReasons.push(`기준 귀속월 변경: ${monthlyChangeState.baselineYearMonth} → ${yearMonth}`);
+        }
+
+        const changeSignature = `${yearMonth}|${is5OrMore}|${lsaRegularCount}|${payrollSummary.totalGross}|${payrollSummary.totalNet}|${perWorkerPayHash}|${policySig}`;
+        const hasChanges = changeReasons.length > 0;
+        const isNoticeChecked =
+          hasChanges &&
+          monthlyChangeState.checkedByAdmin === true &&
+          monthlyChangeState.ackSignature === changeSignature;
+
+        return {
+          yearMonth,
+          monthStartDate,
+          is5OrMore,
+          lsaRegularCount,
+          scaleBadge: is5OrMore ? '5인 이상 사업장' : '5인 미만 사업장',
+          scaleRuleSummary: is5OrMore
+            ? '연장·야간·휴일 가산수당(50%·100%) 및 법정연차·유급공휴일 적용'
+            : '연장·야간·휴일 가산수당 미적용(1.0배 정산) · 법정연차 의무 제외',
+          scaleTransitioned,
+          payrollChanged,
+          policyChanged,
+          hasChanges,
+          checked: isNoticeChecked,
+          checkedAt: isNoticeChecked ? monthlyChangeState.checkedAt : null,
+          signature: changeSignature,
+          changeReasons,
+          monthStartBadgeText: scaleTransitioned
+            ? `월초(${monthStartDate}) 규모변경: ${is5OrMore ? '5인 이상 전환' : '5인 미만 전환'}`
+            : hasChanges
+              ? `월초(${monthStartDate}) 급여·기준 변경`
+              : `월초(${monthStartDate}) ${is5OrMore ? '5인 이상' : '5인 미만'} 기준`,
+        };
+      })(),
       auditLogs: state.auditLogs,
     };
   }
@@ -1957,6 +2089,7 @@ export function createAppServer(options = {}) {
             empCode,
             '인사원장 퇴사 전환'
           );
+          persistValidatedState();
 
           appendAudit(
             '퇴사원장전환',
@@ -2000,6 +2133,7 @@ export function createAppServer(options = {}) {
             state.company.referenceDate
           );
           state.offboardedWorkers[idx] = updated;
+          persistValidatedState();
           appendAudit(
             '퇴사사후관리',
             `[${empCode} ${updated.displayName}] 금품청산(${updated.settlementStatus}) · 건보상실(${updated.nhisLossFilingStatus}) · 고보이직(${updated.eiLossAndCertStatus}) 상태 갱신`
@@ -2048,6 +2182,7 @@ export function createAppServer(options = {}) {
             origEmpCode,
             origDisplayName,
           });
+          persistValidatedState();
           appendAudit(
             '개인정보파기',
             '퇴사 3년 법정보존 만료 건(1건) 개인정보보호법 제21조 비가역 비식별 파기 및 연관 감사·결재·알림 이력 일괄 삭제 완료'
@@ -2064,7 +2199,56 @@ export function createAppServer(options = {}) {
         }
 
         if (pathname === '/api/ops/action') {
+          if (body && body.actionType === 'ACK_MONTHLY_CHANGE_NOTICE') {
+            assertOptionalBoolean(body, 'checked');
+            const curSnap = buildSnapshot();
+            const curNotice = curSnap.monthlyStartNotice;
+            const nextChecked =
+              body.checked !== undefined ? body.checked : !curNotice.checked;
+            if (nextChecked) {
+              if (typeof body.expectedSignature !== 'string' || !body.expectedSignature.trim()) {
+                throw badRequest('월초 변경 확인 체크 시 확인 대상 서명(expectedSignature)이 필요합니다.');
+              }
+              if (body.expectedSignature !== curNotice.signature) {
+                const conflict = new Error(
+                  '확인하려는 사이 사업장 규모 또는 당월 급여 내역이 갱신되었습니다. 최신 변경 내역을 확인한 뒤 다시 체크해 주세요.'
+                );
+                conflict.statusCode = 409;
+                throw conflict;
+              }
+            }
+            const prevMonthlyAck = { ...monthlyChangeState };
+            monthlyChangeState.checkedByAdmin = nextChecked;
+            monthlyChangeState.ackSignature = nextChecked ? curNotice.signature : '';
+            monthlyChangeState.checkedAt = nextChecked
+              ? serverClockToday()
+              : null;
+            try {
+              persistValidatedState();
+            } catch (saveErr) {
+              Object.assign(monthlyChangeState, prevMonthlyAck);
+              throw saveErr;
+            }
+            appendAudit(
+              '월초변경확인',
+              `[${curNotice.monthStartDate}] ${curNotice.scaleBadge} 급여·기준 변경 확인 체크 ${nextChecked ? '완료' : '해제'}`
+            );
+            sendJson(res, 200, {
+              result: {
+                message: nextChecked
+                  ? `${curNotice.monthStartDate} 월초 급여·규모(${curNotice.scaleBadge}) 변경 확인 체크가 완료되었습니다.`
+                  : '월초 변경 확인 체크가 해제되었습니다.',
+              },
+              snapshot: buildSnapshot(),
+            });
+            return;
+          }
+
           const preSnap = buildSnapshot();
+          const prevWorkersBackup = structuredClone(state.workers);
+          const prevCompanyBackup = structuredClone(state.company);
+          const prevAuditBackup = structuredClone(state.auditLogs);
+          const prevOpsBackup = opsSuite.exportPersistenceState();
           const actionResult = opsSuite.applyAction(body, {
             state,
             payrollLocked: mobileHub.getPayrollCloseState().status === 'APPROVED_LOCKED',
@@ -2072,6 +2256,15 @@ export function createAppServer(options = {}) {
             tombstoneStore: purgeTombstones,
             lsaRegularCount: preSnap.compliance.headcounts.exactLsaRatio,
           });
+          try {
+            persistValidatedState();
+          } catch (saveErr) {
+            state.workers = prevWorkersBackup;
+            state.company = prevCompanyBackup;
+            state.auditLogs = prevAuditBackup;
+            opsSuite.restorePersistenceState(prevOpsBackup);
+            throw saveErr;
+          }
           mobileHub.syncWorkerAccessWithRoster(
             state.workers,
             state.offboardedWorkers,
@@ -2149,6 +2342,7 @@ export function createAppServer(options = {}) {
             target.maxWeeklyWorkedHours = Math.max(target.maxWeeklyWorkedHours || 0, minWeeklyFloor);
           }
           opsSuite.invalidateWorkerCalendar(target.empCode);
+          persistValidatedState();
 
           appendAudit(
             '급여파이프라인',
@@ -2245,6 +2439,14 @@ export function createAppServer(options = {}) {
         return;
       }
 
+      const realPubRoot = fs.realpathSync(PUBLIC_DIR);
+      const realStaticFile = fs.realpathSync(resolvedFile);
+      const realRel = path.relative(realPubRoot, realStaticFile);
+      if (realRel === '' || realRel.startsWith('..') || path.isAbsolute(realRel)) {
+        sendJson(res, 403, { error: 'Symlink escape blocked' });
+        return;
+      }
+
       const ext = path.extname(resolvedFile).toLowerCase();
       const mime = MIME_TYPES[ext] || 'application/octet-stream';
       setSecurityHeaders(res);
@@ -2282,6 +2484,32 @@ const isDirectRun =
 if (isDirectRun) {
   const port = Number(process.env.PORT || 4330);
   const stateFilePath = process.env.MHR_STATE_FILE ? path.resolve(process.env.MHR_STATE_FILE) : '';
+  if (stateFilePath) {
+    const realPub = fs.realpathSync(PUBLIC_DIR);
+    const resolveNearestReal = (targetPath) => {
+      let cur = path.resolve(targetPath);
+      const suffix = [];
+      while (!fs.existsSync(cur)) {
+        const parent = path.dirname(cur);
+        if (parent === cur) break;
+        suffix.unshift(path.basename(cur));
+        cur = parent;
+      }
+      const realBase = fs.existsSync(cur) ? fs.realpathSync(cur) : cur;
+      return path.join(realBase, ...suffix);
+    };
+    const lexRelToPub = path.relative(PUBLIC_DIR, stateFilePath);
+    const realStateTarget = resolveNearestReal(stateFilePath);
+    const relToPub = path.relative(realPub, realStateTarget);
+    if (
+      lexRelToPub === '' ||
+      (!lexRelToPub.startsWith('..') && !path.isAbsolute(lexRelToPub)) ||
+      relToPub === '' ||
+      (!relToPub.startsWith('..') && !path.isAbsolute(relToPub))
+    ) {
+      throw new Error('보안 정책 위반: MHR_STATE_FILE 경로는 정적 공개 디렉터리(src/public) 외부여야 합니다.');
+    }
+  }
   const statePersistence = stateFilePath
     ? {
         load() {
@@ -2293,13 +2521,28 @@ if (isDirectRun) {
           }
         },
         save(payload) {
+          fs.mkdirSync(path.dirname(stateFilePath), { recursive: true });
+          const realPubDir = fs.realpathSync(PUBLIC_DIR);
+          const realStateDir = fs.realpathSync(path.dirname(stateFilePath));
+          const relCheck = path.relative(realPubDir, path.join(realStateDir, path.basename(stateFilePath)));
+          if (relCheck === '' || (!relCheck.startsWith('..') && !path.isAbsolute(relCheck))) {
+            const secErr = new Error('상태 파일 경로가 공개 정적 디렉터리를 가리켜 저장이 차단되었습니다.');
+            secErr.statusCode = 500;
+            throw secErr;
+          }
+          const tmpPath = `${stateFilePath}.${process.pid}.${Date.now()}.tmp`;
           try {
-            fs.mkdirSync(path.dirname(stateFilePath), { recursive: true });
-            const tmpPath = `${stateFilePath}.tmp`;
             fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2), { encoding: 'utf8', mode: 0o600 });
             fs.renameSync(tmpPath, stateFilePath);
           } catch {
-            // ignore optional persistence error
+            try {
+              if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+            } catch {
+              // ignore cleanup error
+            }
+            const ioErr = new Error('상태 파일 원자적 저장에 실패했습니다.');
+            ioErr.statusCode = 500;
+            throw ioErr;
           }
         },
       }

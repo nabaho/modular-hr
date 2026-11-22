@@ -2359,9 +2359,9 @@ body {
 
 .att-calendar-grid {
   display: grid;
-  grid-template-columns: repeat(7, minmax(104px, 1fr));
-  gap: 6px;
-  min-width: 740px;
+  grid-template-columns: repeat(7, minmax(124px, 1fr));
+  gap: 8px;
+  min-width: 890px;
 }
 
 .att-cal-weekday {
@@ -2375,7 +2375,7 @@ body {
 }
 
 .att-cal-empty {
-  min-height: 76px;
+  min-height: 112px;
   border-radius: 10px;
   background: transparent;
 }
@@ -2384,9 +2384,10 @@ body {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  justify-content: space-between;
-  min-height: 82px;
-  padding: 8px 10px;
+  justify-content: flex-start;
+  gap: 5px;
+  min-height: 112px;
+  padding: 9px 10px;
   border-radius: 10px;
   border: 1px solid var(--border);
   background: var(--surface);
@@ -2410,6 +2411,15 @@ body {
   border-color: var(--primary);
 }
 
+.att-day-cell.is-holiday-cell {
+  border-color: var(--border-strong);
+}
+
+.att-day-cell.is-month-start-changed {
+  border: 2px solid var(--primary);
+  background: var(--primary-soft);
+}
+
 .att-day-cell.is-leave {
   background: var(--primary-soft);
 }
@@ -2422,6 +2432,7 @@ body {
 .att-day-top {
   width: 100%;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 4px;
@@ -2432,23 +2443,258 @@ body {
   font-weight: 800;
 }
 
+.att-day-num.is-sunday-or-hol {
+  color: var(--badge-red-text);
+}
+
+.cal-month-start-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  width: 100%;
+  padding: 2px 6px;
+  border-radius: 5px;
+  font-size: 0.71rem;
+  font-weight: 800;
+  background: var(--badge-blue-bg);
+  color: var(--badge-blue-text);
+}
+
+.cal-month-start-badge.is-alert {
+  background: var(--badge-amber-bg);
+  color: var(--badge-amber-text);
+}
+
+.cal-month-start-badge.is-acked {
+  background: var(--badge-green-bg);
+  color: var(--badge-green-text);
+}
+
+.att-day-holiday-tag {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-size: 0.7rem;
+  font-weight: 800;
+  background: var(--badge-red-bg);
+  color: var(--badge-red-text);
+}
+
 .att-day-hours {
   font-size: 0.78rem;
-  font-weight: 700;
+  font-weight: 800;
   color: var(--text);
-  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
 }
 
 .att-day-time {
-  font-size: 0.73rem;
-  color: var(--text-muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.att-day-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: auto;
+  width: 100%;
+}
+
+.att-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  background: var(--badge-gray-bg);
+  color: var(--badge-gray-text);
+}
+
+.att-chip-ot {
+  background: var(--badge-amber-bg);
+  color: var(--badge-amber-text);
+}
+
+.att-chip-night {
+  background: var(--badge-blue-bg);
+  color: var(--badge-blue-text);
+}
+
+.att-chip-hol {
+  background: var(--badge-red-bg);
+  color: var(--badge-red-text);
+}
+
+.att-chip-leave {
+  background: var(--badge-green-bg);
+  color: var(--badge-green-text);
 }
 
 .att-day-editor {
   margin-top: 14px;
-  padding: 14px 16px;
+  padding: 16px 18px;
   border-radius: 12px;
   background: var(--surface-subtle);
   border: 1px solid var(--border);
+}
+
+.auto-check-preview-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.auto-check-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.auto-check-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 800;
+  background: var(--surface-subtle);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+
+.auto-check-pill.is-checked-ot {
+  background: var(--badge-amber-bg);
+  color: var(--badge-amber-text);
+  border-color: var(--badge-amber-text);
+}
+
+.auto-check-pill.is-checked-night {
+  background: var(--badge-blue-bg);
+  color: var(--badge-blue-text);
+  border-color: var(--badge-blue-text);
+}
+
+.auto-check-pill.is-checked-hol {
+  background: var(--badge-red-bg);
+  color: var(--badge-red-text);
+  border-color: var(--badge-red-text);
+}
+
+/* 월초(YYYY-MM-01) 급여·규모 변경 표시 배너 & 환경설정 5인 미만/이상 판정 박스 */
+.monthly-change-banner {
+  margin-top: 12px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 2px solid var(--primary);
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.monthly-change-banner.is-checked-done {
+  border: 1px solid var(--border-strong);
+  background: var(--surface-subtle);
+}
+
+.monthly-change-banner[hidden] {
+  display: none !important;
+}
+
+.monthly-change-main {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  flex: 1 1 420px;
+}
+
+.monthly-change-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.monthly-change-reasons {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 0.83rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.settings-scale-check-box {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.scale-check-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+@media (max-width: 720px) {
+  .scale-check-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.scale-check-card {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.scale-check-card.is-active-scale {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.scale-check-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.88rem;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.scale-check-desc {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
 }
 
