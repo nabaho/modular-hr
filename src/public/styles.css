@@ -2698,3 +2698,104 @@ body {
   line-height: 1.4;
 }
 
+/* 최근 코딩 수정 반영 내역 안내 바 & 변경됨 시각 표시 */
+.recent-diff-bar {
+  margin-top: 12px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1.5px solid var(--primary);
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.recent-diff-bar[hidden],
+.recent-diff-bar:empty,
+[data-diff-marks="off"] .recent-diff-bar {
+  display: none !important;
+}
+
+.recent-diff-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.recent-diff-title {
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.recent-diff-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: 8px;
+}
+
+.recent-diff-item {
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.recent-diff-item-main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.recent-diff-item-desc {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  line-height: 1.35;
+}
+
+.code-diff-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 0.71rem;
+  font-weight: 800;
+  background: var(--badge-amber-bg);
+  color: var(--badge-amber-text);
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+[data-diff-marks="off"] .code-diff-pill {
+  display: none !important;
+}
+
+.code-diff-box {
+  outline: 2px dashed var(--primary);
+  outline-offset: 2px;
+}
+
+[data-diff-marks="off"] .code-diff-box {
+  outline: none;
+}
+
+.major-nav-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+

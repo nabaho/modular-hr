@@ -2451,8 +2451,8 @@ export function createAppServer(options = {}) {
       const mime = MIME_TYPES[ext] || 'application/octet-stream';
       setSecurityHeaders(res);
       res.setHeader('Content-Type', mime);
-      if (path.basename(resolvedFile) === 'sw.js') {
-        res.setHeader('Cache-Control', 'no-cache');
+      if (['.html', '.js', '.mjs', '.css', '.json', '.webmanifest'].includes(ext)) {
+        res.setHeader('Cache-Control', 'no-cache, must-revalidate');
       }
       res.writeHead(200);
       if (req.method === 'HEAD') {
