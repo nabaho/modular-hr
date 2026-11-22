@@ -3,7 +3,7 @@
  * 단일 createAppServer 인스턴스(원장·결재·세션·SSE)를 공유하는 SharedWorker 엔트리
  */
 
-import { createAppServer } from './server-core.mjs?v=c39fc7444a1f';
+import { createAppServer } from './server-core.mjs?v=7df477f6fc75';
 
 const appInstance = createAppServer({ demoMode: true });
 const virtualServer = appInstance.server;

@@ -4,29 +4,29 @@
  * - 엄격한 입력 스키마 검증(Boolean/Number/Enum/실재 날짜 검증), CSP 헤더, 64KB 413 응답 보장
  */
 
-import http from './engine/virtual-http-shim.mjs?v=c39fc7444a1f';
-import crypto from './engine/browser-crypto-shim.mjs?v=c39fc7444a1f';
+import http from './engine/virtual-http-shim.mjs?v=7df477f6fc75';
+import crypto from './engine/browser-crypto-shim.mjs?v=7df477f6fc75';
 // 정적 자산 서빙은 GitHub Pages CDN이 담당하며 server-core.mjs는 /api/* 전용으로 구동됨
 
-import { INDUSTRIES, LAW_BASELINE } from './engine/labor-rules.mjs?v=c39fc7444a1f';
+import { INDUSTRIES, LAW_BASELINE } from './engine/labor-rules.mjs?v=7df477f6fc75';
 import {
   VALID_STATUTORY_TASK_IDS,
   assertValidIsoDate,
   provisionWorkplaceSystem,
-} from './engine/compliance-provisioner.mjs?v=c39fc7444a1f';
+} from './engine/compliance-provisioner.mjs?v=7df477f6fc75';
 import {
   VALID_RESIGN_REASONS,
   computeEmployeePayrollLine,
   computeOffboardingSettlement,
   validateJobPosting,
-} from './engine/lifecycle-payroll.mjs?v=c39fc7444a1f';
-import { VALID_DOC_TEMPLATES, generateStatutoryDocument } from './engine/document-generator.mjs?v=c39fc7444a1f';
-import { buildWorkerBindingKey, createMobileHub } from './engine/mobile-auth-realtime.mjs?v=c39fc7444a1f';
+} from './engine/lifecycle-payroll.mjs?v=7df477f6fc75';
+import { VALID_DOC_TEMPLATES, generateStatutoryDocument } from './engine/document-generator.mjs?v=7df477f6fc75';
+import { buildWorkerBindingKey, createMobileHub } from './engine/mobile-auth-realtime.mjs?v=7df477f6fc75';
 import {
   SAMPLE_INGESTION_BUNDLES,
   listSampleIngestionBundles,
   stageMultiDocumentBundle,
-} from './engine/document-ingestion.mjs?v=c39fc7444a1f';
+} from './engine/document-ingestion.mjs?v=7df477f6fc75';
 import {
   buildOffboardedWorkerRecord,
   createInitialOffboardedWorkers,
@@ -37,12 +37,12 @@ import {
   refreshOffboardedLifecycle,
   summarizeOffboardedRegistry,
   updateOffboardedChecklist,
-} from './engine/offboarding-registry.mjs?v=c39fc7444a1f';
+} from './engine/offboarding-registry.mjs?v=7df477f6fc75';
 import {
   createOperationsSuiteManager,
   DEFAULT_POLICY_SETTINGS,
   normalizePolicySettings,
-} from './engine/hr-operations-suite.mjs?v=c39fc7444a1f';
+} from './engine/hr-operations-suite.mjs?v=7df477f6fc75';
 
 const PUBLIC_DIR = '/';
 const MAX_BODY_BYTES = 64 * 1024;
@@ -564,6 +564,31 @@ export function createAppServer(options = {}) {
     ],
   };
 
+  if (options.statePersistence && typeof options.statePersistence.load === 'function') {
+    const loaded = options.statePersistence.load();
+    if (loaded && typeof loaded === 'object') {
+      if (loaded.company && typeof loaded.company === 'object') {
+        state.company = {
+          ...state.company,
+          ...loaded.company,
+          policySettings: normalizePolicySettings(loaded.company.policySettings),
+        };
+      }
+      if (Array.isArray(loaded.workers)) state.workers = loaded.workers;
+      if (Array.isArray(loaded.offboardedWorkers)) state.offboardedWorkers = loaded.offboardedWorkers;
+    }
+  }
+
+  function persistValidatedState() {
+    if (!options.statePersistence || typeof options.statePersistence.save !== 'function') return;
+    options.statePersistence.save({
+      savedAt: new Date().toISOString(),
+      company: state.company,
+      workers: state.workers,
+      offboardedWorkers: state.offboardedWorkers,
+    });
+  }
+
   function resolveIngestionInput(body = {}) {
     if (body.bundleId !== undefined) {
       if (typeof body.bundleId !== 'string' || !Object.hasOwn(SAMPLE_INGESTION_BUNDLES, body.bundleId)) {
@@ -702,6 +727,52 @@ export function createAppServer(options = {}) {
       offboardedSummary,
     });
 
+    const numberedWorkers = activeWorkers.map((w, idx) => ({
+      ...w,
+      rowNo: idx + 1,
+      checked: Boolean(w.checked),
+      starred: Boolean(w.starred),
+    }));
+
+    const enrichedPayrollLines = payrollLines.map((line, idx) => {
+      const w = activeWorkers[idx];
+      const attRow = operationsSuite.attendanceControl.board[idx] || null;
+      const lvRow = operationsSuite.leaveAndMaternity.ledger[idx] || null;
+      const cal = attRow?.payrollMonthCalendar || attRow?.monthlyCalendar || null;
+      return {
+        ...line,
+        rowNo: idx + 1,
+        checked: Boolean(w?.checked),
+        starred: Boolean(w?.starred),
+        attendanceSummary: cal
+          ? {
+              yearMonth: cal.yearMonth,
+              workDaysCount: cal.workDaysCount,
+              leaveDaysCount: cal.leaveDaysCount,
+              totalNormalHours: cal.totalNormalHours,
+              totalOvertimeHours: cal.totalOvertimeHours,
+              totalNightHours: cal.totalNightHours,
+              totalHolidayHours: cal.totalHolidayHours,
+              workedDays: cal.days.filter((d) => d.workStatus !== 'OFF'),
+            }
+          : null,
+        leaveSummary: lvRow
+          ? {
+              leaveEligible: lvRow.leaveEligible !== false,
+              ruleBasis: lvRow.ruleBasis,
+              grantedCount: lvRow.grantedCount ?? 0,
+              accruedDays: lvRow.accruedDays ?? 0,
+              usedCount: lvRow.usedCount ?? 0,
+              usedDays: lvRow.usedDays ?? 0,
+              monthUsedCount: lvRow.monthUsedCount ?? 0,
+              monthUsedDays: lvRow.monthUsedDays ?? 0,
+              remainingDays: lvRow.remainingDays ?? 0,
+              records: lvRow.records || [],
+            }
+          : null,
+      };
+    });
+
     return {
       lawBaseline: LAW_BASELINE,
       industries: Object.values(INDUSTRIES),
@@ -721,13 +792,13 @@ export function createAppServer(options = {}) {
       })),
       company: state.company,
       emptyRosterMode: state.emptyRosterMode,
-      workers: activeWorkers,
+      workers: numberedWorkers,
       offboardedWorkers: refreshedAlumni,
       offboardedSummary,
       operationsSuite,
       lastIngestionSummary: state.lastIngestionSummary,
       compliance,
-      payrollLines,
+      payrollLines: enrichedPayrollLines,
       payrollSummary,
       auditLogs: state.auditLogs,
     };
@@ -766,9 +837,15 @@ export function createAppServer(options = {}) {
                 activeSession = null;
               }
             }
+            const remoteAddr = String(req.socket?.remoteAddress || '');
+            const isLoopbackClient =
+              !remoteAddr ||
+              remoteAddr === '127.0.0.1' ||
+              remoteAddr === '::1' ||
+              remoteAddr === '::ffff:127.0.0.1';
             sendJson(res, 200, {
               loginCsrfToken: csrfToken,
-              demoAccounts: mobileHub.listSimulatorDemoAccounts(),
+              demoAccounts: isLoopbackClient ? mobileHub.listSimulatorDemoAccounts() : [],
               session: activeSession,
             });
             return;
@@ -907,6 +984,7 @@ export function createAppServer(options = {}) {
                       (w.maxWeeklyWorkedHours || w.weeklyHours || 40) + approvedItem.requestedHoursOrDays,
                       (w.weeklyHours || 40) + (w.overtimeHours || 0) / 4.345
                     );
+                    opsSuite.invalidateWorkerCalendar(w.empCode);
                   }
                 }
                 if (
@@ -1355,6 +1433,19 @@ export function createAppServer(options = {}) {
             if (typeof body.companyName === 'string' && body.companyName.trim()) {
               state.company.companyName = body.companyName.trim().slice(0, 80);
             }
+            if (typeof body.bizRegNo === 'string' && body.bizRegNo.trim()) {
+              const cleanedBiz = body.bizRegNo
+                .trim()
+                .replace(/\D/g, '')
+                .replace(/^(\d{3})(\d{2})(\d{5})$/, '$1-$2-$3');
+              if (!/^\d{3}-\d{2}-\d{5}$/.test(cleanedBiz)) {
+                throw badRequest('사업자등록번호는 10자리 숫자(000-00-00000) 형식이어야 합니다.');
+              }
+              state.company.bizRegNo = cleanedBiz;
+            }
+            if (typeof body.ceoName === 'string' && body.ceoName.trim()) {
+              state.company.ceoName = body.ceoName.trim().slice(0, 40);
+            }
             if (body.ksicMajor !== undefined) {
               state.company.ksicMajor = body.ksicMajor;
             }
@@ -1365,15 +1456,18 @@ export function createAppServer(options = {}) {
               state.emptyRosterMode = body.emptyRosterMode;
               if (!body.emptyRosterMode && state.workers.length === 0) {
                 state.workers = createDefaultWorkers();
+                opsSuite.resetForNewRoster();
               }
             }
             if (body.resetWorkers === true) {
               state.workers = createDefaultWorkers();
               state.emptyRosterMode = false;
+              opsSuite.resetForNewRoster();
             }
             if (body.bulkRosterMode === true) {
               state.workers = createBulkWorkers(50);
               state.emptyRosterMode = false;
+              opsSuite.resetForNewRoster();
             }
             if (body.hasSubsidies !== undefined) {
               state.company.activeSubsidies = body.hasSubsidies
@@ -1414,6 +1508,7 @@ export function createAppServer(options = {}) {
             );
           }
 
+          persistValidatedState();
           const updatedSnap = buildSnapshot();
           mobileHub.pushRealtimeNotification({
             targetRole: 'CEO_AND_HR',
@@ -1625,45 +1720,97 @@ export function createAppServer(options = {}) {
             throw lockErr;
           }
           assertOptionalBoolean(body, 'replaceAlumniLedger');
-          const staging = stageMultiDocumentBundle(resolveIngestionInput(body), {
+          assertOptionalBoolean(body, 'preserveExistingIfMissing');
+          const resolvedInput = resolveIngestionInput(body);
+          const staging = stageMultiDocumentBundle(resolvedInput, {
             tombstoneStore: purgeTombstones,
           });
+
+          const hasBizDoc =
+            Boolean(String(resolvedInput.businessRegistrationText || '').trim()) ||
+            staging.classifiedFiles.some((f) => f.docKind === 'BUSINESS_REGISTRATION');
+          const hasInsuranceDoc =
+            Boolean(String(resolvedInput.healthInsuranceText || '').trim()) ||
+            Boolean(String(resolvedInput.employmentInsuranceText || '').trim()) ||
+            staging.classifiedFiles.some(
+              (f) => f.docKind === 'HEALTH_INSURANCE' || f.docKind === 'EMPLOYMENT_INSURANCE'
+            );
+
+          const targetBizRegNo =
+            body.preserveExistingIfMissing === true && !hasBizDoc
+              ? state.company.bizRegNo
+              : staging.stagedCompany.bizRegNo;
+
           const safeActiveWorkers = staging.activeWorkers.filter(
             (w) =>
-              !purgeTombstones.isEmpCodePurged(staging.stagedCompany.bizRegNo, w.empCode) &&
+              !purgeTombstones.isEmpCodePurged(targetBizRegNo, w.empCode) &&
               !purgeTombstones.isRecordPurged({
-                bizRegNo: staging.stagedCompany.bizRegNo,
+                bizRegNo: targetBizRegNo,
                 empCode: w.empCode,
                 displayName: w.displayName,
                 maskedBirthOrId: w.maskedBirthOrId,
                 hireDate: w.hireDate,
               })
           );
-          const mergedOffboarded = mergeOffboardedLedgers(
-            state.offboardedWorkers,
-            staging.offboardedWorkers,
-            {
-              replaceAlumniLedger: body.replaceAlumniLedger === true,
-              serverTodayIso: serverClockToday(),
-              displayReferenceDate: staging.stagedCompany.referenceDate,
-              tombstoneStore: purgeTombstones,
-            }
-          );
-          const nextWorkersWithIds = assignImmutablePersonIds(
-            state.company.bizRegNo,
-            state.workers,
-            staging.stagedCompany.bizRegNo,
-            safeActiveWorkers
-          );
+          if (
+            body.preserveExistingIfMissing === true &&
+            hasInsuranceDoc &&
+            safeActiveWorkers.length === 0 &&
+            staging.offboardedWorkers.length === 0
+          ) {
+            throw badRequest(
+              '업로드된 보험 내역서에서 유효한 근로자 행을 찾을 수 없습니다. CSV 헤더와 데이터 행을 확인해 주세요.'
+            );
+          }
+          const mergedOffboarded =
+            body.preserveExistingIfMissing === true && !hasInsuranceDoc
+              ? state.offboardedWorkers
+              : mergeOffboardedLedgers(
+                  state.offboardedWorkers,
+                  staging.offboardedWorkers,
+                  {
+                    replaceAlumniLedger: body.replaceAlumniLedger === true,
+                    serverTodayIso: serverClockToday(),
+                    displayReferenceDate: staging.stagedCompany.referenceDate,
+                    tombstoneStore: purgeTombstones,
+                  }
+                );
+          const nextWorkersWithIds =
+            body.preserveExistingIfMissing === true && !hasInsuranceDoc
+              ? state.workers
+              : assignImmutablePersonIds(
+                  state.company.bizRegNo,
+                  state.workers,
+                  targetBizRegNo,
+                  safeActiveWorkers
+                );
           const prevPolicy = normalizePolicySettings(state.company.policySettings);
-          state.company = {
+          const prevCompany = structuredClone(state.company);
+          const mergedCompany = {
             ...structuredClone(staging.stagedCompany),
             policySettings: prevPolicy,
           };
+          if (body.preserveExistingIfMissing === true && !hasBizDoc) {
+            mergedCompany.companyName = prevCompany.companyName;
+            mergedCompany.bizRegNo = prevCompany.bizRegNo;
+            mergedCompany.ceoName = prevCompany.ceoName;
+            mergedCompany.ksicMajor = prevCompany.ksicMajor;
+            mergedCompany.openDate = prevCompany.openDate;
+            mergedCompany.workplaceAddress = prevCompany.workplaceAddress;
+          }
+          if (body.preserveExistingIfMissing === true && !hasInsuranceDoc) {
+            mergedCompany.headcountInput = prevCompany.headcountInput;
+            mergedCompany.historicalPeakHeadcount = prevCompany.historicalPeakHeadcount;
+          }
+          state.company = mergedCompany;
           state.completedTaskIds = [];
           state.emptyRosterMode = false;
+          if (!(body.preserveExistingIfMissing === true && !hasInsuranceDoc)) {
+            opsSuite.resetForNewRoster();
+          }
           state.workers = nextWorkersWithIds;
           state.offboardedWorkers = mergedOffboarded;
+          persistValidatedState();
           mobileHub.syncWorkerAccessWithRoster(
             state.workers,
             state.offboardedWorkers,
@@ -2001,6 +2148,7 @@ export function createAppServer(options = {}) {
           } else {
             target.maxWeeklyWorkedHours = Math.max(target.maxWeeklyWorkedHours || 0, minWeeklyFloor);
           }
+          opsSuite.invalidateWorkerCalendar(target.empCode);
 
           appendAudit(
             '급여파이프라인',

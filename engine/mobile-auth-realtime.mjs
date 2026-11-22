@@ -5,7 +5,7 @@
  * 실시간 SSE(Server-Sent Events) 브로드캐스트 엔진
  */
 
-import crypto from './browser-crypto-shim.mjs?v=c39fc7444a1f';
+import crypto from './browser-crypto-shim.mjs?v=7df477f6fc75';
 
 const SCRYPT_PARAMS = Object.freeze({ N: 16384, r: 8, p: 1 });
 const MAX_FAILED_ATTEMPTS = 5;

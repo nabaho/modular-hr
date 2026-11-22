@@ -24,6 +24,9 @@ const appState = {
   pcSseCleanupBound: false,
   pcSyncChannel: null,
   toastTimer: null,
+  selectedEmpCode: 'EMP-201',
+  selectedAttDate: '2026-11-11',
+  starredOnlyFilter: false,
 };
 
 const MAJOR_MENU_GROUPS = [
@@ -319,6 +322,8 @@ function syncSimFormControls(snapshot) {
     if (node) node.value = String(val ?? '');
   };
   setVal('input-company-name', company.companyName);
+  setVal('input-biz-reg-no', company.bizRegNo || '');
+  setVal('input-ceo-name', company.ceoName || '');
   setVal('input-regular-workers', company.headcountInput.regularWorkers);
   setVal('input-parttime-workers', company.headcountInput.partTimeWorkers);
   setVal('input-daily-mandays', company.headcountInput.dailyWorkerManDays);
@@ -786,6 +791,157 @@ function syncSelectedWorkerInputs() {
 }
 
 /* ==========================================================================
+   전 메뉴 공통 마스터 사원 식별 셀 (체크박스 ☐ · 별표 ★ · 넘버링 No. · 사번 · 이름 동기화)
+   ========================================================================== */
+
+function shiftYearMonth(ym, deltaMonths) {
+  const m = String(ym || '2026-11').match(/^(\d{4})-(\d{2})$/);
+  const baseYear = m ? Number(m[1]) : 2026;
+  const baseMonthIdx = m ? Number(m[2]) - 1 : 10;
+  const d = new Date(Date.UTC(baseYear, baseMonthIdx + deltaMonths, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+function resolveSelectedWorkerCode(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return '';
+  if (rows.some((r) => r.empCode === appState.selectedEmpCode)) {
+    return appState.selectedEmpCode;
+  }
+  appState.selectedEmpCode = rows[0].empCode;
+  return appState.selectedEmpCode;
+}
+
+function applyStarFilter(rows) {
+  if (!appState.starredOnlyFilter) return rows;
+  return rows.filter((r) => r.starred);
+}
+
+function renderRosterSyncControls(allRows, rerenderCurrent) {
+  const checkedCount = allRows.filter((r) => r.checked).length;
+  const starredCount = allRows.filter((r) => r.starred).length;
+  return h(
+    'div',
+    { className: 'step-pill-group' },
+    h(
+      'span',
+      { className: 'tag tag-gray' },
+      `총 ${allRows.length}명 · 체크 ${checkedCount} · ★ ${starredCount}`
+    ),
+    h(
+      'button',
+      {
+        type: 'button',
+        className: appState.starredOnlyFilter ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm',
+        'aria-pressed': String(appState.starredOnlyFilter),
+        onClick: () => {
+          appState.starredOnlyFilter = !appState.starredOnlyFilter;
+          if (appState.snapshot && typeof rerenderCurrent === 'function') {
+            rerenderCurrent(appState.snapshot);
+          }
+        },
+      },
+      appState.starredOnlyFilter ? '★ 별표 필터 해제' : '★ 별표만 보기'
+    )
+  );
+}
+
+function renderMasterSelectHeaderTh(allRows, tableLabel) {
+  const allChecked = allRows.length > 0 && allRows.every((r) => r.checked);
+  return h(
+    'th',
+    { scope: 'col' },
+    h(
+      'div',
+      { className: 'master-mark-wrap' },
+      h(
+        'label',
+        { className: 'row-check-label' },
+        h('input', {
+          type: 'checkbox',
+          className: 'row-check-input',
+          checked: allChecked,
+          disabled: allRows.length === 0,
+          'aria-label': `${tableLabel} 전체 직원 체크 선택`,
+          onChange: (e) => {
+            e.stopPropagation();
+            runOpsAction(
+              { actionType: 'TOGGLE_ALL_WORKER_CHECK', checked: e.currentTarget.checked },
+              e.currentTarget
+            );
+          },
+        })
+      ),
+      h('span', {}, '★ · No.')
+    )
+  );
+}
+
+function renderMasterMarkTd(row) {
+  const rowNo = row.rowNo ?? 1;
+  const isStarred = Boolean(row.starred);
+  return h(
+    'td',
+    { 'data-label': '확인 · 별표 · 번호', onClick: (e) => e.stopPropagation() },
+    h(
+      'div',
+      { className: 'master-mark-wrap' },
+      h(
+        'label',
+        { className: 'row-check-label' },
+        h('input', {
+          type: 'checkbox',
+          className: 'row-check-input',
+          checked: Boolean(row.checked),
+          'aria-label': `No.${rowNo} ${row.displayName} 확인 체크`,
+          onChange: (e) => {
+            e.stopPropagation();
+            runOpsAction(
+              {
+                actionType: 'TOGGLE_WORKER_CHECK',
+                empCode: row.empCode,
+                checked: e.currentTarget.checked,
+              },
+              e.currentTarget
+            );
+          },
+        })
+      ),
+      h(
+        'button',
+        {
+          type: 'button',
+          className: 'star-toggle-btn',
+          'aria-pressed': String(isStarred),
+          'aria-label': `No.${rowNo} ${row.displayName} 별표 표시`,
+          onClick: (e) => {
+            e.stopPropagation();
+            runOpsAction(
+              {
+                actionType: 'TOGGLE_WORKER_STAR',
+                empCode: row.empCode,
+                starred: !isStarred,
+              },
+              e.currentTarget
+            );
+          },
+        },
+        isStarred ? '★' : '☆'
+      ),
+      h('span', { className: 'row-num-pill' }, String(rowNo))
+    )
+  );
+}
+
+function openPayslipByEmpCode(empCode, triggerBtn) {
+  const line = appState.snapshot?.payrollLines?.find((p) => p.empCode === empCode);
+  if (!line) {
+    showBanner('해당 직원의 급여 명세서 정보를 찾을 수 없습니다.', true);
+    return;
+  }
+  openPayslipModal(line, triggerBtn);
+}
+
+/* ==========================================================================
    탭 4: 자동 급여대장 & 산출식 명시 임금명세서
    ========================================================================== */
 
@@ -904,126 +1060,142 @@ function renderPayrollTab(snapshot) {
     OTHER_88: '8.8% 기타소득',
   };
 
-  const table = h(
+  const visibleLines = applyStarFilter(payrollLines);
+
+  const tableSection = h(
     'div',
-    { className: 'table-scroll-wrap' },
+    { className: 'ops-section-block' },
     h(
-      'table',
-      { className: 'payroll-table', 'aria-label': '당월 자동 정산 급여대장' },
+      'div',
+      { className: 'ops-section-head' },
+      h('h3', { className: 'ops-section-title' }, '급여 대장'),
+      renderRosterSyncControls(payrollLines, renderPayrollTab)
+    ),
+    h(
+      'div',
+      { className: 'table-scroll-wrap' },
       h(
-        'thead',
-        {},
+        'table',
+        { className: 'payroll-table', 'aria-label': '당월 자동 정산 급여대장' },
         h(
-          'tr',
+          'thead',
           {},
-          h('th', { scope: 'col' }, '사번 · 성명 · 소속'),
-          h('th', { scope: 'col' }, '고용/소득구분'),
-          h('th', { scope: 'col', className: 'num' }, '기본·고정·식대'),
-          h('th', { scope: 'col', className: 'num' }, '연장·연차·성과'),
-          h('th', { scope: 'col', className: 'num' }, '징계감봉(제95조)'),
-          h('th', { scope: 'col', className: 'num' }, '4대보험·세액'),
-          h('th', { scope: 'col', className: 'num' }, '실지급액'),
-          h('th', { scope: 'col' }, '법령검증 · 명세서')
-        )
-      ),
-      h(
-        'tbody',
-        {},
-        payrollLines.map((line) =>
           h(
             'tr',
             {},
-            h(
-              'td',
-              { 'data-label': '사번 · 성명 · 소속' },
-              h(
-                'div',
-                {},
-                h('div', { className: 'cell-emp-code' }, line.empCode),
-                h('div', { className: 'breakable-name' }, line.displayName),
-                h('div', { className: 'cell-dept-name' }, line.deptName)
-              )
-            ),
-            h(
-              'td',
-              { 'data-label': '고용/소득구분' },
-              h('span', { className: 'tag tag-gray' }, categoryLabels[line.workerCategory] || line.workerCategory)
-            ),
-            h(
-              'td',
-              { className: 'num', 'data-label': '기본·고정·식대' },
-              fmtWon(line.basePayApplied + line.fixedAllowanceApplied + line.mealAllowanceApplied)
-            ),
-            h(
-              'td',
-              { className: 'num', 'data-label': '연장·연차·성과' },
-              fmtWon(line.overtimeNightHolidayPay + line.unusedLeavePay + line.evalBonusPay)
-            ),
-            h(
-              'td',
-              { className: 'num', 'data-label': '징계감봉(제95조)' },
-              h(
-                'div',
-                {},
-                h('div', {}, line.disciplinaryCutApplied > 0 ? `-${fmtWon(line.disciplinaryCutApplied)}` : '0원'),
-                line.disciplinaryCutBlocked > 0
-                  ? h(
-                      'div',
-                      { className: 'cut-blocked-note' },
-                      `(초과 ${fmtWon(line.disciplinaryCutBlocked)} 차단)`
-                    )
-                  : null
-              )
-            ),
-            h(
-              'td',
-              { className: 'num', 'data-label': '4대보험·세액' },
-              fmtWon(line.socialInsuranceTotal + line.incomeTaxTotal)
-            ),
-            h(
-              'td',
-              { className: 'num font-extrabold', 'data-label': '실지급액' },
-              fmtWon(line.netPay)
-            ),
-            h(
-              'td',
-              { 'data-label': '법령검증 · 명세서' },
-              h(
-                'div',
-                { className: 'cell-actions-col' },
-                line.warnings.length === 0
-                  ? h('span', { className: 'tag tag-green' }, '법령 적합')
-                  : line.warnings.map((w) =>
-                      h(
-                        'span',
-                        { className: w.level === 'CRITICAL' ? 'tag tag-red' : 'tag tag-amber' },
-                        w.code === 'DISGUISED_WORKER_RISK'
-                          ? '근로자성(3.3%) 점검'
-                          : w.code === 'DISCIPLINARY_CUT_CAPPED'
-                            ? '제95조 한도캡핑'
-                            : w.code === 'DISCIPLINARY_PROCEDURE_DEFECT'
-                              ? '징계절차 미비'
-                              : w.code
-                      )
-                    ),
+            renderMasterSelectHeaderTh(payrollLines, '급여 대장'),
+            h('th', { scope: 'col' }, '사번 · 이름 · 소속'),
+            h('th', { scope: 'col' }, '구분'),
+            h('th', { scope: 'col', className: 'num' }, '기본·고정·식대'),
+            h('th', { scope: 'col', className: 'num' }, '연장·연차·성과'),
+            h('th', { scope: 'col', className: 'num' }, '감봉공제'),
+            h('th', { scope: 'col', className: 'num' }, '4대보험·세액'),
+            h('th', { scope: 'col', className: 'num' }, '실지급액'),
+            h('th', { scope: 'col' }, '급여 명세서')
+          )
+        ),
+        h(
+          'tbody',
+          {},
+          visibleLines.length === 0
+            ? [h('tr', {}, h('td', { colspan: '9' }, '표시할 별표(★) 직원이 없습니다.'))]
+            : visibleLines.map((line) =>
                 h(
-                  'button',
-                  {
-                    type: 'button',
-                    className: 'btn btn-secondary btn-sm',
-                    onClick: (e) => openPayslipModal(line, e.currentTarget),
-                  },
-                  '산출식 명세서 보기'
+                  'tr',
+                  {},
+                  renderMasterMarkTd(line),
+                  h(
+                    'td',
+                    { 'data-label': '사번 · 이름 · 소속' },
+                    h(
+                      'div',
+                      {},
+                      h('div', { className: 'cell-emp-code' }, line.empCode),
+                      h('div', { className: 'breakable-name' }, line.displayName),
+                      h('div', { className: 'cell-dept-name' }, line.deptName)
+                    )
+                  ),
+                  h(
+                    'td',
+                    { 'data-label': '구분' },
+                    h('span', { className: 'tag tag-gray' }, categoryLabels[line.workerCategory] || line.workerCategory)
+                  ),
+                  h(
+                    'td',
+                    { className: 'num', 'data-label': '기본·고정·식대' },
+                    fmtWon(line.basePayApplied + line.fixedAllowanceApplied + line.mealAllowanceApplied)
+                  ),
+                  h(
+                    'td',
+                    { className: 'num', 'data-label': '연장·연차·성과' },
+                    fmtWon(line.overtimeNightHolidayPay + line.unusedLeavePay + line.evalBonusPay)
+                  ),
+                  h(
+                    'td',
+                    { className: 'num', 'data-label': '감봉공제' },
+                    h(
+                      'div',
+                      {},
+                      h('div', {}, line.disciplinaryCutApplied > 0 ? `-${fmtWon(line.disciplinaryCutApplied)}` : '0원'),
+                      line.disciplinaryCutBlocked > 0
+                        ? h(
+                            'div',
+                            { className: 'cut-blocked-note' },
+                            `(초과 ${fmtWon(line.disciplinaryCutBlocked)} 차단)`
+                          )
+                        : null
+                    )
+                  ),
+                  h(
+                    'td',
+                    { className: 'num', 'data-label': '4대보험·세액' },
+                    fmtWon(line.socialInsuranceTotal + line.incomeTaxTotal)
+                  ),
+                  h(
+                    'td',
+                    { className: 'num font-extrabold', 'data-label': '실지급액' },
+                    fmtWon(line.netPay)
+                  ),
+                  h(
+                    'td',
+                    { 'data-label': '급여 명세서' },
+                    h(
+                      'div',
+                      { className: 'cell-actions-col' },
+                      line.warnings.length === 0
+                        ? h('span', { className: 'tag tag-green' }, '적합')
+                        : line.warnings.map((w) =>
+                            h(
+                              'span',
+                              { className: w.level === 'CRITICAL' ? 'tag tag-red' : 'tag tag-amber' },
+                              w.code === 'DISGUISED_WORKER_RISK'
+                                ? '3.3% 점검'
+                                : w.code === 'DISCIPLINARY_CUT_CAPPED'
+                                  ? '한도캡핑'
+                                  : w.code === 'DISCIPLINARY_PROCEDURE_DEFECT'
+                                    ? '절차미비'
+                                    : w.code
+                            )
+                          ),
+                      h(
+                        'button',
+                        {
+                          type: 'button',
+                          className: 'btn btn-secondary btn-sm',
+                          onClick: (e) => openPayslipModal(line, e.currentTarget),
+                        },
+                        '명세서 보기'
+                      )
+                    )
+                  )
                 )
               )
-            )
-          )
         )
       )
     )
   );
 
-  container.replaceChildren(table);
+  container.replaceChildren(tableSection);
 }
 
 /* ==========================================================================
@@ -1251,15 +1423,60 @@ async function openDocumentPreview(
 
 function openPayslipModal(line, triggerBtn) {
   const companyName = appState.snapshot?.company?.companyName || '사업장';
+  const att = line.attendanceSummary || null;
+  const lv = line.leaveSummary || null;
+
+  const attSection = att
+    ? [
+        '----------------------------------------------------------------------',
+        `4. 당월 일별 근태 · 근로시간 기록 (${att.yearMonth})`,
+        `   - 요약 : 출근 ${att.workDaysCount}일 (연차·반차 ${att.leaveDaysCount}일) | 소정 ${att.totalNormalHours}h | 연장 ${att.totalOvertimeHours}h | 야간 ${att.totalNightHours}h | 휴일 ${att.totalHolidayHours}h`,
+        ...(att.workedDays.length === 0
+          ? ['   * 당월 출퇴근 기록 없음']
+          : att.workedDays.map((d) => {
+              const timePart = d.clockIn && d.clockIn !== '-' ? `${d.clockIn}~${d.clockOut} ` : '';
+              const hParts = [`정상 ${d.normalHours}h`];
+              if (d.overtimeHours > 0) hParts.push(`연장 ${d.overtimeHours}h`);
+              if (d.nightHours > 0) hParts.push(`야간 ${d.nightHours}h`);
+              if (d.holidayHours > 0) hParts.push(`휴일 ${d.holidayHours}h`);
+              const memoPart = d.memo ? ` (${d.memo})` : '';
+              return `   * ${d.date}(${d.weekday}) [${d.statusLabel}] ${timePart}— ${hParts.join(' · ')}${memoPart}`;
+            })),
+        '',
+      ].join('\n')
+    : '';
+
+  const leaveSection = lv
+    ? [
+        '----------------------------------------------------------------------',
+        '5. 연차유급휴가 발생 · 신청 · 사용 상세 기록',
+        lv.leaveEligible
+          ? `   - 요약 : 발생 ${lv.grantedCount}회 (총 ${lv.accruedDays}일) | 사용 ${lv.usedCount}회 (총 ${lv.usedDays}일 · 당월 ${lv.monthUsedDays}일) | 잔여 ${lv.remainingDays}일`
+          : `   - 구분 : ${lv.ruleBasis}`,
+        lv.leaveEligible ? `   - 기준 : ${lv.ruleBasis}` : null,
+        ...(lv.leaveEligible
+          ? lv.records.length === 0
+            ? ['   * 연차 신청·사용 내역 없음']
+            : lv.records.map(
+                (r) =>
+                  `   * 신청일 ${r.appliedAt} → 사용일 ${r.useDate} | ${r.leaveType} (${r.days}일) | 사유: ${r.reason}`
+              )
+          : []),
+        '',
+      ]
+        .filter((x) => x !== null)
+        .join('\n')
+    : '';
+
   const warnText =
     line.warnings.length > 0
-      ? `\n[노동법 자동 검증 알림]\n${line.warnings.map((w) => ` - (${w.level}) ${w.message}`).join('\n')}\n`
-      : '\n[노동법 자동 검증 알림]\n - 위반·경고 사항 없음 (최저임금·근로시간·제95조 적합)\n';
+      ? `[노동법 자동 검증 알림]\n${line.warnings.map((w) => ` - (${w.level}) ${w.message}`).join('\n')}\n`
+      : '[노동법 자동 검증 알림]\n - 위반·경고 사항 없음 (최저임금·근로시간·제95조 적합)\n';
 
   const body = `======================================================================
-${companyName} 임금명세서 (근로기준법 제48조 제2항 산출방법 명시본)
+${companyName} 급여 명세서 (근태 캘린더 · 연차 이력 · 산출식 통합본)
 ======================================================================
-성명(사번) : ${line.displayName} (${line.empCode}) | 소속 : ${line.deptName}
+순번 · 성명(사번) : No.${line.rowNo ?? '-'} ${line.displayName} (${line.empCode}) | 소속 : ${line.deptName}
 
 1. 지급 내역 합계 : ${fmtWon(line.grossPay)}
    - 기본급 반영액           : ${fmtWon(line.basePayApplied)}
@@ -1279,11 +1496,12 @@ ${companyName} 임금명세서 (근로기준법 제48조 제2항 산출방법 �
 ----------------------------------------------------------------------
 [임금 구성항목별 계산방법 (근로기준법 시행령 제27조의2 필수 기재)]
 ${line.formulaLines.map((f) => ` * ${f}`).join('\n')}
-${warnText}`;
+
+${attSection}${leaveSection}${warnText}`;
 
   openModalWithText(
-    `[산출식 명시 임금명세서] ${line.displayName} (${line.empCode})`,
-    '근로기준법 제48조 제2항 필수 기재사항 자동 생성본',
+    `[급여 명세서] No.${line.rowNo ?? '-'} ${line.displayName} (${line.empCode})`,
+    '급여 산출식 · 월간 일별 근무시간 · 연차 발생/신청/사용 통합 명세서',
     body,
     triggerBtn
   );
@@ -2192,6 +2410,7 @@ function renderOpsRecruitTab(snapshot) {
     )
   );
 
+  const visibleContracts = applyStarFilter(rec.contractLedger);
   const contractSection = h(
     'div',
     { className: 'ops-section-block' },
@@ -2202,6 +2421,7 @@ function renderOpsRecruitTab(snapshot) {
       h(
         'div',
         { className: 'step-pill-group' },
+        renderRosterSyncControls(rec.contractLedger, renderOpsRecruitTab),
         h(
           'button',
           {
@@ -2243,122 +2463,132 @@ function renderOpsRecruitTab(snapshot) {
           h(
             'tr',
             {},
-            h('th', { scope: 'col' }, '사번 · 성명 · 부서'),
-            h('th', { scope: 'col' }, '입사일 · 수습3개월 만료'),
-            h('th', { scope: 'col', className: 'num' }, '계약 기본급 (주시간)'),
-            h('th', { scope: 'col' }, '제17조 전자계약 · 사본교부'),
-            h('th', { scope: 'col' }, '4대보험 취득신고'),
-            h('th', { scope: 'col' }, '관리 액션')
+            renderMasterSelectHeaderTh(rec.contractLedger, '근로계약 현황'),
+            h('th', { scope: 'col' }, '사번 · 이름 · 부서'),
+            h('th', { scope: 'col' }, '입사일 · 수습만료'),
+            h('th', { scope: 'col', className: 'num' }, '계약 기준액'),
+            h('th', { scope: 'col' }, '계약 상태'),
+            h('th', { scope: 'col' }, '4대보험'),
+            h('th', { scope: 'col' }, '관리')
           )
         ),
         h(
           'tbody',
           {},
-          rec.contractLedger.length === 0
+          visibleContracts.length === 0
             ? [
                 h(
                   'tr',
                   {},
                   h(
                     'td',
-                    { colspan: '6' },
-                    '현재 재직 근로자 명부가 비어 있습니다 (0명). 상단 합격 후보자를 입사 발령하거나 기본 명부를 복원하세요.'
+                    { colspan: '7' },
+                    rec.contractLedger.length === 0
+                      ? '등록된 직원이 없습니다.'
+                      : '표시할 별표(★) 직원이 없습니다.'
                   )
                 ),
               ]
-            : rec.contractLedger.map((c) =>
-            h(
-              'tr',
-              {},
-              h(
-                'td',
-                { 'data-label': '사번 · 성명 · 부서' },
-                h('div', { className: 'cell-emp-code' }, c.empCode),
-                h('div', { className: 'breakable-name' }, c.displayName),
-                h('div', { className: 'cell-dept-name' }, c.deptName)
-              ),
-              h(
-                'td',
-                { 'data-label': '입사일 · 수습만료' },
-                h('div', {}, `입사: ${c.hireDate}`),
-                h('div', { className: 'cell-dept-name' }, `수습만료: ${c.probationEndsOn}`)
-              ),
-              h(
-                'td',
-                { className: 'num', 'data-label': '계약 기본급' },
-                fmtWon(c.baseMonthlyPay),
-                h('div', { className: 'cell-dept-name' }, `주 ${c.weeklyHours}h`)
-              ),
-              h(
-                'td',
-                { 'data-label': '제17조 전자계약' },
-                c.contractSigned
-                  ? h('span', { className: 'tag tag-green' }, `체결·교부 완료 (${c.contractSignedAt})`)
-                  : h('span', { className: 'tag tag-red' }, '미체결 (즉시 서명·교부 필요)')
-              ),
-              h(
-                'td',
-                { 'data-label': '4대보험 취득신고' },
+            : visibleContracts.map((c) =>
                 h(
-                  'div',
-                  { className: 'step-pill-group' },
-                  h('span', { className: 'tag tag-blue' }, c.nhisAcquired ? '국민·건보 취득완료' : '초단시간 건보제외'),
-                  h('span', { className: 'tag tag-blue' }, '고용·산재 취득완료')
-                )
-              ),
-              h(
-                'td',
-                { 'data-label': '관리 액션' },
-                h(
-                  'div',
-                  { className: 'step-pill-group' },
-                  c.contractSigned
-                    ? h(
+                  'tr',
+                  {},
+                  renderMasterMarkTd(c),
+                  h(
+                    'td',
+                    { 'data-label': '사번 · 이름 · 부서' },
+                    h('div', { className: 'cell-emp-code' }, c.empCode),
+                    h('div', { className: 'breakable-name' }, c.displayName),
+                    h('div', { className: 'cell-dept-name' }, c.deptName)
+                  ),
+                  h(
+                    'td',
+                    { 'data-label': '입사일 · 수습만료' },
+                    h('div', {}, c.hireDate),
+                    h('div', { className: 'cell-dept-name' }, `수습 ~${c.probationEndsOn}`)
+                  ),
+                  h(
+                    'td',
+                    { className: 'num', 'data-label': '계약 기준액' },
+                    fmtWon(c.baseMonthlyPay),
+                    h(
+                      'div',
+                      { className: 'cell-dept-name' },
+                      c.workerCategory === 'BIZ_33' ? '위탁계약' : `주 ${c.weeklyHours}h`
+                    )
+                  ),
+                  h(
+                    'td',
+                    { 'data-label': '계약 상태' },
+                    c.contractSigned
+                      ? h('span', { className: 'tag tag-green' }, `체결 (${c.contractSignedAt})`)
+                      : h('span', { className: 'tag tag-red' }, '미체결')
+                  ),
+                  h(
+                    'td',
+                    { 'data-label': '4대보험' },
+                    c.workerCategory === 'BIZ_33'
+                      ? h('span', { className: 'tag tag-gray' }, '3.3% 원천세')
+                      : h(
+                          'div',
+                          { className: 'step-pill-group' },
+                          h('span', { className: 'tag tag-blue' }, c.nhisAcquired ? '국민·건보' : '건보제외'),
+                          h('span', { className: 'tag tag-blue' }, '고용·산재')
+                        )
+                  ),
+                  h(
+                    'td',
+                    { 'data-label': '관리' },
+                    h(
+                      'div',
+                      { className: 'step-pill-group' },
+                      c.contractSigned
+                        ? h(
+                            'button',
+                            {
+                              type: 'button',
+                              className: 'btn btn-secondary btn-sm',
+                              onClick: (e) => openDocumentPreview('DOC_EMPLOYMENT_CONTRACT', e.currentTarget),
+                            },
+                            '계약서'
+                          )
+                        : h(
+                            'button',
+                            {
+                              type: 'button',
+                              className: 'btn btn-primary btn-sm',
+                              onClick: (e) =>
+                                runOpsAction(
+                                  { actionType: 'SIGN_CONTRACT', empCode: c.empCode },
+                                  e.currentTarget
+                                ),
+                            },
+                            '서명 처리'
+                          ),
+                      h(
                         'button',
                         {
                           type: 'button',
                           className: 'btn btn-secondary btn-sm',
-                          onClick: (e) => openDocumentPreview('DOC_EMPLOYMENT_CONTRACT', e.currentTarget),
+                          onClick: (e) =>
+                            openDocumentPreview('DOC_PRIVACY_CONSENT', e.currentTarget, undefined, c.empCode),
                         },
-                        '계약서 사본'
-                      )
-                    : h(
+                        '동의서'
+                      ),
+                      h(
                         'button',
                         {
                           type: 'button',
-                          className: 'btn btn-primary btn-sm',
+                          className: 'btn btn-secondary btn-sm',
                           onClick: (e) =>
-                            runOpsAction(
-                              { actionType: 'SIGN_CONTRACT', empCode: c.empCode },
-                              e.currentTarget
-                            ),
+                            openDocumentPreview('DOC_NDA_SECURITY_PLEDGE', e.currentTarget, undefined, c.empCode),
                         },
-                        '전자서명·교부'
-                      ),
-                  h(
-                    'button',
-                    {
-                      type: 'button',
-                      className: 'btn btn-secondary btn-sm',
-                      onClick: (e) =>
-                        openDocumentPreview('DOC_PRIVACY_CONSENT', e.currentTarget, undefined, c.empCode),
-                    },
-                    '개인정보동의서'
-                  ),
-                  h(
-                    'button',
-                    {
-                      type: 'button',
-                      className: 'btn btn-secondary btn-sm',
-                      onClick: (e) =>
-                        openDocumentPreview('DOC_NDA_SECURITY_PLEDGE', e.currentTarget, undefined, c.empCode),
-                    },
-                    '보안서약서'
+                        '보안서약서'
+                      )
+                    )
                   )
                 )
               )
-            )
-          )
         )
       )
     )
@@ -2370,7 +2600,19 @@ function renderOpsRecruitTab(snapshot) {
 function renderOpsOrgTab(snapshot) {
   const wrap = document.getElementById('ops-org-container');
   if (!wrap || !snapshot.operationsSuite) return;
-  const regularWorkers = snapshot.workers.filter((w) => w.workerCategory !== 'DAILY' && w.workerCategory !== 'BIZ_33');
+  const allWorkers = snapshot.workers || [];
+  const regularWorkers = allWorkers.filter(
+    (w) => w.workerCategory !== 'DAILY' && w.workerCategory !== 'BIZ_33'
+  );
+  const visibleWorkers = applyStarFilter(allWorkers);
+
+  const catLabels = {
+    REGULAR: '정규직',
+    FIXED_TERM: '기간제',
+    PART_TIME: '단시간',
+    DAILY: '일용직',
+    BIZ_33: '3.3% 사업소득',
+  };
 
   const assignForm = h(
     'form',
@@ -2393,14 +2635,14 @@ function renderOpsOrgTab(snapshot) {
     h(
       'div',
       { className: 'field' },
-      h('label', { for: 'asg-emp-select' }, '대상 직원'),
+      h('label', { for: 'asg-emp-select' }, '발령 대상 직원'),
       h(
         'select',
         { id: 'asg-emp-select', name: 'asgEmp', disabled: regularWorkers.length === 0 },
         regularWorkers.length === 0
           ? [h('option', { value: '' }, '직원 없음')]
           : regularWorkers.map((w) =>
-              h('option', { value: w.empCode }, `${w.displayName} (${w.deptName})`)
+              h('option', { value: w.empCode }, `No.${w.rowNo} ${w.empCode} ${w.displayName} (${w.deptName})`)
             )
       )
     ),
@@ -2440,8 +2682,8 @@ function renderOpsOrgTab(snapshot) {
     h(
       'div',
       { className: 'ops-section-head' },
-      h('h3', { className: 'ops-section-title' }, '직원 명부'),
-      h('span', { className: 'tag tag-gray' }, `${regularWorkers.length}명`)
+      h('h3', { className: 'ops-section-title' }, '직원 명부 (전 메뉴 번호 · 사번 동기화)'),
+      renderRosterSyncControls(allWorkers, renderOpsOrgTab)
     ),
     assignForm,
     h(
@@ -2456,22 +2698,36 @@ function renderOpsOrgTab(snapshot) {
           h(
             'tr',
             {},
+            renderMasterSelectHeaderTh(allWorkers, '직원 명부'),
             h('th', { scope: 'col' }, '사번 · 이름'),
-            h('th', { scope: 'col' }, '부서 · 직위'),
+            h('th', { scope: 'col' }, '부서 · 고용구분'),
             h('th', { scope: 'col' }, '상태'),
-            h('th', { scope: 'col', className: 'num' }, '기본급'),
-            h('th', { scope: 'col' }, '서류 발급')
+            h('th', { scope: 'col', className: 'num' }, '기준 급여'),
+            h('th', { scope: 'col' }, '서류 · 명세서')
           )
         ),
         h(
           'tbody',
           {},
-          regularWorkers.length === 0
-            ? [h('tr', {}, h('td', { colspan: '5' }, '등록된 직원이 없습니다.'))]
-            : regularWorkers.map((w) =>
+          visibleWorkers.length === 0
+            ? [
                 h(
                   'tr',
                   {},
+                  h(
+                    'td',
+                    { colspan: '6' },
+                    allWorkers.length === 0 ? '등록된 직원이 없습니다.' : '표시할 별표(★) 직원이 없습니다.'
+                  )
+                ),
+              ]
+            : visibleWorkers.map((w) => {
+                const refPay =
+                  w.baseMonthlyPay || w.contractFee || (w.dailyWage || 0) * (w.dailyWorkDays || 0);
+                return h(
+                  'tr',
+                  {},
+                  renderMasterMarkTd(w),
                   h(
                     'td',
                     { 'data-label': '사번 · 이름' },
@@ -2480,9 +2736,13 @@ function renderOpsOrgTab(snapshot) {
                   ),
                   h(
                     'td',
-                    { 'data-label': '부서 · 직위' },
+                    { 'data-label': '부서 · 고용구분' },
                     h('div', {}, w.deptName),
-                    h('div', { className: 'cell-dept-name' }, w.jobTitle || '사원')
+                    h(
+                      'div',
+                      { className: 'cell-dept-name' },
+                      `${catLabels[w.workerCategory] || w.workerCategory} · ${w.jobTitle || '담당'}`
+                    )
                   ),
                   h(
                     'td',
@@ -2493,23 +2753,25 @@ function renderOpsOrgTab(snapshot) {
                       (w.unpaidLeaveDays || 0) > 0 ? `휴직 (${w.unpaidLeaveDays}일)` : '재직'
                     )
                   ),
-                  h('td', { className: 'num', 'data-label': '기본급' }, fmtWon(w.baseMonthlyPay || 0)),
+                  h('td', { className: 'num', 'data-label': '기준 급여' }, fmtWon(refPay)),
                   h(
                     'td',
-                    { 'data-label': '서류 발급' },
+                    { 'data-label': '서류 · 명세서' },
                     h(
                       'div',
                       { className: 'step-pill-group' },
-                      h(
-                        'button',
-                        {
-                          type: 'button',
-                          className: 'btn btn-secondary btn-sm',
-                          onClick: (e) =>
-                            openDocumentPreview('DOC_EMPLOYMENT_CERT', e.currentTarget, undefined, w.empCode),
-                        },
-                        '재직증명서'
-                      ),
+                      w.workerCategory !== 'BIZ_33'
+                        ? h(
+                            'button',
+                            {
+                              type: 'button',
+                              className: 'btn btn-secondary btn-sm',
+                              onClick: (e) =>
+                                openDocumentPreview('DOC_EMPLOYMENT_CERT', e.currentTarget, undefined, w.empCode),
+                            },
+                            '재직증명서'
+                          )
+                        : null,
                       h(
                         'button',
                         {
@@ -2525,15 +2787,14 @@ function renderOpsOrgTab(snapshot) {
                         {
                           type: 'button',
                           className: 'btn btn-secondary btn-sm',
-                          onClick: (e) =>
-                            openDocumentPreview('DOC_NDA_SECURITY_PLEDGE', e.currentTarget, undefined, w.empCode),
+                          onClick: (e) => openPayslipByEmpCode(w.empCode, e.currentTarget),
                         },
-                        '보안서약서'
+                        '급여명세서'
                       )
                     )
                   )
-                )
-              )
+                );
+              })
         )
       )
     )
@@ -2547,6 +2808,48 @@ function renderOpsAttendanceTab(snapshot) {
   if (!wrap || !snapshot.operationsSuite) return;
   const att = snapshot.operationsSuite.attendanceControl;
   const warnH = att.weeklyWarnHours ?? 48;
+  const ym = att.selectedYearMonth || '2026-11';
+  const visibleBoard = applyStarFilter(att.board);
+  const selectedCode = resolveSelectedWorkerCode(att.board);
+  const selectedRow = att.board.find((r) => r.empCode === selectedCode) || att.board[0] || null;
+
+  const changeMonth = (nextYm, triggerEl) => {
+    if (!nextYm) return;
+    appState.selectedAttDate = `${nextYm}-01`;
+    runOpsAction({ actionType: 'SET_ATTENDANCE_MONTH', yearMonth: nextYm }, triggerEl);
+  };
+
+  const monthControls = h(
+    'div',
+    { className: 'month-nav-group' },
+    h(
+      'button',
+      {
+        type: 'button',
+        className: 'btn btn-secondary btn-sm',
+        'aria-label': '이전 달 근태 보기',
+        onClick: (e) => changeMonth(shiftYearMonth(ym, -1), e.currentTarget),
+      },
+      '◀'
+    ),
+    h('input', {
+      type: 'month',
+      className: 'month-input-box',
+      value: ym,
+      'aria-label': '근태 귀속 연월 선택',
+      onChange: (e) => changeMonth(e.currentTarget.value, e.currentTarget),
+    }),
+    h(
+      'button',
+      {
+        type: 'button',
+        className: 'btn btn-secondary btn-sm',
+        'aria-label': '다음 달 근태 보기',
+        onClick: (e) => changeMonth(shiftYearMonth(ym, 1), e.currentTarget),
+      },
+      '▶'
+    )
+  );
 
   const section = h(
     'div',
@@ -2554,8 +2857,13 @@ function renderOpsAttendanceTab(snapshot) {
     h(
       'div',
       { className: 'ops-section-head' },
-      h('h3', { className: 'ops-section-title' }, '출퇴근 · 근로시간 현황'),
-      h('span', { className: 'tag tag-gray' }, `주의 기준: 주 ${warnH}h / 한도 52h`)
+      h(
+        'div',
+        { className: 'step-pill-group' },
+        h('h3', { className: 'ops-section-title' }, '출퇴근 · 근로시간 현황'),
+        monthControls
+      ),
+      renderRosterSyncControls(att.board, renderOpsAttendanceTab)
     ),
     h(
       'div',
@@ -2569,20 +2877,33 @@ function renderOpsAttendanceTab(snapshot) {
           h(
             'tr',
             {},
+            renderMasterSelectHeaderTh(att.board, '출퇴근 · 근로시간 현황'),
             h('th', { scope: 'col' }, '사번 · 이름'),
-            h('th', { scope: 'col' }, '근무형태'),
-            h('th', { scope: 'col', className: 'num' }, '연장 · 야간 · 휴일'),
-            h('th', { scope: 'col' }, '주간 근로시간'),
+            h('th', { scope: 'col' }, '근무형태 · 출근일'),
+            h('th', { scope: 'col', className: 'num' }, '정상 · 연장 · 야간 · 휴일'),
+            h('th', { scope: 'col' }, '주간 최대'),
             h('th', { scope: 'col' }, '상태'),
-            h('th', { scope: 'col' }, '시간 조정')
+            h('th', { scope: 'col' }, '월간 캘린더')
           )
         ),
         h(
           'tbody',
           {},
-          att.board.length === 0
-            ? [h('tr', {}, h('td', { colspan: '6' }, '대상 직원이 없습니다.'))]
-            : att.board.map((row) => {
+          visibleBoard.length === 0
+            ? [
+                h(
+                  'tr',
+                  {},
+                  h(
+                    'td',
+                    { colspan: '7' },
+                    att.board.length === 0 ? '대상 직원이 없습니다.' : '표시할 별표(★) 직원이 없습니다.'
+                  )
+                ),
+              ]
+            : visibleBoard.map((row) => {
+                const cal = row.monthlyCalendar;
+                const isSelected = selectedRow && selectedRow.empCode === row.empCode;
                 const progClass =
                   row.maxWeeklyWorkedHours > 52
                     ? 'meter-progress meter-progress-danger'
@@ -2591,7 +2912,14 @@ function renderOpsAttendanceTab(snapshot) {
                       : 'meter-progress';
                 return h(
                   'tr',
-                  {},
+                  {
+                    className: isSelected ? 'emp-select-row is-selected-worker' : 'emp-select-row',
+                    onClick: () => {
+                      appState.selectedEmpCode = row.empCode;
+                      renderOpsAttendanceTab(snapshot);
+                    },
+                  },
+                  renderMasterMarkTd(row),
                   h(
                     'td',
                     { 'data-label': '사번 · 이름' },
@@ -2599,26 +2927,41 @@ function renderOpsAttendanceTab(snapshot) {
                     h('div', { className: 'breakable-name' }, row.displayName),
                     h('div', { className: 'cell-dept-name' }, row.deptName)
                   ),
-                  h('td', { 'data-label': '근무형태' }, h('span', { className: 'tag tag-gray' }, row.shiftType)),
                   h(
                     'td',
-                    { className: 'num', 'data-label': '연장 · 야간 · 휴일' },
-                    `연장 ${row.monthlyOvertimeHours}h · 야간 ${row.monthlyNightHours}h · 휴일 ${row.monthlyHolidayHours}h`
+                    { 'data-label': '근무형태 · 출근일' },
+                    h('span', { className: 'tag tag-gray' }, row.shiftType),
+                    cal
+                      ? h(
+                          'div',
+                          { className: 'cell-dept-name' },
+                          `출근 ${cal.workDaysCount}일${cal.leaveDaysCount ? ` · 연차 ${cal.leaveDaysCount}일` : ''}`
+                        )
+                      : null
                   ),
                   h(
                     'td',
-                    { 'data-label': '주간 근로시간' },
-                    h(
-                      'div',
-                      { className: 'meter-wrap' },
-                      h('progress', {
-                        className: progClass,
-                        'aria-label': `${row.displayName} 주간 근로시간`,
-                        max: '52',
-                        value: String(Math.min(52, row.maxWeeklyWorkedHours)),
-                      }),
-                      h('span', { className: 'cell-dept-name' }, `${row.maxWeeklyWorkedHours}h / 52h`)
-                    )
+                    { className: 'num', 'data-label': '정상 · 연장 · 야간 · 휴일' },
+                    row.workerCategory === 'BIZ_33'
+                      ? '위탁계약 (시간통제 비대상)'
+                      : `정상 ${cal?.totalNormalHours ?? 0}h · 연장 ${row.monthlyOvertimeHours}h · 야간 ${row.monthlyNightHours}h · 휴일 ${row.monthlyHolidayHours}h`
+                  ),
+                  h(
+                    'td',
+                    { 'data-label': '주간 최대' },
+                    row.workerCategory === 'BIZ_33'
+                      ? h('span', { className: 'cell-dept-name' }, '-')
+                      : h(
+                          'div',
+                          { className: 'meter-wrap' },
+                          h('progress', {
+                            className: progClass,
+                            'aria-label': `${row.displayName} 주간 근로시간`,
+                            max: '52',
+                            value: String(Math.min(52, row.maxWeeklyWorkedHours)),
+                          }),
+                          h('span', { className: 'cell-dept-name' }, `${row.maxWeeklyWorkedHours}h / 52h`)
+                        )
                   ),
                   h(
                     'td',
@@ -2629,11 +2972,13 @@ function renderOpsAttendanceTab(snapshot) {
                         ? h('span', { className: 'tag tag-amber' }, `주의 (${warnH}h+)`)
                         : row.status === 'PARENTAL_OR_LEAVE'
                           ? h('span', { className: 'tag tag-blue' }, '휴직')
-                          : h('span', { className: 'tag tag-green' }, '정상')
+                          : row.status === 'CONTRACTOR_33'
+                            ? h('span', { className: 'tag tag-gray' }, '3.3% 위탁')
+                            : h('span', { className: 'tag tag-green' }, '정상')
                   ),
                   h(
                     'td',
-                    { 'data-label': '시간 조정' },
+                    { 'data-label': '월간 캘린더', onClick: (e) => e.stopPropagation() },
                     h(
                       'div',
                       { className: 'step-pill-group' },
@@ -2641,40 +2986,24 @@ function renderOpsAttendanceTab(snapshot) {
                         'button',
                         {
                           type: 'button',
-                          className: 'btn btn-secondary btn-sm',
-                          onClick: (e) =>
-                            runOpsAction(
-                              {
-                                actionType: 'QUICK_ATTENDANCE_UPDATE',
-                                empCode: row.empCode,
-                                overtimeHours: row.monthlyOvertimeHours + 4,
-                                maxWeeklyWorkedHours: Number((row.maxWeeklyWorkedHours + 4).toFixed(1)),
-                              },
-                              e.currentTarget
-                            ),
+                          className: isSelected ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm',
+                          'aria-pressed': String(Boolean(isSelected)),
+                          onClick: () => {
+                            appState.selectedEmpCode = row.empCode;
+                            renderOpsAttendanceTab(snapshot);
+                          },
                         },
-                        '+4h'
+                        isSelected ? '캘린더 열림' : '캘린더 보기'
                       ),
-                      row.maxWeeklyWorkedHours > 40
-                        ? h(
-                            'button',
-                            {
-                              type: 'button',
-                              className: 'btn btn-secondary btn-sm',
-                              onClick: (e) =>
-                                runOpsAction(
-                                  {
-                                    actionType: 'QUICK_ATTENDANCE_UPDATE',
-                                    empCode: row.empCode,
-                                    overtimeHours: Math.max(0, row.monthlyOvertimeHours - 4),
-                                    maxWeeklyWorkedHours: 43,
-                                  },
-                                  e.currentTarget
-                                ),
-                            },
-                            '초기화'
-                          )
-                        : null
+                      h(
+                        'button',
+                        {
+                          type: 'button',
+                          className: 'btn btn-secondary btn-sm',
+                          onClick: (e) => openPayslipByEmpCode(row.empCode, e.currentTarget),
+                        },
+                        '명세서'
+                      )
                     )
                   )
                 );
@@ -2684,7 +3013,274 @@ function renderOpsAttendanceTab(snapshot) {
     )
   );
 
-  wrap.replaceChildren(section);
+  // 선택된 직원의 월간 근태 캘린더 + 일별 시간 기록/수정 패널
+  let calendarCard = null;
+  if (selectedRow && selectedRow.monthlyCalendar) {
+    const cal = selectedRow.monthlyCalendar;
+    if (!appState.selectedAttDate || !appState.selectedAttDate.startsWith(`${cal.yearMonth}-`)) {
+      appState.selectedAttDate = cal.days[0]?.date || `${cal.yearMonth}-01`;
+    }
+    const activeDay =
+      cal.days.find((d) => d.date === appState.selectedAttDate) || cal.days[0];
+
+    const blankCells = Array.from({ length: cal.firstWeekdayIdx }, () =>
+      h('div', { className: 'att-cal-empty', 'aria-hidden': 'true' })
+    );
+
+    const dayCells = cal.days.map((d) => {
+      const classes = ['att-day-cell'];
+      if (d.workStatus === 'OFF') classes.push('is-off');
+      if (d.overtimeHours > 0 || d.workStatus === 'HOLIDAY_WORK') classes.push('is-overtime');
+      if (d.workStatus === 'LEAVE' || d.workStatus === 'HALF_LEAVE') classes.push('is-leave');
+      if (activeDay && activeDay.date === d.date) classes.push('is-active-day');
+
+      const badgeClass =
+        d.workStatus === 'LEAVE' || d.workStatus === 'HALF_LEAVE'
+          ? 'tag tag-blue'
+          : d.workStatus === 'HOLIDAY_WORK' || d.overtimeHours > 0
+            ? 'tag tag-amber'
+            : d.workStatus === 'WORK'
+              ? 'tag tag-green'
+              : 'tag tag-gray';
+
+      const totalWorked = Number(
+        ((d.normalHours || 0) + (d.overtimeHours || 0) + (d.holidayHours || 0)).toFixed(1)
+      );
+
+      return h(
+        'button',
+        {
+          type: 'button',
+          className: classes.join(' '),
+          'aria-pressed': String(Boolean(activeDay && activeDay.date === d.date)),
+          'aria-label': `${d.date}(${d.weekday}) ${d.statusLabel} ${totalWorked}시간`,
+          onClick: () => {
+            appState.selectedAttDate = d.date;
+            renderOpsAttendanceTab(snapshot);
+          },
+        },
+        h(
+          'div',
+          { className: 'att-day-top' },
+          h('span', { className: 'att-day-num' }, `${d.day}일 (${d.weekday})`),
+          h('span', { className: badgeClass }, d.statusLabel)
+        ),
+        h(
+          'div',
+          { className: 'att-day-hours' },
+          d.workStatus === 'OFF'
+            ? '휴무'
+            : d.workStatus === 'HOLIDAY_WORK'
+              ? `휴일 ${d.holidayHours}h`
+              : `정상 ${d.normalHours}h${d.overtimeHours > 0 ? ` + 연장 ${d.overtimeHours}h` : ''}`
+        ),
+        h(
+          'div',
+          { className: 'att-day-time' },
+          d.clockIn && d.clockIn !== '-' ? `${d.clockIn} ~ ${d.clockOut}` : d.memo || '-'
+        )
+      );
+    });
+
+    const dayEditor =
+      selectedRow.workerCategory === 'BIZ_33'
+        ? h(
+            'div',
+            { className: 'att-day-editor' },
+            '3.3% 사업소득 계약자는 출퇴근 시간 지정 대상이 아니며 용역 결과물 기준으로 정산됩니다.'
+          )
+        : h(
+            'form',
+            {
+              className: 'ops-inline-form att-day-editor',
+              onSubmit: (e) => {
+                e.preventDefault();
+                const f = e.currentTarget;
+                runOpsAction(
+                  {
+                    actionType: 'SET_DAILY_ATTENDANCE',
+                    empCode: selectedRow.empCode,
+                    date: activeDay.date,
+                    workStatus: f.querySelector('[name="dayStatus"]').value,
+                    clockIn: f.querySelector('[name="dayIn"]').value,
+                    clockOut: f.querySelector('[name="dayOut"]').value,
+                    normalHours: Number(f.querySelector('[name="dayNorm"]').value),
+                    overtimeHours: Number(f.querySelector('[name="dayOt"]').value),
+                    nightHours: Number(f.querySelector('[name="dayNight"]').value),
+                    holidayHours: Number(f.querySelector('[name="dayHol"]').value),
+                    memo: f.querySelector('[name="dayMemo"]').value,
+                  },
+                  f.querySelector('button[type="submit"]')
+                );
+              },
+            },
+            h(
+              'div',
+              { className: 'field' },
+              h('label', { for: 'att-day-status' }, `${activeDay.date}(${activeDay.weekday}) 구분`),
+              h(
+                'select',
+                { id: 'att-day-status', name: 'dayStatus' },
+                [
+                  ['WORK', '정상/연장근무'],
+                  ['HOLIDAY_WORK', '휴일근무'],
+                  ['LEAVE', '연차휴가'],
+                  ['HALF_LEAVE', '반차휴가'],
+                  ['OFF', '휴무'],
+                ].map(([val, lbl]) =>
+                  h('option', { value: val, selected: activeDay.workStatus === val }, lbl)
+                )
+              )
+            ),
+            h(
+              'div',
+              { className: 'field' },
+              h('label', { for: 'att-day-in' }, '출근'),
+              h('input', {
+                id: 'att-day-in',
+                name: 'dayIn',
+                type: 'text',
+                value: activeDay.clockIn === '-' ? '09:00' : activeDay.clockIn,
+              })
+            ),
+            h(
+              'div',
+              { className: 'field' },
+              h('label', { for: 'att-day-out' }, '퇴근'),
+              h('input', {
+                id: 'att-day-out',
+                name: 'dayOut',
+                type: 'text',
+                value: activeDay.clockOut === '-' ? '18:00' : activeDay.clockOut,
+              })
+            ),
+            h(
+              'div',
+              { className: 'field' },
+              h('label', { for: 'att-day-norm' }, '정상(h)'),
+              h('input', {
+                id: 'att-day-norm',
+                name: 'dayNorm',
+                type: 'number',
+                min: '0',
+                max: '12',
+                step: '0.5',
+                value: String(activeDay.normalHours ?? 8),
+              })
+            ),
+            h(
+              'div',
+              { className: 'field' },
+              h('label', { for: 'att-day-ot' }, '연장(h)'),
+              h('input', {
+                id: 'att-day-ot',
+                name: 'dayOt',
+                type: 'number',
+                min: '0',
+                max: '12',
+                step: '0.5',
+                value: String(activeDay.overtimeHours ?? 0),
+              })
+            ),
+            h(
+              'div',
+              { className: 'field' },
+              h('label', { for: 'att-day-night' }, '야간(h)'),
+              h('input', {
+                id: 'att-day-night',
+                name: 'dayNight',
+                type: 'number',
+                min: '0',
+                max: '8',
+                step: '0.5',
+                value: String(activeDay.nightHours ?? 0),
+              })
+            ),
+            h(
+              'div',
+              { className: 'field' },
+              h('label', { for: 'att-day-hol' }, '휴일(h)'),
+              h('input', {
+                id: 'att-day-hol',
+                name: 'dayHol',
+                type: 'number',
+                min: '0',
+                max: '12',
+                step: '0.5',
+                value: String(activeDay.holidayHours ?? 0),
+              })
+            ),
+            h(
+              'div',
+              { className: 'field' },
+              h('label', { for: 'att-day-memo' }, '메모'),
+              h('input', {
+                id: 'att-day-memo',
+                name: 'dayMemo',
+                type: 'text',
+                placeholder: '비고',
+                value: activeDay.memo || '',
+              })
+            ),
+            h(
+              'div',
+              { className: 'field' },
+              h(
+                'button',
+                { type: 'submit', className: 'btn btn-primary full-width' },
+                '저장 · 급여명세서 반영'
+              )
+            )
+          );
+
+    calendarCard = h(
+      'div',
+      { className: 'att-calendar-card', id: 'att-monthly-calendar-panel' },
+      h(
+        'div',
+        { className: 'ops-section-head' },
+        h(
+          'div',
+          { className: 'step-pill-group' },
+          h(
+            'h3',
+            { className: 'ops-section-title' },
+            `No.${selectedRow.rowNo} ${selectedRow.empCode} ${selectedRow.displayName} — ${cal.yearMonth} 월간 근태 캘린더`
+          ),
+          h(
+            'span',
+            { className: 'tag tag-blue' },
+            `출근 ${cal.workDaysCount}일 · 정상 ${cal.totalNormalHours}h · 연장 ${cal.totalOvertimeHours}h · 휴일 ${cal.totalHolidayHours}h`
+          )
+        ),
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'btn btn-secondary btn-sm',
+            onClick: (e) => openPayslipByEmpCode(selectedRow.empCode, e.currentTarget),
+          },
+          '급여 명세서에서 일별 시간 확인'
+        )
+      ),
+      h(
+        'div',
+        { className: 'att-calendar-scroll' },
+        h(
+          'div',
+          { className: 'att-calendar-grid', role: 'group', 'aria-label': `${selectedRow.displayName} ${cal.yearMonth} 근태 캘린더` },
+          ...['일', '월', '화', '수', '목', '금', '토'].map((wName) =>
+            h('div', { className: 'att-cal-weekday' }, wName)
+          ),
+          ...blankCells,
+          ...dayCells
+        )
+      ),
+      dayEditor
+    );
+  }
+
+  wrap.replaceChildren(...[section, calendarCard].filter(Boolean));
 }
 
 function renderOpsLeaveTab(snapshot) {
@@ -2697,6 +3293,9 @@ function renderOpsLeaveTab(snapshot) {
   const leaveBasisLabel = formatLeaveBasisShort(policy);
 
   const promoLabel = (stage) => {
+    if (stage === 'EXEMPT') {
+      return h('span', { className: 'tag tag-gray' }, '비대상');
+    }
     if (stage === 'STAGE_2_DESIGNATED') {
       return h('span', { className: 'tag tag-green' }, '2차 지정 완료');
     }
@@ -2707,6 +3306,12 @@ function renderOpsLeaveTab(snapshot) {
   };
 
   if (wrap) {
+    const visibleLedger = applyStarFilter(lv.ledger);
+    const selectedCode = resolveSelectedWorkerCode(lv.ledger);
+    const selectedLv = lv.ledger.find((r) => r.empCode === selectedCode) || lv.ledger[0] || null;
+    const defaultUseDate = `${lv.selectedYearMonth || '2026-11'}-25`;
+    const defaultAppliedDate = `${lv.selectedYearMonth || '2026-11'}-18`;
+
     const ledgerSection = h(
       'div',
       { className: 'ops-section-block' },
@@ -2720,30 +3325,35 @@ function renderOpsLeaveTab(snapshot) {
           h('span', { className: 'tag tag-blue' }, leaveBasisLabel)
         ),
         h(
-          'button',
-          {
-            type: 'button',
-            className: 'btn btn-secondary btn-sm',
-            onClick: async (e) => {
-              const nextBasis = isFiscal ? 'HIRE_DATE' : 'FISCAL_YEAR';
-              try {
-                const res = await apiPost(
-                  '/api/simulate-company',
-                  { policySettings: { leaveAccrualBasis: nextBasis } },
-                  e.currentTarget
-                );
-                updateSnapshot(res.snapshot);
-                showBanner(
-                  nextBasis === 'FISCAL_YEAR'
-                    ? '연차 기준이 회계연도 기준으로 변경되었습니다.'
-                    : '연차 기준이 입사일 기준으로 변경되었습니다.'
-                );
-              } catch (err) {
-                showBanner(err.message, true);
-              }
+          'div',
+          { className: 'step-pill-group' },
+          renderRosterSyncControls(lv.ledger, renderOpsLeaveTab),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'btn btn-secondary btn-sm',
+              onClick: async (e) => {
+                const nextBasis = isFiscal ? 'HIRE_DATE' : 'FISCAL_YEAR';
+                try {
+                  const res = await apiPost(
+                    '/api/simulate-company',
+                    { policySettings: { leaveAccrualBasis: nextBasis } },
+                    e.currentTarget
+                  );
+                  updateSnapshot(res.snapshot);
+                  showBanner(
+                    nextBasis === 'FISCAL_YEAR'
+                      ? '연차 기준이 회계연도 기준으로 변경되었습니다.'
+                      : '연차 기준이 입사일 기준으로 변경되었습니다.'
+                  );
+                } catch (err) {
+                  showBanner(err.message, true);
+                }
+              },
             },
-          },
-          isFiscal ? '입사일 기준으로 전환' : '회계연도 기준으로 전환'
+            isFiscal ? '입사일 기준으로 전환' : '회계연도 기준으로 전환'
+          )
         )
       ),
       h(
@@ -2758,58 +3368,312 @@ function renderOpsLeaveTab(snapshot) {
             h(
               'tr',
               {},
+              renderMasterSelectHeaderTh(lv.ledger, '직원별 연차 현황'),
               h('th', { scope: 'col' }, '사번 · 이름'),
-              h('th', { scope: 'col' }, '부서'),
               h('th', { scope: 'col' }, '입사일 · 만료일'),
-              h('th', { scope: 'col', className: 'num' }, '발생 / 사용 / 잔여'),
-              h('th', { scope: 'col', className: 'num' }, '미사용수당'),
-              h('th', { scope: 'col' }, '상태')
+              h('th', { scope: 'col', className: 'num' }, '발생 (횟수 · 일수)'),
+              h('th', { scope: 'col', className: 'num' }, '사용 (횟수 · 일수)'),
+              h('th', { scope: 'col', className: 'num' }, '잔여 연차'),
+              h('th', { scope: 'col', className: 'num' }, `당월(${lv.selectedYearMonth || '2026-11'}) 사용`),
+              h('th', { scope: 'col' }, '신청·사용 기록')
             )
           ),
           h(
             'tbody',
             {},
-            lv.ledger.length === 0
-              ? [h('tr', {}, h('td', { colspan: '6' }, '대상 직원이 없습니다.'))]
-              : lv.ledger.map((r) =>
+            visibleLedger.length === 0
+              ? [
                   h(
                     'tr',
                     {},
                     h(
                       'td',
+                      { colspan: '8' },
+                      lv.ledger.length === 0 ? '대상 직원이 없습니다.' : '표시할 별표(★) 직원이 없습니다.'
+                    )
+                  ),
+                ]
+              : visibleLedger.map((r) => {
+                  const isSel = selectedLv && selectedLv.empCode === r.empCode;
+                  return h(
+                    'tr',
+                    {
+                      className: isSel ? 'emp-select-row is-selected-worker' : 'emp-select-row',
+                      onClick: () => {
+                        appState.selectedEmpCode = r.empCode;
+                        renderOpsLeaveTab(snapshot);
+                      },
+                    },
+                    renderMasterMarkTd(r),
+                    h(
+                      'td',
                       { 'data-label': '사번 · 이름' },
                       h('div', { className: 'cell-emp-code' }, r.empCode),
-                      h('div', { className: 'breakable-name' }, r.displayName)
+                      h('div', { className: 'breakable-name' }, r.displayName),
+                      h('div', { className: 'cell-dept-name' }, r.deptName)
                     ),
-                    h('td', { 'data-label': '부서' }, r.deptName),
                     h(
                       'td',
                       { 'data-label': '입사일 · 만료일' },
                       h('div', {}, r.hireDate),
-                      h('div', { className: 'cell-dept-name' }, `만료 ${r.cycleExpiryDate || '-'}`)
+                      h(
+                        'div',
+                        { className: 'cell-dept-name' },
+                        r.leaveEligible ? `만료 ${r.cycleExpiryDate || '-'}` : r.ruleBasis
+                      )
                     ),
                     h(
                       'td',
-                      { className: 'num font-extrabold', 'data-label': '발생 / 사용 / 잔여' },
-                      `${r.accruedDays}일 / ${r.usedDays}일 / 잔여 ${r.remainingDays}일`
+                      { className: 'num', 'data-label': '발생 (횟수 · 일수)' },
+                      r.leaveEligible ? `${r.grantedCount}회 / ${r.accruedDays}일` : '-'
                     ),
                     h(
                       'td',
-                      { className: 'num', 'data-label': '미사용수당' },
-                      fmtWon(r.estimatedUnusedPayout)
+                      { className: 'num', 'data-label': '사용 (횟수 · 일수)' },
+                      r.leaveEligible ? `${r.usedCount}회 / ${r.usedDays}일` : '-'
                     ),
-                    h('td', { 'data-label': '상태' }, promoLabel(r.promoStage))
-                  )
-                )
+                    h(
+                      'td',
+                      { className: 'num font-extrabold', 'data-label': '잔여 연차' },
+                      r.leaveEligible ? `${r.remainingDays}일` : '-'
+                    ),
+                    h(
+                      'td',
+                      { className: 'num', 'data-label': '당월 사용' },
+                      r.leaveEligible ? `${r.monthUsedCount}회 (${r.monthUsedDays}일)` : '-'
+                    ),
+                    h(
+                      'td',
+                      { 'data-label': '신청·사용 기록', onClick: (e) => e.stopPropagation() },
+                      h(
+                        'div',
+                        { className: 'step-pill-group' },
+                        h(
+                          'button',
+                          {
+                            type: 'button',
+                            className: isSel ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm',
+                            'aria-pressed': String(Boolean(isSel)),
+                            onClick: () => {
+                              appState.selectedEmpCode = r.empCode;
+                              renderOpsLeaveTab(snapshot);
+                            },
+                          },
+                          isSel ? '기록 열림' : '기록 보기'
+                        ),
+                        h(
+                          'button',
+                          {
+                            type: 'button',
+                            className: 'btn btn-secondary btn-sm',
+                            onClick: (e) => openPayslipByEmpCode(r.empCode, e.currentTarget),
+                          },
+                          '명세서'
+                        )
+                      )
+                    )
+                  );
+                })
           )
         )
       )
     );
 
-    wrap.replaceChildren(ledgerSection);
+    let leaveDetailCard = null;
+    if (selectedLv) {
+      const addLeaveForm = !selectedLv.leaveEligible
+        ? h('div', { className: 'att-day-editor' }, selectedLv.ruleBasis)
+        : h(
+            'form',
+            {
+              className: 'ops-inline-form',
+              onSubmit: (e) => {
+                e.preventDefault();
+                const f = e.currentTarget;
+                const kindVal = f.querySelector('[name="lvKind"]').value;
+                const [daysStr, typeLabel] = kindVal.split('|');
+                runOpsAction(
+                  {
+                    actionType: 'ADD_LEAVE_USAGE',
+                    empCode: selectedLv.empCode,
+                    appliedAt: f.querySelector('[name="lvApplied"]').value,
+                    useDate: f.querySelector('[name="lvUseDate"]').value,
+                    days: Number(daysStr),
+                    leaveType: typeLabel,
+                    reason: f.querySelector('[name="lvReason"]').value,
+                  },
+                  f.querySelector('button[type="submit"]')
+                );
+              },
+            },
+            h(
+              'div',
+              { className: 'field' },
+              h('label', { for: 'lv-applied-input' }, '연차 신청일'),
+              h('input', {
+                id: 'lv-applied-input',
+                name: 'lvApplied',
+                type: 'date',
+                value: defaultAppliedDate,
+                required: true,
+              })
+            ),
+            h(
+              'div',
+              { className: 'field' },
+              h('label', { for: 'lv-use-input' }, '연차 사용일'),
+              h('input', {
+                id: 'lv-use-input',
+                name: 'lvUseDate',
+                type: 'date',
+                value: defaultUseDate,
+                required: true,
+              })
+            ),
+            h(
+              'div',
+              { className: 'field' },
+              h('label', { for: 'lv-kind-select' }, '구분 · 사용일수'),
+              h(
+                'select',
+                { id: 'lv-kind-select', name: 'lvKind' },
+                h('option', { value: '1|연차(1일)' }, '연차 (1일)'),
+                h('option', { value: '0.5|오전반차(0.5일)' }, '오전반차 (0.5일)'),
+                h('option', { value: '0.5|오후반차(0.5일)' }, '오후반차 (0.5일)'),
+                h('option', { value: '2|연차(2일)' }, '연차 (2일)')
+              )
+            ),
+            h(
+              'div',
+              { className: 'field' },
+              h('label', { for: 'lv-reason-input' }, '사유 · 메모'),
+              h('input', {
+                id: 'lv-reason-input',
+                name: 'lvReason',
+                type: 'text',
+                value: '개인 연차 사용',
+              })
+            ),
+            h(
+              'div',
+              { className: 'field' },
+              h(
+                'button',
+                { type: 'submit', className: 'btn btn-primary full-width' },
+                '연차 기록 추가 · 명세서 연동'
+              )
+            )
+          );
+
+      const recordsTable = selectedLv.leaveEligible
+        ? h(
+            'div',
+            { className: 'table-scroll-wrap' },
+            h(
+              'table',
+              { className: 'payroll-table', 'aria-label': `${selectedLv.displayName} 연차 신청 및 사용 이력` },
+              h(
+                'thead',
+                {},
+                h(
+                  'tr',
+                  {},
+                  h('th', { scope: 'col' }, '회차'),
+                  h('th', { scope: 'col' }, '신청일자'),
+                  h('th', { scope: 'col' }, '사용일자'),
+                  h('th', { scope: 'col', className: 'num' }, '구분 · 사용일수'),
+                  h('th', { scope: 'col' }, '사유'),
+                  h('th', { scope: 'col' }, '관리')
+                )
+              ),
+              h(
+                'tbody',
+                {},
+                selectedLv.records.length === 0
+                  ? [h('tr', {}, h('td', { colspan: '6' }, '등록된 연차 신청·사용 이력이 없습니다.'))]
+                  : selectedLv.records.map((recItem, idx) =>
+                      h(
+                        'tr',
+                        {},
+                        h('td', { 'data-label': '회차' }, `${selectedLv.records.length - idx}회`),
+                        h('td', { 'data-label': '신청일자' }, recItem.appliedAt),
+                        h('td', { 'data-label': '사용일자', className: 'font-extrabold' }, recItem.useDate),
+                        h(
+                          'td',
+                          { className: 'num', 'data-label': '구분 · 사용일수' },
+                          `${recItem.leaveType} (${recItem.days}일)`
+                        ),
+                        h('td', { 'data-label': '사유' }, recItem.reason || '-'),
+                        h(
+                          'td',
+                          { 'data-label': '관리' },
+                          h(
+                            'button',
+                            {
+                              type: 'button',
+                              className: 'btn btn-secondary btn-sm',
+                              onClick: (e) =>
+                                runOpsAction(
+                                  {
+                                    actionType: 'DELETE_LEAVE_USAGE',
+                                    empCode: selectedLv.empCode,
+                                    recordId: recItem.recordId,
+                                  },
+                                  e.currentTarget
+                                ),
+                            },
+                            '삭제'
+                          )
+                        )
+                      )
+                    )
+              )
+            )
+          )
+        : null;
+
+      leaveDetailCard = h(
+        'div',
+        { className: 'leave-detail-card', id: 'leave-usage-detail-panel' },
+        h(
+          'div',
+          { className: 'ops-section-head' },
+          h(
+            'div',
+            { className: 'step-pill-group' },
+            h(
+              'h3',
+              { className: 'ops-section-title' },
+              `No.${selectedLv.rowNo} ${selectedLv.empCode} ${selectedLv.displayName} — 연차 발생 · 신청 · 사용 기록`
+            ),
+            selectedLv.leaveEligible
+              ? h(
+                  'span',
+                  { className: 'tag tag-blue' },
+                  `발생 ${selectedLv.grantedCount}회(${selectedLv.accruedDays}일) · 사용 ${selectedLv.usedCount}회(${selectedLv.usedDays}일) · 잔여 ${selectedLv.remainingDays}일`
+                )
+              : null
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'btn btn-secondary btn-sm',
+              onClick: (e) => openPayslipByEmpCode(selectedLv.empCode, e.currentTarget),
+            },
+            '급여 명세서에서 연차 내역 확인'
+          )
+        ),
+        addLeaveForm,
+        recordsTable
+      );
+    }
+
+    wrap.replaceChildren(...[ledgerSection, leaveDetailCard].filter(Boolean));
   }
 
   if (promoWrap) {
+    const eligibleLedger = lv.ledger.filter((r) => r.leaveEligible !== false);
     const promoSection = h(
       'div',
       { className: 'ops-section-block' },
@@ -2830,7 +3694,7 @@ function renderOpsLeaveTab(snapshot) {
             h(
               'tr',
               {},
-              h('th', { scope: 'col' }, '사번 · 이름'),
+              h('th', { scope: 'col' }, 'No. · 사번 · 이름'),
               h('th', { scope: 'col', className: 'num' }, '잔여 연차'),
               h('th', { scope: 'col' }, '촉진 기한'),
               h('th', { scope: 'col' }, '단계'),
@@ -2840,16 +3704,16 @@ function renderOpsLeaveTab(snapshot) {
           h(
             'tbody',
             {},
-            lv.ledger.length === 0
+            eligibleLedger.length === 0
               ? [h('tr', {}, h('td', { colspan: '5' }, '대상 직원이 없습니다.'))]
-              : lv.ledger.map((r) =>
+              : eligibleLedger.map((r) =>
                   h(
                     'tr',
                     {},
                     h(
                       'td',
-                      { 'data-label': '사번 · 이름' },
-                      h('div', { className: 'cell-emp-code' }, r.empCode),
+                      { 'data-label': 'No. · 사번 · 이름' },
+                      h('div', { className: 'cell-emp-code' }, `No.${r.rowNo} · ${r.empCode}`),
                       h('div', { className: 'breakable-name' }, r.displayName)
                     ),
                     h(
@@ -2939,6 +3803,7 @@ function renderOpsEvalTab(snapshot) {
   const wrap = document.getElementById('ops-eval-container');
   if (!wrap || !snapshot.operationsSuite) return;
   const ev = snapshot.operationsSuite.evaluationAndReward;
+  const visibleEval = applyStarFilter(ev.board);
 
   const section = h(
     'div',
@@ -2948,13 +3813,18 @@ function renderOpsEvalTab(snapshot) {
       { className: 'ops-section-head' },
       h('h3', { className: 'ops-section-title' }, '인사평가 · 급여 반영'),
       h(
-        'button',
-        {
-          type: 'button',
-          className: 'btn btn-primary btn-sm',
-          onClick: (e) => runOpsAction({ actionType: 'APPLY_EVAL_REWARDS' }, e.currentTarget),
-        },
-        '급여 대장에 반영'
+        'div',
+        { className: 'step-pill-group' },
+        renderRosterSyncControls(ev.board, renderOpsEvalTab),
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'btn btn-primary btn-sm',
+            onClick: (e) => runOpsAction({ actionType: 'APPLY_EVAL_REWARDS' }, e.currentTarget),
+          },
+          '급여 대장에 반영'
+        )
       )
     ),
     h(
@@ -2969,77 +3839,99 @@ function renderOpsEvalTab(snapshot) {
           h(
             'tr',
             {},
-            h('th', { scope: 'col' }, '사번 · 성명 · 부서'),
-            h('th', { scope: 'col', className: 'num' }, 'KPI / 역량 점수'),
-            h('th', { scope: 'col' }, '종합 평가등급 선택'),
-            h('th', { scope: 'col', className: 'num' }, '권고 인상률 · 시뮬레이션 기본급'),
-            h('th', { scope: 'col', className: 'num' }, '권고 성과급'),
-            h('th', { scope: 'col' }, 'M8 급여대장 연동상태')
+            renderMasterSelectHeaderTh(ev.board, '인사평가 · 급여 반영'),
+            h('th', { scope: 'col' }, '사번 · 이름 · 부서'),
+            h('th', { scope: 'col', className: 'num' }, 'KPI / 역량'),
+            h('th', { scope: 'col' }, '평가등급'),
+            h('th', { scope: 'col', className: 'num' }, '권고 인상률 · 기본급'),
+            h('th', { scope: 'col', className: 'num' }, '성과급'),
+            h('th', { scope: 'col' }, '연동 상태')
           )
         ),
         h(
           'tbody',
           {},
-          ev.board.length === 0
-            ? [h('tr', {}, h('td', { colspan: '6' }, '현재 인사평가·보상 시뮬레이션 대상 재직자가 없습니다 (0명).'))]
-            : ev.board.map((r) =>
-            h(
-              'tr',
-              {},
-              h(
-                'td',
-                { 'data-label': '사번 · 성명 · 부서' },
-                h('div', { className: 'cell-emp-code' }, r.empCode),
-                h('div', { className: 'breakable-name' }, r.displayName),
-                h('div', { className: 'cell-dept-name' }, r.deptName)
-              ),
-              h(
-                'td',
-                { className: 'num', 'data-label': 'KPI / 역량 점수' },
-                `KPI ${r.kpiScore}점 / 역량 ${r.competencyScore}점`
-              ),
-              h(
-                'td',
-                { 'data-label': '종합 평가등급' },
+          visibleEval.length === 0
+            ? [
                 h(
-                  'select',
-                  {
-                    className: 'grade-select',
-                    'aria-label': `${r.displayName} 평가등급 선택`,
-                    onChange: (e) =>
-                      runOpsAction(
-                        {
-                          actionType: 'SET_EVAL_GRADE',
-                          empCode: r.empCode,
-                          grade: e.currentTarget.value,
-                        },
-                        e.currentTarget
-                      ),
-                  },
-                  ['S', 'A', 'B', 'C', 'D'].map((g) =>
-                    h('option', { value: g, selected: r.grade === g }, `${g} 등급`)
+                  'tr',
+                  {},
+                  h(
+                    'td',
+                    { colspan: '7' },
+                    ev.board.length === 0 ? '대상 직원이 없습니다.' : '표시할 별표(★) 직원이 없습니다.'
+                  )
+                ),
+              ]
+            : visibleEval.map((r) =>
+                h(
+                  'tr',
+                  {},
+                  renderMasterMarkTd(r),
+                  h(
+                    'td',
+                    { 'data-label': '사번 · 이름 · 부서' },
+                    h('div', { className: 'cell-emp-code' }, r.empCode),
+                    h('div', { className: 'breakable-name' }, r.displayName),
+                    h('div', { className: 'cell-dept-name' }, r.deptName)
+                  ),
+                  h(
+                    'td',
+                    { className: 'num', 'data-label': 'KPI / 역량' },
+                    r.evalEligible ? `KPI ${r.kpiScore} / 역량 ${r.competencyScore}` : '-'
+                  ),
+                  h(
+                    'td',
+                    { 'data-label': '평가등급' },
+                    !r.evalEligible
+                      ? h('span', { className: 'tag tag-gray' }, '비대상')
+                      : h(
+                          'select',
+                          {
+                            className: 'grade-select',
+                            'aria-label': `${r.displayName} 평가등급 선택`,
+                            onChange: (e) =>
+                              runOpsAction(
+                                {
+                                  actionType: 'SET_EVAL_GRADE',
+                                  empCode: r.empCode,
+                                  grade: e.currentTarget.value,
+                                },
+                                e.currentTarget
+                              ),
+                          },
+                          ['S', 'A', 'B', 'C', 'D'].map((g) =>
+                            h('option', { value: g, selected: r.grade === g }, `${g} 등급`)
+                          )
+                        )
+                  ),
+                  h(
+                    'td',
+                    { className: 'num', 'data-label': '권고 인상률 · 기본급' },
+                    r.evalEligible
+                      ? `+${r.recommendedRaisePct}% (${fmtWon(r.currentBasePay)} → ${fmtWon(r.projectedBasePay)})`
+                      : fmtWon(r.currentBasePay)
+                  ),
+                  h(
+                    'td',
+                    { className: 'num', 'data-label': '성과급' },
+                    r.evalEligible ? fmtWon(r.recommendedBonus) : '-'
+                  ),
+                  h(
+                    'td',
+                    { 'data-label': '연동 상태' },
+                    !r.evalEligible
+                      ? h('span', { className: 'tag tag-gray' }, '별도 계약')
+                      : r.appliedToPayroll
+                        ? h(
+                            'span',
+                            { className: 'tag tag-green' },
+                            `반영됨 (+${r.appliedRaisePct}% · ${fmtWon(r.appliedBonusPay)})`
+                          )
+                        : h('span', { className: 'tag tag-amber' }, '반영 대기')
                   )
                 )
-              ),
-              h(
-                'td',
-                { className: 'num', 'data-label': '권고 인상률 · 시뮬레이션 기본급' },
-                `+${r.recommendedRaisePct}% (${fmtWon(r.currentBasePay)} → ${fmtWon(r.projectedBasePay)})`
-              ),
-              h('td', { className: 'num', 'data-label': '권고 성과급' }, fmtWon(r.recommendedBonus)),
-              h(
-                'td',
-                { 'data-label': 'M8 급여대장 연동상태' },
-                r.appliedToPayroll
-                  ? h(
-                      'span',
-                      { className: 'tag tag-green' },
-                      `급여 반영됨 (+${r.appliedRaisePct}% · ${fmtWon(r.appliedBonusPay)})`
-                    )
-                  : h('span', { className: 'tag tag-amber' }, '시뮬레이션 대기 (일괄 반영 클릭)')
               )
-            )
-          )
         )
       )
     )
@@ -3931,6 +4823,8 @@ function bindEvents() {
     try {
       const payload = {
         companyName: document.getElementById('input-company-name').value,
+        bizRegNo: document.getElementById('input-biz-reg-no')?.value || undefined,
+        ceoName: document.getElementById('input-ceo-name')?.value || undefined,
         ksicMajor: document.getElementById('select-ksic').value,
         triggerDate: document.getElementById('input-trigger-date').value,
         hasMajorityUnion: document.getElementById('check-majority-union').checked,
@@ -4187,7 +5081,81 @@ function bindEvents() {
     return true;
   }
 
-  // 멀티파일 일괄 업로드 -> 서버 자동 문서분류 및 교차검증 스테이징
+  const maskClientPii = (txt) =>
+    String(txt || '')
+      .replace(/\b(\d{6})-[1-8]\d{6}\b/g, '$1-*******')
+      .replace(/\b(01[016789])-\d{3,4}-(\d{4})\b/g, '$1-****-$2');
+
+  async function autoCommitOnboardingToSettings(commitPayload, triggerEl = null) {
+    const res = await apiPost(
+      '/api/onboarding/commit',
+      { ...commitPayload, preserveExistingIfMissing: true },
+      triggerEl
+    );
+    renderOnboardingStagePreview(res.staging);
+    updateSnapshot(res.snapshot);
+    const statusEl = document.getElementById('settings-upload-status');
+    if (statusEl) {
+      statusEl.hidden = false;
+      const c = res.snapshot.company;
+      const hc = res.snapshot.compliance.headcounts.lsaRegularCount;
+      statusEl.textContent = `자동 저장됨: ${c.companyName} (${c.bizRegNo}) · 대표자 ${c.ceoName || '대표이사'} · 상시 ${hc}명 · 재직 직원 ${res.snapshot.workers.length}명 전 메뉴(인사·근태·연차·급여) 동기화 완료`;
+    }
+    showBanner(
+      `서류 업로드 자동 저장 완료: [${res.snapshot.company.companyName}] 환경 설정 및 전 메뉴 직원 명부(${res.snapshot.workers.length}명)에 즉시 반영되었습니다.`
+    );
+    return res;
+  }
+
+  // 환경 설정 내 서류 파일 업로드 -> 즉시 자동 파싱·환경 설정 저장·전 메뉴 동기화
+  document.getElementById('settings-doc-file-input')?.addEventListener('change', async (e) => {
+    const inputEl = e.currentTarget;
+    const labelEl = inputEl.closest('label');
+    const selected = Array.from(inputEl.files || []);
+    if (selected.length === 0) return;
+    if (!confirmStaticDemoInputOnce()) {
+      inputEl.value = '';
+      return;
+    }
+    inputEl.disabled = true;
+    inputEl.setAttribute('aria-busy', 'true');
+    labelEl?.setAttribute('aria-busy', 'true');
+    try {
+      const files = [];
+      for (const f of selected.slice(0, 10)) {
+        const rawText = await f.text();
+        files.push({ fileName: f.name, content: maskClientPii(rawText) });
+      }
+      await autoCommitOnboardingToSettings({ files });
+    } catch (err) {
+      showBanner(err.message, true);
+    } finally {
+      inputEl.disabled = false;
+      inputEl.removeAttribute('aria-busy');
+      labelEl?.removeAttribute('aria-busy');
+      inputEl.value = '';
+    }
+  });
+
+  document.getElementById('btn-settings-sample-mfg')?.addEventListener('click', async (e) => {
+    if (!confirmStaticDemoInputOnce()) return;
+    try {
+      await autoCommitOnboardingToSettings({ bundleId: 'BUNDLE_MFG_58' }, e.currentTarget);
+    } catch (err) {
+      showBanner(err.message, true);
+    }
+  });
+
+  document.getElementById('btn-settings-sample-it')?.addEventListener('click', async (e) => {
+    if (!confirmStaticDemoInputOnce()) return;
+    try {
+      await autoCommitOnboardingToSettings({ bundleId: 'BUNDLE_IT_34' }, e.currentTarget);
+    } catch (err) {
+      showBanner(err.message, true);
+    }
+  });
+
+  // 문서 자동입력 탭 파일 업로드 -> 서버 자동 문서분류 + 환경 설정 즉시 자동저장
   document.getElementById('multi-doc-file-input')?.addEventListener('change', async (e) => {
     const inputEl = e.currentTarget;
     const labelEl = inputEl.closest('label');
@@ -4201,16 +5169,12 @@ function bindEvents() {
     inputEl.setAttribute('aria-busy', 'true');
     labelEl?.setAttribute('aria-busy', 'true');
     try {
-      const maskClientPii = (txt) =>
-        String(txt || '')
-          .replace(/\b(\d{6})-[1-4]\d{6}\b/g, '$1-*******')
-          .replace(/\b(01[016789])-\d{3,4}-(\d{4})\b/g, '$1-****-$2');
       const files = [];
       for (const f of selected.slice(0, 10)) {
         const rawText = await f.text();
         files.push({ fileName: f.name, content: maskClientPii(rawText) });
       }
-      const res = await apiPost('/api/onboarding/stage', { files });
+      const res = await autoCommitOnboardingToSettings({ files });
       for (const item of res.staging.classifiedFiles || []) {
         const matched = files.find((x) => x.fileName === item.fileName);
         if (!matched) continue;
@@ -4228,8 +5192,6 @@ function bindEvents() {
           if (n) n.value = matched.content;
         }
       }
-      renderOnboardingStagePreview(res.staging);
-      showBanner(`업로드 파일 ${files.length}개 자동 분류 및 건보↔고보 교차검증이 완료되었습니다.`);
     } catch (err) {
       showBanner(err.message, true);
     } finally {
