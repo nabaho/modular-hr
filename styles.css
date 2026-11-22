@@ -1739,8 +1739,8 @@ body {
   z-index: 1750;
 }
 
-[data-popup-mode="true"] .top-header {
-  padding: 10px 0;
+[data-popup-mode="true"] .workspace-topbar {
+  padding: 12px 28px;
 }
 
 /* ==========================================================================

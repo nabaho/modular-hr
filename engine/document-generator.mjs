@@ -3,7 +3,7 @@
  * - 모든 산출물은 실제 사실관계 기입·검토·서명 전의 「작성 보조용 표준 초안(양식)」으로 제공된다.
  */
 
-import { INDUSTRIES } from './labor-rules.mjs?v=9f5b61edb8c1';
+import { INDUSTRIES } from './labor-rules.mjs?v=c39fc7444a1f';
 
 export const VALID_DOC_TEMPLATES = Object.freeze([
   'DOC_LMC_REGULATION_AND_FILING',

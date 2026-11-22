@@ -4,29 +4,29 @@
  * - 엄격한 입력 스키마 검증(Boolean/Number/Enum/실재 날짜 검증), CSP 헤더, 64KB 413 응답 보장
  */
 
-import http from './engine/virtual-http-shim.mjs?v=9f5b61edb8c1';
-import crypto from './engine/browser-crypto-shim.mjs?v=9f5b61edb8c1';
+import http from './engine/virtual-http-shim.mjs?v=c39fc7444a1f';
+import crypto from './engine/browser-crypto-shim.mjs?v=c39fc7444a1f';
 // 정적 자산 서빙은 GitHub Pages CDN이 담당하며 server-core.mjs는 /api/* 전용으로 구동됨
 
-import { INDUSTRIES, LAW_BASELINE } from './engine/labor-rules.mjs?v=9f5b61edb8c1';
+import { INDUSTRIES, LAW_BASELINE } from './engine/labor-rules.mjs?v=c39fc7444a1f';
 import {
   VALID_STATUTORY_TASK_IDS,
   assertValidIsoDate,
   provisionWorkplaceSystem,
-} from './engine/compliance-provisioner.mjs?v=9f5b61edb8c1';
+} from './engine/compliance-provisioner.mjs?v=c39fc7444a1f';
 import {
   VALID_RESIGN_REASONS,
   computeEmployeePayrollLine,
   computeOffboardingSettlement,
   validateJobPosting,
-} from './engine/lifecycle-payroll.mjs?v=9f5b61edb8c1';
-import { VALID_DOC_TEMPLATES, generateStatutoryDocument } from './engine/document-generator.mjs?v=9f5b61edb8c1';
-import { buildWorkerBindingKey, createMobileHub } from './engine/mobile-auth-realtime.mjs?v=9f5b61edb8c1';
+} from './engine/lifecycle-payroll.mjs?v=c39fc7444a1f';
+import { VALID_DOC_TEMPLATES, generateStatutoryDocument } from './engine/document-generator.mjs?v=c39fc7444a1f';
+import { buildWorkerBindingKey, createMobileHub } from './engine/mobile-auth-realtime.mjs?v=c39fc7444a1f';
 import {
   SAMPLE_INGESTION_BUNDLES,
   listSampleIngestionBundles,
   stageMultiDocumentBundle,
-} from './engine/document-ingestion.mjs?v=9f5b61edb8c1';
+} from './engine/document-ingestion.mjs?v=c39fc7444a1f';
 import {
   buildOffboardedWorkerRecord,
   createInitialOffboardedWorkers,
@@ -37,12 +37,12 @@ import {
   refreshOffboardedLifecycle,
   summarizeOffboardedRegistry,
   updateOffboardedChecklist,
-} from './engine/offboarding-registry.mjs?v=9f5b61edb8c1';
+} from './engine/offboarding-registry.mjs?v=c39fc7444a1f';
 import {
   createOperationsSuiteManager,
   DEFAULT_POLICY_SETTINGS,
   normalizePolicySettings,
-} from './engine/hr-operations-suite.mjs?v=9f5b61edb8c1';
+} from './engine/hr-operations-suite.mjs?v=c39fc7444a1f';
 
 const PUBLIC_DIR = '/';
 const MAX_BODY_BYTES = 64 * 1024;
