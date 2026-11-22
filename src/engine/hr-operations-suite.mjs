@@ -85,6 +85,27 @@ function applyLeaveRounding(rawDays, rule) {
   return Math.round(rawDays * 10) / 10;
 }
 
+const WEEKDAY_KO = ['일', '월', '화', '수', '목', '금', '토'];
+
+export function isValidYearMonth(ym) {
+  if (typeof ym !== 'string') return false;
+  const m = ym.match(/^(\d{4})-(\d{2})$/);
+  if (!m) return false;
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  return year >= 2000 && year <= 2099 && month >= 1 && month <= 12;
+}
+
+function getDaysInYearMonth(ym) {
+  const [y, m] = ym.split('-').map(Number);
+  return new Date(Date.UTC(y, m, 0)).getUTCDate();
+}
+
+function getUtcWeekday(isoDate) {
+  const [y, m, d] = isoDate.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+}
+
 /**
  * 입사일·기준일 및 회사 환경설정(입사일 기준 vs 회계연도 일괄 기준)에 따른 연차유급휴가 자동 산정
  * - HIRE_DATE(입사일 기준): 제60조 원칙 (1년 미만 월차 최대 11일 / 1년 이상 15~25일)
@@ -95,6 +116,7 @@ export function computeStatutoryAnnualLeaveDays(hireDate, referenceDate = '2026-
   if (!isValidIsoDate(hireDate) || !isValidIsoDate(referenceDate) || hireDate > referenceDate) {
     const fallbackYear = isValidIsoDate(referenceDate) ? referenceDate.slice(0, 4) : '2026';
     return {
+      grantedCount: 1,
       accruedDays: 15,
       hireBasisDays: 15,
       ruleBasis: '기본 15일 (입사일 미정 표준치)',
@@ -127,6 +149,7 @@ export function computeStatutoryAnnualLeaveDays(hireDate, referenceDate = '2026-
     if (hireDate >= fyStart) {
       const curMonths = Math.min(11, Math.max(1, serviceMonths));
       return {
+        grantedCount: curMonths,
         accruedDays: curMonths,
         hireBasisDays,
         ruleBasis: `회계연도(${policy.fiscalYearStartMonthDay}) 당해입사 · 1개월 개근 월차 ${curMonths}일`,
@@ -145,12 +168,14 @@ export function computeStatutoryAnnualLeaveDays(hireDate, referenceDate = '2026-
         0,
         11 - Math.floor(daysBeforeFy / 30.4375)
       );
+      const addedMonths = Math.min(remainingFirstYearMonths, serviceMonths);
       const combinedDays = applyLeaveRounding(
-        proportionalDays + Math.min(remainingFirstYearMonths, serviceMonths),
+        proportionalDays + addedMonths,
         policy.leaveRoundingRule
       );
       const cappedCombined = Math.min(26, Math.max(proportionalDays, combinedDays));
       return {
+        grantedCount: 1 + addedMonths,
         accruedDays: cappedCombined,
         hireBasisDays,
         ruleBasis: `회계연도(${fyStart}) 비례 ${proportionalDays}일 + 1년미만 월차분 (퇴직 시 입사일기준 ${hireBasisDays}일 비교)`,
@@ -165,6 +190,7 @@ export function computeStatutoryAnnualLeaveDays(hireDate, referenceDate = '2026-
     const fyExtra = Math.floor(Math.max(0, fyYears - 1) / 2);
     const fyTotal = Math.min(25, 15 + fyExtra);
     return {
+      grantedCount: 1,
       accruedDays: fyTotal,
       hireBasisDays,
       ruleBasis: `회계연도(${fyStart} 일괄) 근속 ${fyYears}년: 15일 + 가산 ${fyTotal - 15}일 (입사일기준 ${hireBasisDays}일)`,
@@ -186,6 +212,7 @@ export function computeStatutoryAnnualLeaveDays(hireDate, referenceDate = '2026-
   if (days < 365) {
     const monthlyAccrued = Math.min(11, Math.max(1, serviceMonths));
     return {
+      grantedCount: monthlyAccrued,
       accruedDays: monthlyAccrued,
       hireBasisDays,
       ruleBasis: `입사일 기준 제60조② (1년 미만 월차 최대 11일 · 현재 ${serviceMonths}개월)`,
@@ -198,6 +225,7 @@ export function computeStatutoryAnnualLeaveDays(hireDate, referenceDate = '2026-
   const extraDays = Math.floor(Math.max(0, serviceYears - 1) / 2);
   const total = Math.min(25, 15 + extraDays);
   return {
+    grantedCount: 1,
     accruedDays: total,
     hireBasisDays,
     ruleBasis: `입사일 기준 제60조①·④ (근속 ${serviceYears}년: 기본 15일 + 가산 ${total - 15}일)`,
@@ -287,6 +315,441 @@ export function createOperationsSuiteManager() {
     ['EMP-203', { usedDays: 3.0, promoStage: 'STAGE_2_DESIGNATED' }],
     ['EMP-204', { usedDays: 2.0, promoStage: 'NONE' }],
   ]);
+
+  let selectedYearMonth = '2026-11';
+  let leaveSeq = 500;
+
+  // 근로자별 연차 신청일(appliedAt) · 사용일(useDate) · 사용일수 상세 이력
+  const leaveRecordsMap = new Map([
+    [
+      'EMP-201',
+      [
+        { recordId: 'LV-201-1', appliedAt: '2026-04-03', useDate: '2026-04-10', days: 1, leaveType: '연차(1일)', reason: '개인 용무' },
+        { recordId: 'LV-201-2', appliedAt: '2026-05-18', useDate: '2026-05-22', days: 1, leaveType: '연차(1일)', reason: '가족 행사' },
+        { recordId: 'LV-201-3', appliedAt: '2026-07-20', useDate: '2026-08-03', days: 1, leaveType: '연차(1일)', reason: '하계 휴가' },
+        { recordId: 'LV-201-4', appliedAt: '2026-07-20', useDate: '2026-08-04', days: 1, leaveType: '연차(1일)', reason: '하계 휴가' },
+        { recordId: 'LV-201-5', appliedAt: '2026-09-10', useDate: '2026-09-18', days: 1, leaveType: '연차(1일)', reason: '개인 휴무' },
+        { recordId: 'LV-201-6', appliedAt: '2026-11-02', useDate: '2026-11-11', days: 1, leaveType: '연차(1일)', reason: '자녀 학교 방문' },
+        { recordId: 'LV-201-7', appliedAt: '2026-11-16', useDate: '2026-11-20', days: 0.5, leaveType: '오후반차(0.5일)', reason: '병원 진료' },
+      ],
+    ],
+    [
+      'EMP-202',
+      [
+        { recordId: 'LV-202-1', appliedAt: '2026-05-01', useDate: '2026-05-08', days: 1, leaveType: '연차(1일)', reason: '가족 방문' },
+        { recordId: 'LV-202-2', appliedAt: '2026-08-03', useDate: '2026-08-14', days: 1, leaveType: '연차(1일)', reason: '하계 휴가' },
+        { recordId: 'LV-202-3', appliedAt: '2026-10-05', useDate: '2026-10-16', days: 1, leaveType: '연차(1일)', reason: '개인 용무' },
+        { recordId: 'LV-202-4', appliedAt: '2026-11-04', useDate: '2026-11-13', days: 1, leaveType: '연차(1일)', reason: '정기 건강검진' },
+      ],
+    ],
+    [
+      'EMP-203',
+      [
+        { recordId: 'LV-203-1', appliedAt: '2026-08-18', useDate: '2026-08-25', days: 1, leaveType: '연차(1일)', reason: '개인 용무' },
+        { recordId: 'LV-203-2', appliedAt: '2026-09-21', useDate: '2026-09-30', days: 1, leaveType: '연차(1일)', reason: '행정 기관 방문' },
+        { recordId: 'LV-203-3', appliedAt: '2026-11-03', useDate: '2026-11-09', days: 1, leaveType: '연차(1일)', reason: '개인 휴무' },
+      ],
+    ],
+    [
+      'EMP-204',
+      [
+        { recordId: 'LV-204-1', appliedAt: '2026-07-10', useDate: '2026-07-17', days: 1, leaveType: '연차(1일)', reason: '개인 용무' },
+        { recordId: 'LV-204-2', appliedAt: '2026-11-05', useDate: '2026-11-18', days: 1, leaveType: '연차(1일)', reason: '가족 돌봄' },
+      ],
+    ],
+  ]);
+
+  // 근로자·귀속월별 일간 근태 캘린더 저장소 (`${empCode}|${yearMonth}` -> Map<isoDate, DayEntry>)
+  const dailyAttendanceMap = new Map();
+  // 연차 삭제 시 원본 일별 근태 복원 백업 (`recordId` -> Array<{ key, date, entry }>)
+  const leavePrevCalendarBackup = new Map();
+
+  function expandLeaveRecordDates(rec) {
+    if (Array.isArray(rec.coveredDates) && rec.coveredDates.length > 0) {
+      return rec.coveredDates;
+    }
+    const baseDate = rec.useDate;
+    const totalDays = Number(rec.days) || 0;
+    if (!isValidIsoDate(baseDate) || totalDays <= 0) return [];
+    if (totalDays === 0.5) {
+      return [{ date: baseDate, dayFraction: 0.5 }];
+    }
+    if (totalDays === 1) {
+      return [{ date: baseDate, dayFraction: 1 }];
+    }
+    const slots = [];
+    let rem = totalDays;
+    let cursor = baseDate;
+    let guard = 0;
+    while (rem > 0 && guard < 60) {
+      const wd = getUtcWeekday(cursor);
+      if (wd >= 1 && wd <= 5) {
+        const chunk = rem >= 1 ? 1 : 0.5;
+        slots.push({ date: cursor, dayFraction: chunk });
+        rem = Number((rem - chunk).toFixed(1));
+      }
+      cursor = addDaysISO(cursor, 1);
+      guard += 1;
+    }
+    return slots;
+  }
+
+  function invalidateWorkerCalendar(empCode) {
+    const clean = String(empCode || '').trim();
+    if (!clean) return;
+    for (const key of Array.from(dailyAttendanceMap.keys())) {
+      if (key.startsWith(`${clean}|`)) {
+        dailyAttendanceMap.delete(key);
+      }
+    }
+  }
+
+  function resetForNewRoster() {
+    dailyAttendanceMap.clear();
+    leavePrevCalendarBackup.clear();
+    leaveRecordsMap.clear();
+    leaveUsageMap.clear();
+    contractSignedMap.clear();
+    evalGradeMap.clear();
+  }
+
+  function getWorkerLeaveRecords(w) {
+    if (w.workerCategory === 'DAILY' || w.workerCategory === 'BIZ_33') return [];
+    if (leaveRecordsMap.has(w.empCode)) {
+      return leaveRecordsMap.get(w.empCode);
+    }
+    const usage = leaveUsageMap.get(w.empCode);
+    if (usage && usage.usedDays === 0) {
+      leaveRecordsMap.set(w.empCode, []);
+      return [];
+    }
+    const targetUsed = usage ? usage.usedDays : 2;
+    const seeded = [];
+    if (targetUsed >= 1) {
+      seeded.push({
+        recordId: `LV-AUTO-${w.empCode}-1`,
+        appliedAt: '2026-10-05',
+        useDate: '2026-10-14',
+        days: 1,
+        leaveType: '연차(1일)',
+        reason: '개인 휴무',
+      });
+    }
+    if (targetUsed >= 2) {
+      seeded.push({
+        recordId: `LV-AUTO-${w.empCode}-2`,
+        appliedAt: '2026-11-03',
+        useDate: '2026-11-12',
+        days: Number((targetUsed - 1).toFixed(1)),
+        leaveType: targetUsed - 1 === 0.5 ? '반차(0.5일)' : `연차(${Number((targetUsed - 1).toFixed(1))}일)`,
+        reason: '개인 용무',
+      });
+    }
+    leaveRecordsMap.set(w.empCode, seeded);
+    return seeded;
+  }
+
+  function buildInitialMonthDayMap(w, ym, payrollYm = '2026-11') {
+    const dayCount = getDaysInYearMonth(ym);
+    const map = new Map();
+    const leaveByDate = new Map();
+    for (const rec of getWorkerLeaveRecords(w)) {
+      for (const slot of expandLeaveRecordDates(rec)) {
+        if (slot.date.startsWith(`${ym}-`)) {
+          leaveByDate.set(slot.date, { rec, dayFraction: slot.dayFraction });
+        }
+      }
+    }
+    const dailyH = w.workerCategory === 'PART_TIME' ? w.dailyHours || 4 : w.dailyHours || 8;
+    const isPayrollMonth = ym === payrollYm;
+
+    if (w.workerCategory === 'BIZ_33') {
+      for (let d = 1; d <= dayCount; d++) {
+        const iso = `${ym}-${String(d).padStart(2, '0')}`;
+        const wd = getUtcWeekday(iso);
+        map.set(iso, {
+          date: iso,
+          day: d,
+          weekday: WEEKDAY_KO[wd],
+          weekdayIdx: wd,
+          workStatus: 'OFF',
+          statusLabel: '자율위탁',
+          clockIn: '-',
+          clockOut: '-',
+          normalHours: 0,
+          overtimeHours: 0,
+          nightHours: 0,
+          holidayHours: 0,
+          memo: '',
+        });
+      }
+      return map;
+    }
+
+    if (w.workerCategory === 'DAILY') {
+      let remainingDays = isPayrollMonth
+        ? Math.max(0, Math.min(dayCount, Math.round(w.dailyWorkDays || 8)))
+        : 8;
+      for (let d = 1; d <= dayCount; d++) {
+        const iso = `${ym}-${String(d).padStart(2, '0')}`;
+        const wd = getUtcWeekday(iso);
+        const isWork = wd >= 1 && wd <= 5 && remainingDays > 0;
+        if (isWork) remainingDays -= 1;
+        map.set(iso, {
+          date: iso,
+          day: d,
+          weekday: WEEKDAY_KO[wd],
+          weekdayIdx: wd,
+          workStatus: isWork ? 'WORK' : 'OFF',
+          statusLabel: isWork ? '일용출근' : '휴무',
+          clockIn: isWork ? '08:00' : '-',
+          clockOut: isWork ? '17:00' : '-',
+          normalHours: isWork ? 8 : 0,
+          overtimeHours: 0,
+          nightHours: 0,
+          holidayHours: 0,
+          memo: '',
+        });
+      }
+      return map;
+    }
+
+    let remOt = isPayrollMonth ? Number(w.overtimeHours || 0) : 0;
+    let remNight = isPayrollMonth ? Number(w.nightHours || 0) : 0;
+    let remHol = isPayrollMonth
+      ? Number((w.holidayLe8Hours || 0) + (w.holidayGt8Hours || 0))
+      : 0;
+    const weeklyPeakCap = Math.max(w.weeklyHours || 40, w.maxWeeklyWorkedHours || 40);
+
+    // 주(일~토)별 기본 소정 실근로시간을 먼저 계산해 주간 한도(weeklyPeakCap)를 넘지 않도록 배분
+    const weekIndexByDay = [];
+    const weekBaseWorked = [];
+    let wIdx = 0;
+    for (let d = 1; d <= dayCount; d++) {
+      const iso = `${ym}-${String(d).padStart(2, '0')}`;
+      const wd = getUtcWeekday(iso);
+      if (wd === 0 && d > 1) wIdx += 1;
+      weekIndexByDay[d] = wIdx;
+      if (weekBaseWorked[wIdx] === undefined) weekBaseWorked[wIdx] = 0;
+      const lvInfo = leaveByDate.get(iso);
+      if (lvInfo) {
+        if (lvInfo.dayFraction < 1) {
+          weekBaseWorked[wIdx] += Number((dailyH / 2).toFixed(1));
+        }
+      } else if (wd >= 1 && wd <= 5) {
+        weekBaseWorked[wIdx] += dailyH;
+      }
+    }
+    const weekRemainingRoom = weekBaseWorked.map((base) =>
+      Math.max(0, Number((weeklyPeakCap - base).toFixed(1)))
+    );
+
+    for (let d = 1; d <= dayCount; d++) {
+      const iso = `${ym}-${String(d).padStart(2, '0')}`;
+      const wd = getUtcWeekday(iso);
+      const curWeek = weekIndexByDay[d];
+      const lvInfo = leaveByDate.get(iso);
+
+      if (lvInfo) {
+        const isHalf = lvInfo.dayFraction < 1;
+        map.set(iso, {
+          date: iso,
+          day: d,
+          weekday: WEEKDAY_KO[wd],
+          weekdayIdx: wd,
+          workStatus: isHalf ? 'HALF_LEAVE' : 'LEAVE',
+          statusLabel: isHalf ? '반차휴가' : '연차휴가',
+          clockIn: isHalf ? '09:00' : '-',
+          clockOut: isHalf ? '13:00' : '-',
+          normalHours: isHalf ? Number((dailyH / 2).toFixed(1)) : dailyH,
+          overtimeHours: 0,
+          nightHours: 0,
+          holidayHours: 0,
+          memo: lvInfo.rec.reason || lvInfo.rec.leaveType,
+        });
+        continue;
+      }
+
+      if (wd === 0) {
+        map.set(iso, {
+          date: iso,
+          day: d,
+          weekday: WEEKDAY_KO[wd],
+          weekdayIdx: wd,
+          workStatus: 'OFF',
+          statusLabel: '주휴일',
+          clockIn: '-',
+          clockOut: '-',
+          normalHours: 0,
+          overtimeHours: 0,
+          nightHours: 0,
+          holidayHours: 0,
+          memo: '',
+        });
+        continue;
+      }
+
+      if (wd === 6) {
+        const room = weekRemainingRoom[curWeek] || 0;
+        if (remHol > 0 && room >= 2) {
+          const hHours = Number(Math.min(10, remHol, room).toFixed(1));
+          remHol = Number((remHol - hHours).toFixed(1));
+          weekRemainingRoom[curWeek] = Number((room - hHours).toFixed(1));
+          const endHour = Math.min(22, 9 + Math.ceil(hHours) + (hHours >= 8 ? 1 : 0));
+          map.set(iso, {
+            date: iso,
+            day: d,
+            weekday: WEEKDAY_KO[wd],
+            weekdayIdx: wd,
+            workStatus: 'HOLIDAY_WORK',
+            statusLabel: '휴일근무',
+            clockIn: '09:00',
+            clockOut: `${String(endHour).padStart(2, '0')}:00`,
+            normalHours: 0,
+            overtimeHours: 0,
+            nightHours: 0,
+            holidayHours: hHours,
+            memo: '토요 특근',
+          });
+        } else {
+          map.set(iso, {
+            date: iso,
+            day: d,
+            weekday: WEEKDAY_KO[wd],
+            weekdayIdx: wd,
+            workStatus: 'OFF',
+            statusLabel: '휴무',
+            clockIn: '-',
+            clockOut: '-',
+            normalHours: 0,
+            overtimeHours: 0,
+            nightHours: 0,
+            holidayHours: 0,
+            memo: '',
+          });
+        }
+        continue;
+      }
+
+      // 평일(월~금)
+      let ot = 0;
+      const room = weekRemainingRoom[curWeek] || 0;
+      if (remOt > 0 && room > 0 && (wd === 2 || wd === 4 || d > 18)) {
+        ot = Number(Math.min(3, remOt, room).toFixed(1));
+        remOt = Number((remOt - ot).toFixed(1));
+        weekRemainingRoom[curWeek] = Number((room - ot).toFixed(1));
+      }
+      let nt = 0;
+      if (remNight > 0 && ot > 0) {
+        nt = Number(Math.min(2, remNight, dailyH + ot).toFixed(1));
+        remNight = Number((remNight - nt).toFixed(1));
+      }
+      const baseEnd = dailyH <= 4 ? 13 : 18;
+      const outHour = Math.min(23, baseEnd + Math.ceil(ot));
+      map.set(iso, {
+        date: iso,
+        day: d,
+        weekday: WEEKDAY_KO[wd],
+        weekdayIdx: wd,
+        workStatus: 'WORK',
+        statusLabel: ot > 0 ? '연장근무' : '정상근무',
+        clockIn: '09:00',
+        clockOut: `${String(outHour).padStart(2, '0')}:${ot % 1 === 0.5 ? '30' : '00'}`,
+        normalHours: dailyH,
+        overtimeHours: ot,
+        nightHours: nt,
+        holidayHours: 0,
+        memo: '',
+      });
+    }
+    return map;
+  }
+
+  function ensureWorkerMonthCalendar(w, ym, payrollYm = '2026-11') {
+    const key = `${w.empCode}|${ym}`;
+    if (!dailyAttendanceMap.has(key)) {
+      dailyAttendanceMap.set(key, buildInitialMonthDayMap(w, ym, payrollYm));
+    }
+    return dailyAttendanceMap.get(key);
+  }
+
+  function summarizeMonthCalendar(w, ym, payrollYm = '2026-11') {
+    const dayMap = ensureWorkerMonthCalendar(w, ym, payrollYm);
+    const days = Array.from(dayMap.values());
+    let workDaysCount = 0;
+    let leaveDaysCount = 0;
+    let totalNormalHours = 0;
+    let totalOvertimeHours = 0;
+    let totalNightHours = 0;
+    let totalHolidayHours = 0;
+
+    for (const d of days) {
+      if (d.workStatus === 'WORK' || d.workStatus === 'HOLIDAY_WORK' || d.workStatus === 'HALF_LEAVE') {
+        workDaysCount += 1;
+      }
+      if (d.workStatus === 'LEAVE') leaveDaysCount += 1;
+      if (d.workStatus === 'HALF_LEAVE') leaveDaysCount += 0.5;
+      totalNormalHours += d.normalHours || 0;
+      totalOvertimeHours += d.overtimeHours || 0;
+      totalNightHours += d.nightHours || 0;
+      totalHolidayHours += d.holidayHours || 0;
+    }
+
+    return {
+      yearMonth: ym,
+      firstWeekdayIdx: days[0]?.weekdayIdx ?? 0,
+      workDaysCount,
+      leaveDaysCount: Number(leaveDaysCount.toFixed(1)),
+      totalNormalHours: Number(totalNormalHours.toFixed(1)),
+      totalOvertimeHours: Number(totalOvertimeHours.toFixed(1)),
+      totalNightHours: Number(totalNightHours.toFixed(1)),
+      totalHolidayHours: Number(totalHolidayHours.toFixed(1)),
+      days,
+    };
+  }
+
+  function recalculateWorkerFromCalendar(w, ym, dayMap, payrollYm = '2026-11') {
+    // 당월 급여 귀속월(payrollYm)과 다른 과거·미래 달의 캘린더 수정은 당월 급여 필드를 덮어쓰지 않음!
+    if (ym !== payrollYm) return;
+    const days = Array.from(dayMap.values());
+    if (w.workerCategory === 'DAILY') {
+      w.dailyWorkDays = days.filter((d) => d.workStatus === 'WORK' || d.workStatus === 'HOLIDAY_WORK').length;
+      return;
+    }
+    if (w.workerCategory === 'BIZ_33') return;
+
+    let otSum = 0;
+    let nightSum = 0;
+    let holLe8 = 0;
+    let holGt8 = 0;
+    let currentWeekHours = 0;
+    let peakWeekHours = 0;
+
+    for (const d of days) {
+      if (d.weekdayIdx === 0 && d.day > 1) {
+        peakWeekHours = Math.max(peakWeekHours, currentWeekHours);
+        currentWeekHours = 0;
+      }
+      otSum += d.overtimeHours || 0;
+      nightSum += d.nightHours || 0;
+      const hol = d.holidayHours || 0;
+      holLe8 += Math.min(8, hol);
+      holGt8 += Math.max(0, hol - 8);
+      // 야간근로(nightHours, 22:00~06:00)는 소정/연장/휴일근로 시간대 안의 가산 구간이므로 총 근로시간에 중복 합산하지 않음!
+      const workedToday =
+        (d.workStatus === 'WORK' || d.workStatus === 'HALF_LEAVE' ? d.normalHours || 0 : 0) +
+        (d.overtimeHours || 0) +
+        hol;
+      currentWeekHours += workedToday;
+    }
+    peakWeekHours = Math.max(peakWeekHours, currentWeekHours);
+
+    w.overtimeHours = Number(otSum.toFixed(1));
+    w.nightHours = Number(nightSum.toFixed(1));
+    w.holidayLe8Hours = Number(holLe8.toFixed(1));
+    w.holidayGt8Hours = Number(holGt8.toFixed(1));
+    w.maxWeeklyWorkedHours = Number(Math.max(w.weeklyHours || 40, peakWeekHours).toFixed(1));
+  }
 
   const evalGradeMap = new Map([
     ['EMP-201', { kpiScore: 93, competencyScore: 91, grade: 'A', recommendedRaisePct: 5, recommendedBonus: 300000, appliedToPayroll: true }],
@@ -480,7 +943,13 @@ export function createOperationsSuiteManager() {
     if (cleanCode) {
       contractSignedMap.delete(cleanCode);
       leaveUsageMap.delete(cleanCode);
+      leaveRecordsMap.delete(cleanCode);
       evalGradeMap.delete(cleanCode);
+      for (const key of Array.from(dailyAttendanceMap.keys())) {
+        if (key.toUpperCase().startsWith(`${cleanCode}|`)) {
+          dailyAttendanceMap.delete(key);
+        }
+      }
     }
     assignmentLogs = assignmentLogs.filter((item) => {
       if (cleanCode && String(item.empCode || '').toUpperCase() === cleanCode) return false;
@@ -504,6 +973,8 @@ export function createOperationsSuiteManager() {
    */
   function buildView({ company, workers, payrollLines, compliance, offboardedSummary }) {
     const refDate = company.referenceDate || '2026-11-15';
+    const payrollYm = refDate.slice(0, 7);
+    const activeYm = isValidYearMonth(selectedYearMonth) ? selectedYearMonth : payrollYm;
     const policy = normalizePolicySettings(company.policySettings);
     const hc = compliance.headcounts;
     const regularRoster = workers.filter(
@@ -513,26 +984,30 @@ export function createOperationsSuiteManager() {
         w.workerCategory === 'PART_TIME'
     );
 
-    // 1) M1·M2 계약·취득 테이블
-    const contractLedger = regularRoster.map((w) => {
+    // 1) M1·M2 계약·취득 테이블 (전 직원 No. 1..N · 사번 · 성명 · 체크 · 별표 100% 일치)
+    const contractLedger = workers.map((w, idx) => {
       const meta = contractSignedMap.get(w.empCode) || {
         signed: true,
         signedAt: w.hireDate || '2026-01-02',
-        nhisAcquired: w.weeklyHours >= 15,
-        eiAcquired: true,
+        nhisAcquired: w.workerCategory !== 'DAILY' && w.workerCategory !== 'BIZ_33' && (w.weeklyHours ?? 40) >= 15,
+        eiAcquired: w.workerCategory !== 'BIZ_33',
       };
       const hireDate = w.hireDate || '2024-03-02';
       const probationEndsOn = addDaysISO(hireDate, 90);
       return {
+        rowNo: idx + 1,
+        checked: Boolean(w.checked),
+        starred: Boolean(w.starred),
         empCode: w.empCode,
         displayName: w.displayName,
         deptName: w.deptName,
-        jobTitle: w.jobTitle || '사원',
+        jobTitle: w.jobTitle || (w.workerCategory === 'BIZ_33' ? '위탁계약' : w.workerCategory === 'DAILY' ? '일용직' : '사원'),
         workerCategory: w.workerCategory,
         hireDate,
         probationEndsOn,
-        weeklyHours: w.weeklyHours || 40,
-        baseMonthlyPay: w.baseMonthlyPay || 0,
+        weeklyHours: w.weeklyHours || (w.workerCategory === 'DAILY' ? 18 : 0),
+        baseMonthlyPay:
+          w.baseMonthlyPay || w.contractFee || (w.dailyWage || 0) * (w.dailyWorkDays || 0),
         contractSigned: meta.signed,
         contractSignedAt: meta.signedAt,
         nhisAcquired: meta.nhisAcquired,
@@ -551,41 +1026,130 @@ export function createOperationsSuiteManager() {
     }
     const orgDepartments = Array.from(deptMap.values());
 
-    // 3) M4 근태 · 주52시간 상한 관제 보드 (환경설정 weeklyWarnHours 실시간 반영)
-    const attendanceBoard = regularRoster.map((w, idx) => {
-      const maxWeekly = Number((w.maxWeeklyWorkedHours ?? w.weeklyHours ?? 40).toFixed(1));
-      const status =
-        w.unpaidLeaveDays > 0
+    // 3) M4 근태 · 월간 캘린더 · 주52시간 관제 보드 (전 직원 No. 1..N · 사번 · 성명 100% 동기화)
+    const attendanceBoard = workers.map((w, idx) => {
+      const monthlyCalendar = summarizeMonthCalendar(w, activeYm, payrollYm);
+      const payrollMonthCalendar =
+        activeYm === payrollYm ? monthlyCalendar : summarizeMonthCalendar(w, payrollYm, payrollYm);
+      const isContractor = w.workerCategory === 'BIZ_33';
+      const isDaily = w.workerCategory === 'DAILY';
+      const maxWeekly = isContractor
+        ? 0
+        : isDaily
+          ? Number((((w.dailyWorkDays || 8) * 8) / 4.345).toFixed(1))
+          : Number((w.maxWeeklyWorkedHours ?? w.weeklyHours ?? 40).toFixed(1));
+      const status = isContractor
+        ? 'CONTRACTOR_33'
+        : w.unpaidLeaveDays > 0
           ? 'PARENTAL_OR_LEAVE'
           : maxWeekly > 52
             ? 'OVER_52H_ALERT'
             : maxWeekly >= policy.weeklyWarnHours
               ? 'NEAR_52H_WARN'
               : 'NORMAL_WORKING';
-      const shiftType =
-        idx % 3 === 1 ? '생산 2교대제' : idx % 3 === 2 ? '선택적 근로시간제' : '주 40h 통상근무';
+      const shiftType = isContractor
+        ? '외주·위탁(3.3%)'
+        : isDaily
+          ? `일용근무 (월 ${monthlyCalendar.workDaysCount}일)`
+          : idx % 3 === 1
+            ? '생산 2교대제'
+            : idx % 3 === 2
+              ? '선택적 근로시간제'
+              : '주 40h 통상근무';
       return {
+        rowNo: idx + 1,
+        checked: Boolean(w.checked),
+        starred: Boolean(w.starred),
         empCode: w.empCode,
         displayName: w.displayName,
         deptName: w.deptName,
+        workerCategory: w.workerCategory,
         shiftType,
         weeklyContractHours: w.weeklyHours || 40,
-        monthlyOvertimeHours: w.overtimeHours || 0,
-        monthlyNightHours: w.nightHours || 0,
-        monthlyHolidayHours: (w.holidayLe8Hours || 0) + (w.holidayGt8Hours || 0),
+        monthlyOvertimeHours: isContractor || isDaily ? 0 : w.overtimeHours || 0,
+        monthlyNightHours: isContractor || isDaily ? 0 : w.nightHours || 0,
+        monthlyHolidayHours:
+          isContractor || isDaily ? 0 : (w.holidayLe8Hours || 0) + (w.holidayGt8Hours || 0),
         maxWeeklyWorkedHours: maxWeekly,
         warnThresholdHours: policy.weeklyWarnHours,
         status,
+        monthlyCalendar,
+        payrollMonthCalendar,
       };
     });
 
-    // 4) M5 연차원장 · 제61조 1/2차 사용촉진 · 미사용수당 추계 (환경설정 입사일/회계연도 기준 실시간 반영)
-    const leaveLedger = regularRoster.map((w) => {
+    // 4) M5 연차원장 · 신청일/사용일 이력 · 발생횟수/사용횟수 (전 직원 No. 1..N · 사번 · 성명 100% 동기화)
+    const leaveLedger = workers.map((w, idx) => {
+      const isEligibleWorker =
+        w.workerCategory !== 'DAILY' && w.workerCategory !== 'BIZ_33';
       const hireDate = w.hireDate || '2023-03-02';
+      if (!isEligibleWorker) {
+        return {
+          rowNo: idx + 1,
+          checked: Boolean(w.checked),
+          starred: Boolean(w.starred),
+          empCode: w.empCode,
+          displayName: w.displayName,
+          deptName: w.deptName,
+          workerCategory: w.workerCategory,
+          leaveEligible: false,
+          hireDate: w.hireDate || '-',
+          ruleBasis:
+            w.workerCategory === 'BIZ_33'
+              ? '3.3% 사업소득 계약자 (연차 비대상)'
+              : '일용직 근로자 (상용 연차 비대상)',
+          cycleExpiryDate: '-',
+          firstPromoDeadline: '-',
+          secondPromoDeadline: '-',
+          promoWindowLabel: '-',
+          hireBasisDays: 0,
+          grantedCount: 0,
+          accruedDays: 0,
+          usedCount: 0,
+          usedDays: 0,
+          monthUsedCount: 0,
+          monthUsedDays: 0,
+          remainingDays: 0,
+          promoStage: 'EXEMPT',
+          dailyOrdinaryWage: 0,
+          estimatedUnusedPayout: 0,
+          records: [],
+        };
+      }
+
       const statutory = computeStatutoryAnnualLeaveDays(hireDate, refDate, policy);
-      const usage = leaveUsageMap.get(w.empCode) || { usedDays: 3, promoStage: 'NONE' };
+      const records = [...getWorkerLeaveRecords(w)].sort((a, b) =>
+        b.useDate.localeCompare(a.useDate)
+      );
+      const rawUsedSum = Number(
+        records.reduce((sum, r) => sum + (Number(r.days) || 0), 0).toFixed(1)
+      );
+      const usageMeta = leaveUsageMap.get(w.empCode) || {
+        usedDays: rawUsedSum,
+        promoStage: 'NONE',
+      };
+      usageMeta.usedDays = rawUsedSum;
+      leaveUsageMap.set(w.empCode, usageMeta);
+
+      const grantedCount = hc.is5OrMore ? statutory.grantedCount : 0;
       const accruedDays = hc.is5OrMore ? statutory.accruedDays : 0;
-      const usedDays = hc.is5OrMore ? Math.min(accruedDays, usage.usedDays) : 0;
+      const usedDays = hc.is5OrMore ? Math.min(accruedDays, rawUsedSum) : 0;
+      const usedCount = hc.is5OrMore ? records.length : 0;
+      let monthSlotSum = 0;
+      let monthRecHits = 0;
+      if (hc.is5OrMore) {
+        for (const r of records) {
+          const slotsInMonth = expandLeaveRecordDates(r).filter((s) =>
+            s.date.startsWith(`${activeYm}-`)
+          );
+          if (slotsInMonth.length > 0) {
+            monthRecHits += 1;
+            monthSlotSum += slotsInMonth.reduce((acc, s) => acc + s.dayFraction, 0);
+          }
+        }
+      }
+      const monthUsedCount = monthRecHits;
+      const monthUsedDays = Number(monthSlotSum.toFixed(1));
       const remainingDays = Math.max(0, Number((accruedDays - usedDays).toFixed(1)));
       const payLine = payrollLines.find((p) => p.empCode === w.empCode);
       const dailyOrdinary = Math.round(
@@ -594,12 +1158,17 @@ export function createOperationsSuiteManager() {
       );
       const exemptByPromo =
         policy.leaveSettlementPolicy === 'PROMOTE_FIRST' &&
-        usage.promoStage === 'STAGE_2_DESIGNATED';
+        usageMeta.promoStage === 'STAGE_2_DESIGNATED';
       const estimatedPayout = exemptByPromo ? 0 : Math.round(remainingDays * dailyOrdinary);
       return {
+        rowNo: idx + 1,
+        checked: Boolean(w.checked),
+        starred: Boolean(w.starred),
         empCode: w.empCode,
         displayName: w.displayName,
         deptName: w.deptName,
+        workerCategory: w.workerCategory,
+        leaveEligible: true,
         hireDate,
         ruleBasis: hc.is5OrMore ? statutory.ruleBasis : '5인 미만 사업장 법정 연차 의무 미적용',
         cycleExpiryDate: statutory.cycleExpiryDate,
@@ -607,31 +1176,47 @@ export function createOperationsSuiteManager() {
         secondPromoDeadline: addDaysISO(statutory.cycleExpiryDate, -60),
         promoWindowLabel: statutory.promoWindowLabel,
         hireBasisDays: statutory.hireBasisDays,
+        grantedCount,
         accruedDays,
+        usedCount,
         usedDays,
+        monthUsedCount,
+        monthUsedDays,
         remainingDays,
-        promoStage: usage.promoStage,
+        promoStage: usageMeta.promoStage,
         dailyOrdinaryWage: dailyOrdinary,
         estimatedUnusedPayout: estimatedPayout,
+        records: structuredClone(records),
       };
     });
 
-    // 5) M6 인사평가 · 보상 시뮬레이션 보드
-    const evaluationBoard = regularRoster.map((w, idx) => {
+    // 5) M6 인사평가 · 보상 시뮬레이션 보드 (전 직원 No. 1..N 동기화)
+    const evaluationBoard = workers.map((w, idx) => {
+      const isRegular =
+        w.workerCategory === 'REGULAR' ||
+        w.workerCategory === 'FIXED_TERM' ||
+        w.workerCategory === 'PART_TIME';
       const preset = evalGradeMap.get(w.empCode) || {
         kpiScore: 82 + (idx % 4) * 3,
         competencyScore: 80 + (idx % 5) * 3,
         grade: idx % 5 === 0 ? 'A' : 'B',
-        recommendedRaisePct: idx % 5 === 0 ? 5 : 3,
-        recommendedBonus: idx % 5 === 0 ? 250000 : 100000,
+        recommendedRaisePct: isRegular ? (idx % 5 === 0 ? 5 : 3) : 0,
+        recommendedBonus: isRegular ? (idx % 5 === 0 ? 250000 : 100000) : 0,
         appliedToPayroll: (w.evalRaiseRatePct || 0) > 0 || (w.evalBonusPay || 0) > 0,
       };
-      const projectedBasePay = Math.round((w.baseMonthlyPay || 0) * (1 + preset.recommendedRaisePct / 100));
+      const basePay =
+        w.baseMonthlyPay || w.contractFee || (w.dailyWage || 0) * (w.dailyWorkDays || 0);
+      const projectedBasePay = Math.round(basePay * (1 + preset.recommendedRaisePct / 100));
       return {
+        rowNo: idx + 1,
+        checked: Boolean(w.checked),
+        starred: Boolean(w.starred),
         empCode: w.empCode,
         displayName: w.displayName,
         deptName: w.deptName,
-        currentBasePay: w.baseMonthlyPay || 0,
+        workerCategory: w.workerCategory,
+        evalEligible: isRegular,
+        currentBasePay: basePay,
         kpiScore: preset.kpiScore,
         competencyScore: preset.competencyScore,
         grade: preset.grade,
@@ -738,11 +1323,13 @@ export function createOperationsSuiteManager() {
       },
       attendanceControl: {
         is5OrMore: hc.is5OrMore,
+        selectedYearMonth: activeYm,
         weeklyWarnHours: policy.weeklyWarnHours,
         board: attendanceBoard,
       },
       leaveAndMaternity: {
         is5OrMore: hc.is5OrMore,
+        selectedYearMonth: activeYm,
         ledger: leaveLedger,
         maternityProtections: structuredClone(maternityProtections),
       },
@@ -782,6 +1369,9 @@ export function createOperationsSuiteManager() {
       'ISSUE_ASSIGNMENT',
       'APPLY_EVAL_REWARDS',
       'QUICK_ATTENDANCE_UPDATE',
+      'SET_DAILY_ATTENDANCE',
+      'ADD_LEAVE_USAGE',
+      'DELETE_LEAVE_USAGE',
       'TOGGLE_DISCIPLINE_STEP',
     ]);
     if (payrollLocked && payrollMutatingActions.has(actionType)) {
@@ -842,7 +1432,7 @@ export function createOperationsSuiteManager() {
         app.stageLabel = `입사완료 (${newEmpCode})`;
 
         state.emptyRosterMode = false;
-        state.workers.unshift({
+        state.workers.push({
           personId: mintedPersonId,
           empCode: newEmpCode,
           displayName: app.name,
@@ -1025,6 +1615,11 @@ export function createOperationsSuiteManager() {
             : assertBoundedFiniteNumber(actionPayload.maxWeeklyWorkedHours, 'maxWeeklyWorkedHours', 15, 80);
         w.overtimeHours = overtimeHours;
         w.maxWeeklyWorkedHours = maxWeekly;
+        for (const key of Array.from(dailyAttendanceMap.keys())) {
+          if (key.startsWith(`${empCode}|`)) {
+            dailyAttendanceMap.delete(key);
+          }
+        }
         appendAudit(
           'M4근태관제',
           `[${empCode} ${w.displayName}] 월 연장 ${overtimeHours}h · 주간 최대 ${maxWeekly}h 갱신 → M8 가산수당·주52h 점검 연동`
@@ -1184,6 +1779,340 @@ export function createOperationsSuiteManager() {
         return { message: `[${edu.title}] 미이수자 독촉 알림 발송 및 전사 이수율 100% 반영이 완료되었습니다.` };
       }
 
+      case 'TOGGLE_WORKER_CHECK': {
+        const empCode = String(actionPayload.empCode || '').trim();
+        const w = state.workers.find((item) => item.empCode === empCode);
+        if (!w) throw badRequest('대상 직원을 찾을 수 없습니다.');
+        if (actionPayload.checked !== undefined && typeof actionPayload.checked !== 'boolean') {
+          throw badRequest('checked 값은 boolean이어야 합니다.');
+        }
+        w.checked = actionPayload.checked !== undefined ? actionPayload.checked : !w.checked;
+        return { message: '' };
+      }
+
+      case 'TOGGLE_ALL_WORKER_CHECK': {
+        if (typeof actionPayload.checked !== 'boolean') {
+          throw badRequest('checked 값은 boolean이어야 합니다.');
+        }
+        for (const w of state.workers) {
+          w.checked = actionPayload.checked;
+        }
+        return { message: '' };
+      }
+
+      case 'TOGGLE_WORKER_STAR': {
+        const empCode = String(actionPayload.empCode || '').trim();
+        const w = state.workers.find((item) => item.empCode === empCode);
+        if (!w) throw badRequest('대상 직원을 찾을 수 없습니다.');
+        if (actionPayload.starred !== undefined && typeof actionPayload.starred !== 'boolean') {
+          throw badRequest('starred 값은 boolean이어야 합니다.');
+        }
+        w.starred = actionPayload.starred !== undefined ? actionPayload.starred : !w.starred;
+        return { message: '' };
+      }
+
+      case 'SET_ATTENDANCE_MONTH': {
+        const ym = String(actionPayload.yearMonth || '').trim();
+        if (!isValidYearMonth(ym)) {
+          throw badRequest('유효한 귀속 연월(YYYY-MM)을 입력해 주세요.');
+        }
+        selectedYearMonth = ym;
+        return { message: '' };
+      }
+
+      case 'SET_DAILY_ATTENDANCE': {
+        const empCode = String(actionPayload.empCode || '').trim();
+        const date = String(actionPayload.date || '').trim();
+        if (!isValidIsoDate(date)) {
+          throw badRequest('유효한 근무일자(YYYY-MM-DD)가 필요합니다.');
+        }
+        const w = state.workers.find((item) => item.empCode === empCode);
+        if (!w) throw badRequest('대상 직원을 찾을 수 없습니다.');
+        if (w.workerCategory === 'BIZ_33') {
+          throw badRequest('3.3% 사업소득 계약자는 출퇴근 시간 통제 대상이 아닙니다.');
+        }
+        const payrollYm = (state.company.referenceDate || '2026-11-15').slice(0, 7);
+        const ym = date.slice(0, 7);
+        selectedYearMonth = ym;
+        const allowedStatus = ['WORK', 'HOLIDAY_WORK', 'LEAVE', 'HALF_LEAVE', 'OFF'];
+        const workStatus = String(actionPayload.workStatus || 'WORK').trim();
+        if (!allowedStatus.includes(workStatus)) {
+          throw badRequest('유효하지 않은 근무 구분(workStatus)입니다.');
+        }
+        const normalHours =
+          actionPayload.normalHours === undefined
+            ? workStatus === 'OFF' || workStatus === 'HOLIDAY_WORK'
+              ? 0
+              : workStatus === 'HALF_LEAVE'
+                ? (w.dailyHours || 8) / 2
+                : w.dailyHours || 8
+            : assertBoundedFiniteNumber(actionPayload.normalHours, 'normalHours', 0, 12);
+        const overtimeHours =
+          actionPayload.overtimeHours === undefined
+            ? 0
+            : assertBoundedFiniteNumber(actionPayload.overtimeHours, 'overtimeHours', 0, 12);
+        const nightHours =
+          actionPayload.nightHours === undefined
+            ? 0
+            : assertBoundedFiniteNumber(actionPayload.nightHours, 'nightHours', 0, 8);
+        const holidayHours =
+          actionPayload.holidayHours === undefined
+            ? 0
+            : assertBoundedFiniteNumber(actionPayload.holidayHours, 'holidayHours', 0, 12);
+
+        const isOffOrFullLeave = workStatus === 'OFF' || workStatus === 'LEAVE';
+        const effectiveNorm =
+          workStatus === 'OFF' || workStatus === 'HOLIDAY_WORK' ? 0 : Number(normalHours.toFixed(1));
+        const effectiveOt = isOffOrFullLeave ? 0 : Number(overtimeHours.toFixed(1));
+        const effectiveHol = workStatus === 'HOLIDAY_WORK' ? Number(holidayHours.toFixed(1)) : 0;
+        const effectiveNight = isOffOrFullLeave ? 0 : Number(nightHours.toFixed(1));
+        const totalActiveHours = effectiveNorm + effectiveOt + effectiveHol;
+        if (totalActiveHours > 24) {
+          throw badRequest('1일 총 근로시간 합계는 24시간을 초과할 수 없습니다.');
+        }
+        if (effectiveNight > totalActiveHours) {
+          throw badRequest('야간근로 시간은 당일 실근로시간 합계를 초과할 수 없습니다.');
+        }
+
+        const clockInRaw = String(actionPayload.clockIn ?? '').trim();
+        const clockOutRaw = String(actionPayload.clockOut ?? '').trim();
+        const hhmmRe = /^([01]\d|2[0-3]):[0-5]\d$/;
+        const finalClockIn = isOffOrFullLeave ? '-' : clockInRaw || '09:00';
+        const finalClockOut = isOffOrFullLeave ? '-' : clockOutRaw || '18:00';
+        if (!isOffOrFullLeave && (!hhmmRe.test(finalClockIn) || !hhmmRe.test(finalClockOut))) {
+          throw badRequest('출근·퇴근 시각은 HH:MM(00:00~23:59) 형식이어야 합니다.');
+        }
+        const memo = String(actionPayload.memo ?? '').trim().slice(0, 80);
+
+        const dayMap = ensureWorkerMonthCalendar(w, ym, payrollYm);
+        const wd = getUtcWeekday(date);
+        const dayNum = Number(date.slice(8, 10));
+        const statusLabelMap = {
+          WORK: effectiveOt > 0 ? '연장근무' : '정상근무',
+          HOLIDAY_WORK: '휴일근무',
+          LEAVE: '연차휴가',
+          HALF_LEAVE: '반차휴가',
+          OFF: '휴무',
+        };
+        dayMap.set(date, {
+          date,
+          day: dayNum,
+          weekday: WEEKDAY_KO[wd],
+          weekdayIdx: wd,
+          workStatus,
+          statusLabel: statusLabelMap[workStatus],
+          clockIn: finalClockIn,
+          clockOut: finalClockOut,
+          normalHours: effectiveNorm,
+          overtimeHours: effectiveOt,
+          nightHours: effectiveNight,
+          holidayHours: effectiveHol,
+          memo,
+        });
+
+        recalculateWorkerFromCalendar(w, ym, dayMap, payrollYm);
+        appendAudit(
+          'M4월간캘린더',
+          `[${empCode} ${w.displayName}] ${date} 근태(${statusLabelMap[workStatus]} · 정상 ${effectiveNorm}h · 연장 ${effectiveOt}h · 휴일 ${effectiveHol}h) 기록 → 급여명세서 연동`
+        );
+        return {
+          message:
+            ym === payrollYm
+              ? `[${w.displayName}] ${date} 근태 기록이 저장되어 급여 대장 및 급여 명세서에 즉시 반영되었습니다.`
+              : `[${w.displayName}] ${date} (${ym} 귀속) 근태 캘린더 기록이 저장되었습니다.`,
+        };
+      }
+
+      case 'ADD_LEAVE_USAGE': {
+        if (lsaRegularCount < 5) {
+          throw badRequest('상시 5인 미만 사업장은 법정 연차유급휴가 의무 대상이 아닙니다.');
+        }
+        const empCode = String(actionPayload.empCode || '').trim();
+        const w = state.workers.find((item) => item.empCode === empCode);
+        if (!w) throw badRequest('대상 직원을 찾을 수 없습니다.');
+        if (w.workerCategory === 'DAILY' || w.workerCategory === 'BIZ_33') {
+          throw badRequest('일용직 또는 3.3% 사업소득 계약자는 상용 연차휴가 기록 대상이 아닙니다.');
+        }
+        const appliedAt = String(actionPayload.appliedAt || '').trim();
+        const useDate = String(actionPayload.useDate || '').trim();
+        if (!isValidIsoDate(appliedAt) || !isValidIsoDate(useDate)) {
+          throw badRequest('유효한 연차 신청일(appliedAt)과 사용일(useDate)을 입력해 주세요.');
+        }
+        if (appliedAt > useDate) {
+          throw badRequest('연차 신청일은 사용일보다 늦을 수 없습니다.');
+        }
+        const days = assertBoundedFiniteNumber(actionPayload.days, 'days', 0.5, 10);
+        if ((days * 2) % 1 !== 0) {
+          throw badRequest('연차 사용일수는 0.5일(반차) 단위로 입력해 주세요.');
+        }
+        const refDate = state.company.referenceDate || '2026-11-15';
+        const payrollYm = refDate.slice(0, 7);
+        const statutory = computeStatutoryAnnualLeaveDays(
+          w.hireDate || '2023-03-02',
+          refDate,
+          state.company.policySettings
+        );
+        const records = getWorkerLeaveRecords(w);
+        const currentUsed = Number(
+          records.reduce((s, r) => s + (Number(r.days) || 0), 0).toFixed(1)
+        );
+        const remainingBefore = Math.max(0, Number((statutory.accruedDays - currentUsed).toFixed(1)));
+        if (currentUsed + days > statutory.accruedDays) {
+          throw badRequest(
+            `잔여 연차(${remainingBefore}일)를 초과하여 ${days}일 연차를 등록할 수 없습니다.`
+          );
+        }
+
+        const coveredDates = expandLeaveRecordDates({ useDate, days });
+        if (coveredDates.length === 0) {
+          throw badRequest('연차 사용 대상 일자를 산정할 수 없습니다.');
+        }
+        const existingDateSet = new Set();
+        for (const r of records) {
+          for (const s of expandLeaveRecordDates(r)) {
+            existingDateSet.add(s.date);
+          }
+        }
+        const conflictSlot = coveredDates.find((s) => existingDateSet.has(s.date));
+        if (conflictSlot) {
+          throw badRequest(`이미 ${conflictSlot.date} 일자에 등록된 연차 기록이 있습니다.`);
+        }
+
+        const leaveType = String(
+          actionPayload.leaveType || (days === 0.5 ? '반차(0.5일)' : `연차(${days}일)`)
+        )
+          .trim()
+          .slice(0, 40);
+        const reason = String(actionPayload.reason || '연차 사용').trim().slice(0, 80);
+
+        const recordId = `LV-${++leaveSeq}`;
+        records.push({
+          recordId,
+          appliedAt,
+          useDate,
+          days,
+          leaveType,
+          reason,
+          coveredDates,
+        });
+        const totalUsed = Number(records.reduce((s, r) => s + (Number(r.days) || 0), 0).toFixed(1));
+        const prevMeta = leaveUsageMap.get(empCode) || { usedDays: 0, promoStage: 'NONE' };
+        leaveUsageMap.set(empCode, { ...prevMeta, usedDays: totalUsed });
+
+        // 근태 캘린더에 모든 사용일(다일 연차 포함) 반영 + 삭제 시 복원용 원본 스냅샷 백업
+        const dailyH = w.dailyHours || 8;
+        const backupEntries = [];
+        const touchedMonths = new Set();
+        for (const slot of coveredDates) {
+          const slotYm = slot.date.slice(0, 7);
+          const dayMap = ensureWorkerMonthCalendar(w, slotYm, payrollYm);
+          const prevEntry = dayMap.get(slot.date);
+          if (prevEntry) {
+            backupEntries.push({
+              ym: slotYm,
+              date: slot.date,
+              entry: structuredClone(prevEntry),
+            });
+          }
+          const wd = getUtcWeekday(slot.date);
+          const isHalf = slot.dayFraction < 1;
+          dayMap.set(slot.date, {
+            date: slot.date,
+            day: Number(slot.date.slice(8, 10)),
+            weekday: WEEKDAY_KO[wd],
+            weekdayIdx: wd,
+            workStatus: isHalf ? 'HALF_LEAVE' : 'LEAVE',
+            statusLabel: isHalf ? '반차휴가' : '연차휴가',
+            clockIn: isHalf ? '09:00' : '-',
+            clockOut: isHalf ? '13:00' : '-',
+            normalHours: isHalf ? Number((dailyH / 2).toFixed(1)) : dailyH,
+            overtimeHours: 0,
+            nightHours: 0,
+            holidayHours: 0,
+            memo: `${leaveType} (신청 ${appliedAt})`,
+          });
+          touchedMonths.add(slotYm);
+        }
+        leavePrevCalendarBackup.set(recordId, backupEntries);
+        for (const touchedYm of touchedMonths) {
+          recalculateWorkerFromCalendar(w, touchedYm, ensureWorkerMonthCalendar(w, touchedYm, payrollYm), payrollYm);
+        }
+
+        appendAudit(
+          'M5연차기록',
+          `[${empCode} ${w.displayName}] 연차 신청(${appliedAt}) · 사용(${useDate}, ${days}일) 등록 → 근태캘린더·급여명세서 동기화`
+        );
+        return {
+          message: `[${w.displayName}] 연차 기록(신청일 ${appliedAt} · 사용일 ${useDate} · ${days}일)이 저장되어 근태 캘린더와 급여 명세서에 반영되었습니다.`,
+        };
+      }
+
+      case 'DELETE_LEAVE_USAGE': {
+        const empCode = String(actionPayload.empCode || '').trim();
+        const recordId = String(actionPayload.recordId || '').trim();
+        const w = state.workers.find((item) => item.empCode === empCode);
+        if (!w) throw badRequest('대상 직원을 찾을 수 없습니다.');
+        const records = getWorkerLeaveRecords(w);
+        const idx = records.findIndex((r) => r.recordId === recordId);
+        if (idx < 0) throw badRequest('삭제할 연차 기록을 찾을 수 없습니다.');
+        const [removed] = records.splice(idx, 1);
+        const totalUsed = Number(records.reduce((s, r) => s + (Number(r.days) || 0), 0).toFixed(1));
+        const prevMeta = leaveUsageMap.get(empCode) || { usedDays: 0, promoStage: 'NONE' };
+        leaveUsageMap.set(empCode, { ...prevMeta, usedDays: totalUsed });
+
+        const payrollYm = (state.company.referenceDate || '2026-11-15').slice(0, 7);
+        const touchedMonths = new Set();
+        const backedUp = leavePrevCalendarBackup.get(recordId);
+        if (backedUp && backedUp.length > 0) {
+          for (const item of backedUp) {
+            const key = `${empCode}|${item.ym}`;
+            if (dailyAttendanceMap.has(key)) {
+              dailyAttendanceMap.get(key).set(item.date, structuredClone(item.entry));
+              touchedMonths.add(item.ym);
+            }
+          }
+          leavePrevCalendarBackup.delete(recordId);
+        } else {
+          for (const slot of expandLeaveRecordDates(removed)) {
+            const slotYm = slot.date.slice(0, 7);
+            const key = `${empCode}|${slotYm}`;
+            if (dailyAttendanceMap.has(key)) {
+              const dayMap = dailyAttendanceMap.get(key);
+              const wd = getUtcWeekday(slot.date);
+              const isWeekday = wd >= 1 && wd <= 5;
+              const dailyH = w.dailyHours || 8;
+              dayMap.set(slot.date, {
+                date: slot.date,
+                day: Number(slot.date.slice(8, 10)),
+                weekday: WEEKDAY_KO[wd],
+                weekdayIdx: wd,
+                workStatus: isWeekday ? 'WORK' : 'OFF',
+                statusLabel: isWeekday ? '정상근무' : '휴무',
+                clockIn: isWeekday ? '09:00' : '-',
+                clockOut: isWeekday ? (dailyH <= 4 ? '13:00' : '18:00') : '-',
+                normalHours: isWeekday ? dailyH : 0,
+                overtimeHours: 0,
+                nightHours: 0,
+                holidayHours: 0,
+                memo: '',
+              });
+              touchedMonths.add(slotYm);
+            }
+          }
+        }
+        for (const touchedYm of touchedMonths) {
+          recalculateWorkerFromCalendar(w, touchedYm, ensureWorkerMonthCalendar(w, touchedYm, payrollYm), payrollYm);
+        }
+
+        appendAudit(
+          'M5연차삭제',
+          `[${empCode} ${w.displayName}] 연차 기록(${removed.useDate}, ${removed.days}일) 취소 반영`
+        );
+        return {
+          message: `[${w.displayName}] ${removed.useDate} 연차 기록이 취소되어 잔여 연차와 캘린더에 반영되었습니다.`,
+        };
+      }
+
       default:
         throw badRequest(`지원하지 않는 관리 액션(${actionType})입니다.`);
     }
@@ -1193,5 +2122,7 @@ export function createOperationsSuiteManager() {
     buildView,
     applyAction,
     scrubPurgedPerson,
+    invalidateWorkerCalendar,
+    resetForNewRoster,
   });
 }

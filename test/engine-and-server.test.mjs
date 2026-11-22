@@ -2495,7 +2495,7 @@ test('20. 전용 로컬 커스텀 도메인(modular-hr.localhost) Host·Origin �
   const pathMod = (await import('node:path')).default;
 
   const indexHtml = fsMod.readFileSync(
-    pathMod.join(process.cwd(), 'src', 'public', 'index.html'),
+    pathMod.join(PROJECT_ROOT, 'src', 'public', 'index.html'),
     'utf8'
   );
   assert.ok(indexHtml.includes('id="module-popup-modal"'), '모듈별 상세 팝업 모달 존재 필수');
@@ -2634,13 +2634,13 @@ test('21. GitHub Pages 무서버 정적 런타임(SharedWorker + server-core) �
   const pathMod = (await import('node:path')).default;
   const { pathToFileURL } = await import('node:url');
 
-  execFileSync(process.execPath, [pathMod.join(process.cwd(), 'scripts', 'build-gh-pages.mjs')], {
-    cwd: process.cwd(),
+  execFileSync(process.execPath, [pathMod.join(PROJECT_ROOT, 'scripts', 'build-gh-pages.mjs')], {
+    cwd: PROJECT_ROOT,
     stdio: 'pipe',
   });
 
   const workerModUrl = pathToFileURL(
-    pathMod.join(process.cwd(), 'dist-pages', 'virtual-server-worker.mjs')
+    pathMod.join(PROJECT_ROOT, 'dist-pages', 'virtual-server-worker.mjs')
   ).href;
   const { invokeDirectInTab } = await import(workerModUrl);
 
@@ -3081,3 +3081,292 @@ test('23. 깔끔한 7대 메뉴·서브탭 UI 구조 및 환경 설정(회계연
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test('24. 환경설정 서류 자동저장 · 전 메뉴 번호/사번/체크/별표 동기화 · 근태 월간 캘린더 · 연차 신청/사용이력 급여명세서 연동 검증', async () => {
+  const indexHtml = fs.readFileSync(path.join(PROJECT_ROOT, 'src/public/index.html'), 'utf8');
+  assert.ok(indexHtml.includes('id="settings-doc-file-input"'), '환경 설정 서류 파일 업로드 요소 필수');
+  assert.ok(indexHtml.includes('id="input-biz-reg-no"'), '환경 설정 사업자등록번호 입력란 필수');
+
+  const { server } = createAppServer({ requirePcAuth: false, demoMode: true });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  const baseUrl = `http://modular-hr.localhost:${port}`;
+  const localLoopback = `http://127.0.0.1:${port}`;
+
+  const postJson = async (apiPath, payload, csrfToken) =>
+    fetch(`${localLoopback}${apiPath}`, {
+      method: 'POST',
+      headers: {
+        Host: `modular-hr.localhost:${port}`,
+        Origin: baseUrl,
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': csrfToken,
+      },
+      body: JSON.stringify(payload),
+    });
+
+  try {
+    const bootRes = await fetch(`${localLoopback}/api/bootstrap`, {
+      headers: { Host: `modular-hr.localhost:${port}` },
+    });
+    assert.equal(bootRes.status, 200);
+    const { csrfToken, snapshot: snap0 } = await bootRes.json();
+
+    // 1. 전 메뉴(인사·근태·연차·급여·평가) 사원 목록 길이, No.(1..N), 사번(empCode), 성명(displayName) 100% 일치 검증
+    const views0 = [
+      snap0.workers,
+      snap0.operationsSuite.recruitAndOnboarding.contractLedger,
+      snap0.operationsSuite.attendanceControl.board,
+      snap0.operationsSuite.leaveAndMaternity.ledger,
+      snap0.operationsSuite.evaluationAndReward.board,
+      snap0.payrollLines,
+    ];
+    for (const v of views0) {
+      assert.equal(v.length, snap0.workers.length, '전 메뉴 사원 행 수가 일치해야 함');
+      v.forEach((row, idx) => {
+        assert.equal(row.rowNo, idx + 1, '순번(rowNo)이 1..N으로 동일해야 함');
+        assert.equal(row.empCode, snap0.workers[idx].empCode, '사번이 전 메뉴에서 일치해야 함');
+        assert.equal(row.displayName, snap0.workers[idx].displayName, '이름이 전 메뉴에서 일치해야 함');
+      });
+    }
+
+    // 2. 체크박스(☐) 및 별표(★) 토글 시 인사·근태·연차·급여 전 메뉴 즉시 동기화 검증
+    await postJson('/api/ops/action', { actionType: 'TOGGLE_WORKER_CHECK', empCode: 'EMP-201', checked: true }, csrfToken);
+    const starRes = await postJson('/api/ops/action', { actionType: 'TOGGLE_WORKER_STAR', empCode: 'EMP-201', starred: true }, csrfToken);
+    assert.equal(starRes.status, 200);
+    const { snapshot: snapMarked } = await starRes.json();
+    for (const list of [
+      snapMarked.workers,
+      snapMarked.operationsSuite.attendanceControl.board,
+      snapMarked.operationsSuite.leaveAndMaternity.ledger,
+      snapMarked.payrollLines,
+    ]) {
+      const target = list.find((r) => r.empCode === 'EMP-201');
+      assert.equal(target.checked, true);
+      assert.equal(target.starred, true);
+    }
+
+    // 3. 근태 월간 캘린더 일별 시간 저장 -> 급여 대장 및 급여 명세서(attendanceSummary.workedDays) 반영 검증
+    const badClockRes = await postJson(
+      '/api/ops/action',
+      {
+        actionType: 'SET_DAILY_ATTENDANCE',
+        empCode: 'EMP-201',
+        date: '2026-11-24',
+        workStatus: 'WORK',
+        clockIn: '99:99',
+        clockOut: '21:30',
+        normalHours: 8,
+        overtimeHours: 2,
+      },
+      csrfToken
+    );
+    assert.equal(badClockRes.status, 400, '잘못된 시각 형식(99:99)은 400 거부 필수');
+
+    const dayRes = await postJson(
+      '/api/ops/action',
+      {
+        actionType: 'SET_DAILY_ATTENDANCE',
+        empCode: 'EMP-201',
+        date: '2026-11-24',
+        workStatus: 'WORK',
+        clockIn: '09:00',
+        clockOut: '20:30',
+        normalHours: 8,
+        overtimeHours: 2.5,
+        nightHours: 0,
+        holidayHours: 0,
+        memo: '긴급 납기 대응',
+      },
+      csrfToken
+    );
+    assert.equal(dayRes.status, 200);
+    const { snapshot: snapAtt } = await dayRes.json();
+    const emp201BoardAfterAtt = snapAtt.operationsSuite.attendanceControl.board.find(
+      (b) => b.empCode === 'EMP-201'
+    );
+    assert.ok(
+      emp201BoardAfterAtt.maxWeeklyWorkedHours <= 52,
+      '초기 휴일·야간 배분 오류로 주52h 위반(60h 등)이 잘못 발생하면 안 됨'
+    );
+    const emp201PayAfterAtt = snapAtt.payrollLines.find((p) => p.empCode === 'EMP-201');
+    const loggedDay = emp201PayAfterAtt.attendanceSummary.workedDays.find((d) => d.date === '2026-11-24');
+    assert.ok(loggedDay, '급여 명세서 일별 근무기록에 2026-11-24가 포함되어야 함');
+    assert.equal(loggedDay.overtimeHours, 2.5);
+    assert.equal(loggedDay.memo, '긴급 납기 대응');
+
+    // 타 귀속월(2026-10) 캘린더 수정 시 당월(2026-11) 급여 연장수당이 오염되지 않는지 검증
+    const octRes = await postJson(
+      '/api/ops/action',
+      {
+        actionType: 'SET_DAILY_ATTENDANCE',
+        empCode: 'EMP-201',
+        date: '2026-10-15',
+        workStatus: 'WORK',
+        clockIn: '09:00',
+        clockOut: '22:00',
+        normalHours: 8,
+        overtimeHours: 4,
+      },
+      csrfToken
+    );
+    assert.equal(octRes.status, 200);
+    const { snapshot: snapOct } = await octRes.json();
+    const emp201PayAfterOct = snapOct.payrollLines.find((p) => p.empCode === 'EMP-201');
+    assert.equal(
+      emp201PayAfterOct.overtimeNightHolidayPay,
+      emp201PayAfterAtt.overtimeNightHolidayPay,
+      '전월(2026-10) 캘린더 수정이 당월(2026-11) 급여 수당을 덮어쓰면 안 됨'
+    );
+    await postJson('/api/ops/action', { actionType: 'SET_ATTENDANCE_MONTH', yearMonth: '2026-11' }, csrfToken);
+
+    // 4. 연차 신청일·사용일(2일 다일 연차 포함) 추가/삭제 및 잔여일수 초과 400 차단 검증
+    const exceedLeaveRes = await postJson(
+      '/api/ops/action',
+      {
+        actionType: 'ADD_LEAVE_USAGE',
+        empCode: 'EMP-204',
+        appliedAt: '2026-11-10',
+        useDate: '2026-11-19',
+        days: 10,
+      },
+      csrfToken
+    );
+    assert.equal(exceedLeaveRes.status, 400, '잔여 연차 초과 등록은 400 차단 필수');
+    const badLeaveRes = await postJson(
+      '/api/ops/action',
+      {
+        actionType: 'ADD_LEAVE_USAGE',
+        empCode: 'EMP-201',
+        appliedAt: '2026-11-28',
+        useDate: '2026-11-26',
+        days: 1,
+      },
+      csrfToken
+    );
+    assert.equal(badLeaveRes.status, 400, '신청일이 사용일보다 늦으면 400 거부 필수');
+
+    const prevLeave = snapAtt.payrollLines.find((p) => p.empCode === 'EMP-201').leaveSummary;
+    const addLeaveRes = await postJson(
+      '/api/ops/action',
+      {
+        actionType: 'ADD_LEAVE_USAGE',
+        empCode: 'EMP-201',
+        appliedAt: '2026-11-18',
+        useDate: '2026-11-25',
+        days: 2,
+        leaveType: '연차(2일)',
+        reason: '가족 검진 동행',
+      },
+      csrfToken
+    );
+    assert.equal(addLeaveRes.status, 200);
+    const { snapshot: snapLv } = await addLeaveRes.json();
+    const emp201PayLv = snapLv.payrollLines.find((p) => p.empCode === 'EMP-201');
+    assert.equal(emp201PayLv.leaveSummary.usedCount, prevLeave.usedCount + 1);
+    assert.equal(emp201PayLv.leaveSummary.usedDays, prevLeave.usedDays + 2);
+    assert.equal(emp201PayLv.leaveSummary.remainingDays, prevLeave.remainingDays - 2);
+    assert.ok(emp201PayLv.leaveSummary.grantedCount >= 1);
+    const addedRec = emp201PayLv.leaveSummary.records.find(
+      (r) => r.appliedAt === '2026-11-18' && r.useDate === '2026-11-25' && r.days === 2
+    );
+    assert.ok(addedRec, '급여 명세서 연차 이력에 신청일·사용일(2일)이 정확히 포함되어야 함');
+    const calDay1 = emp201PayLv.attendanceSummary.workedDays.find((d) => d.date === '2026-11-25');
+    const calDay2 = emp201PayLv.attendanceSummary.workedDays.find((d) => d.date === '2026-11-26');
+    assert.equal(calDay1.workStatus, 'LEAVE', '2일 연차 등록 시 첫째 날도 LEAVE여야 함');
+    assert.equal(calDay2.workStatus, 'LEAVE', '2일 연차 등록 시 둘째 날도 LEAVE여야 함');
+
+    const delLeaveRes = await postJson(
+      '/api/ops/action',
+      { actionType: 'DELETE_LEAVE_USAGE', empCode: 'EMP-201', recordId: addedRec.recordId },
+      csrfToken
+    );
+    assert.equal(delLeaveRes.status, 200);
+    const { snapshot: snapLvRestored } = await delLeaveRes.json();
+    const restoredPay = snapLvRestored.payrollLines.find((p) => p.empCode === 'EMP-201');
+    assert.equal(restoredPay.leaveSummary.usedDays, prevLeave.usedDays);
+    assert.equal(
+      restoredPay.attendanceSummary.workedDays.find((d) => d.date === '2026-11-26').workStatus,
+      'WORK',
+      '연차 취소 시 둘째 날도 원래 근무 상태로 복원되어야 함'
+    );
+
+    // 빈 보험 CSV 업로드 시 명부가 0명으로 증발하지 않고 400 거부되는지 검증
+    const emptyEiRes = await postJson(
+      '/api/onboarding/commit',
+      {
+        preserveExistingIfMissing: true,
+        files: [{ fileName: '고용보험_빈파일.csv', content: '사번,성명,생년월일,고용형태,주소정근로시간,월평균보수' }],
+      },
+      csrfToken
+    );
+    assert.equal(emptyEiRes.status, 400);
+
+    // 5. 환경 설정 서류 부분 업로드(preserveExistingIfMissing: true): 사업자등록증 단독 업로드 후 고용보험 단독 업로드 자동 병합 검증
+    const bizOnlyRes = await postJson(
+      '/api/onboarding/commit',
+      {
+        preserveExistingIfMissing: true,
+        files: [
+          {
+            fileName: '사업자등록증.txt',
+            content: [
+              '사업자등록증',
+              '법인명(단체명): 주식회사 푸른자동화시스템',
+              '사업자등록번호: 312-81-55219',
+              '대표자(성명): 박대표',
+              '업태: 정보통신업',
+              '종목: 인공지능 소프트웨어 개발',
+            ].join('\n'),
+          },
+        ],
+      },
+      csrfToken
+    );
+    assert.equal(bizOnlyRes.status, 200);
+    const { snapshot: snapBiz } = await bizOnlyRes.json();
+    assert.equal(snapBiz.company.companyName, '주식회사 푸른자동화시스템');
+    assert.equal(snapBiz.company.bizRegNo, '312-81-55219');
+    assert.equal(snapBiz.company.ksicMajor, 'J');
+    assert.equal(snapBiz.workers.length, snapLv.workers.length, '사업자등록증 단독 업로드 시 기존 직원 명부가 유지되어야 함');
+
+    const eiOnlyRes = await postJson(
+      '/api/onboarding/commit',
+      {
+        preserveExistingIfMissing: true,
+        files: [
+          {
+            fileName: '고용보험_피보험자내역.csv',
+            content: [
+              '사번,성명,생년월일,고용형태,주소정근로시간,부서,직위,취득일,상실일,상실사유코드,월평균보수,미사용연차',
+              'EMP-301,송하나,950501-*******,상용,40,AI개발팀,선임연구원,2024-02-01,,,4200000,0',
+              'EMP-302,오태양,921011-*******,상용,40,플랫폼팀,책임연구원,2023-06-01,,,4600000,0',
+              'EMP-303,유별나,980322-*******,상용,40,고객성공팀,매니저,2025-01-15,,,3300000,0',
+            ].join('\n'),
+          },
+        ],
+      },
+      csrfToken
+    );
+    assert.equal(eiOnlyRes.status, 200);
+    const { snapshot: snapEi } = await eiOnlyRes.json();
+    assert.equal(snapEi.company.companyName, '주식회사 푸른자동화시스템', '고용보험 단독 업로드 시 직전 저장된 사업자 설정이 유지되어야 함');
+    assert.equal(snapEi.company.bizRegNo, '312-81-55219');
+    assert.equal(snapEi.workers.length, 3);
+    assert.deepEqual(
+      snapEi.workers.map((w) => [w.rowNo, w.empCode, w.displayName]),
+      [
+        [1, 'EMP-301', '송하나'],
+        [2, 'EMP-302', '오태양'],
+        [3, 'EMP-303', '유별나'],
+      ]
+    );
+    assert.deepEqual(
+      snapEi.operationsSuite.attendanceControl.board.map((w) => [w.rowNo, w.empCode, w.displayName]),
+      snapEi.workers.map((w) => [w.rowNo, w.empCode, w.displayName])
+    );
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+

@@ -368,6 +368,33 @@
 
         <!-- 7-1. 환경 설정 > 기본 · 연차 · 급여 설정 -->
         <section id="panel-settings-master" role="tabpanel" class="tab-panel" hidden>
+          <div class="settings-upload-card">
+            <div class="settings-upload-head">
+              <div>
+                <h3 class="ops-section-title">서류 업로드 자동 저장 (사업자등록증 · 고용보험 · 건강보험 내역)</h3>
+              </div>
+              <div class="step-pill-group">
+                <label class="file-upload-label" for="settings-doc-file-input">
+                  <span>서류 파일 선택 (.csv · .txt)</span>
+                  <input
+                    id="settings-doc-file-input"
+                    class="visually-hidden-input"
+                    type="file"
+                    multiple
+                    accept=".csv,.tsv,.txt,.md,.json"
+                  />
+                </label>
+                <button type="button" id="btn-settings-sample-mfg" class="btn btn-secondary btn-sm">
+                  샘플 자동저장 (제조업)
+                </button>
+                <button type="button" id="btn-settings-sample-it" class="btn btn-secondary btn-sm">
+                  샘플 자동저장 (IT기업)
+                </button>
+              </div>
+            </div>
+            <div id="settings-upload-status" class="settings-upload-status" aria-live="polite" hidden></div>
+          </div>
+
           <div class="clean-toolbar-row">
             <strong class="ops-section-title">규모 예시 빠른 불러오기</strong>
             <div id="preset-buttons" class="preset-group" role="group" aria-label="사업장 규모 프리셋"></div>
@@ -383,6 +410,14 @@
                   <div class="field">
                     <label for="input-company-name">회사명</label>
                     <input id="input-company-name" name="companyName" type="text" maxlength="80" autocomplete="off" />
+                  </div>
+                  <div class="field">
+                    <label for="input-biz-reg-no">사업자등록번호</label>
+                    <input id="input-biz-reg-no" name="bizRegNo" type="text" maxlength="12" placeholder="000-00-00000" autocomplete="off" />
+                  </div>
+                  <div class="field">
+                    <label for="input-ceo-name">대표자명</label>
+                    <input id="input-ceo-name" name="ceoName" type="text" maxlength="40" autocomplete="off" />
                   </div>
                   <div class="field">
                     <label for="select-ksic">업종</label>
