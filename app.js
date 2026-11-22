@@ -28,7 +28,45 @@ const appState = {
   selectedEmpCode: 'EMP-201',
   selectedAttDate: '2026-11-11',
   starredOnlyFilter: false,
+  showCodeDiffMarks: true,
 };
+
+const RECENT_CODE_CHANGES = [
+  {
+    id: 'CHG-CAL-POPUP',
+    menuGroup: 'attendance',
+    badge: '변경 1 · 팝업 캘린더',
+    desc: '근태 관리 직원 클릭 → 전용 월간 캘린더 팝업 창 오픈 (날짜 칸 내 출퇴근·근무시간 전체 표시)',
+    btnLabel: '팝업 열기',
+    action: (btn) => {
+      switchTab('ops-attendance', false);
+      openAttCalendarModal(appState.selectedEmpCode || 'EMP-201', btn);
+    },
+  },
+  {
+    id: 'CHG-AUTO-TIME',
+    menuGroup: 'attendance',
+    badge: '변경 2 · 자동 시간체크',
+    desc: '출근~퇴근 시각 입력 시 8h초과 연장 · 밤 22~새벽 07시 야간 · 법정공휴일 휴일근로 자동 체크',
+    btnLabel: '자동체크 보기',
+    action: (btn) => {
+      switchTab('ops-attendance', false);
+      openAttCalendarModal(appState.selectedEmpCode || 'EMP-201', btn);
+      document.getElementById('att-day-in')?.focus();
+    },
+  },
+  {
+    id: 'CHG-SCALE-MONTHSTART',
+    menuGroup: 'settings',
+    badge: '변경 3 · 5인 미만/이상 & 월초표시',
+    desc: '환경 설정 5인 미만/이상 자동 판정 및 급여·규모 변동 시 월초(1일) 변경 표시·확인 체크',
+    btnLabel: '설정 보기',
+    action: () => {
+      switchTab('settings-master', false);
+      document.getElementById('settings-scale-check-box')?.scrollIntoView({ block: 'center' });
+    },
+  },
+];
 
 const MAJOR_MENU_GROUPS = [
   {
@@ -512,8 +550,14 @@ function renderMonthlyChangeBannerAndScaleBox(snapshot) {
   }
 
   if (scaleBox && notice) {
+    scaleBox.className = 'settings-scale-check-box code-diff-box';
     const is5 = Boolean(notice.is5OrMore);
     scaleBox.replaceChildren(
+      h(
+        'div',
+        { className: 'step-pill-group' },
+        h('span', { className: 'code-diff-pill' }, '변경됨 · 5인 미만/이상 자동 판정 및 월초 표시 연동')
+      ),
       h(
         'div',
         { className: 'scale-check-grid' },
@@ -3616,7 +3660,7 @@ function renderAttCalendarModalContent(snapshot) {
     const formEl = h(
       'form',
       {
-        className: 'att-day-editor',
+        className: 'att-day-editor code-diff-box',
         onInput: (e) => refreshAutoPreview(e.currentTarget),
         onChange: (e) => refreshAutoPreview(e.currentTarget),
         onSubmit: (e) => {
@@ -3667,6 +3711,7 @@ function renderAttCalendarModalContent(snapshot) {
             { className: 'ops-section-title' },
             `선택일 근무시간 설정: ${activeDay.date} (${activeDay.weekday})`
           ),
+          h('span', { className: 'code-diff-pill' }, '변경됨 · 출퇴근 시각 입력 시 연장·야간·공휴일 자동 체크'),
           statutoryName
             ? h('span', { className: 'att-day-holiday-tag' }, `법정공휴일: ${statutoryName}`)
             : activeDay.weekdayIdx === 0
@@ -3868,6 +3913,7 @@ function renderOpsAttendanceTab(snapshot) {
         'div',
         { className: 'step-pill-group' },
         h('h3', { className: 'ops-section-title' }, '출퇴근 · 근로시간 현황 (직원 클릭 시 월간 캘린더 팝업)'),
+        h('span', { className: 'code-diff-pill' }, '변경됨 · 클릭 시 팝업 캘린더'),
         monthControls
       ),
       renderRosterSyncControls(att.board, renderOpsAttendanceTab)
@@ -5263,10 +5309,90 @@ function renderFormsCenterTab(snapshot) {
    전체 스냅샷 반영 및 2단계(대분류 → 하부 탭) 네비게이션 컨트롤러
    ========================================================================== */
 
+function syncCodeDiffMarksState() {
+  const isOn = Boolean(appState.showCodeDiffMarks);
+  document.documentElement.setAttribute('data-diff-marks', isOn ? 'on' : 'off');
+  const toggleBtn = document.getElementById('btn-toggle-diff-marks');
+  if (toggleBtn) {
+    toggleBtn.setAttribute('aria-pressed', String(isOn));
+    toggleBtn.textContent = isOn ? '변경점 표시 켜짐' : '변경점 표시 꺼짐';
+  }
+
+  const changedGroups = new Set(RECENT_CODE_CHANGES.map((c) => c.menuGroup));
+  for (const navBtn of Array.from(document.querySelectorAll('.major-nav-btn'))) {
+    const grp = navBtn.dataset.group;
+    let badge = navBtn.querySelector('.code-diff-pill');
+    if (changedGroups.has(grp)) {
+      if (!badge) {
+        badge = h('span', { className: 'code-diff-pill' }, '변경됨');
+        navBtn.appendChild(badge);
+      }
+    } else if (badge) {
+      badge.remove();
+    }
+  }
+
+  const bar = document.getElementById('recent-diff-bar');
+  if (!bar) return;
+  bar.hidden = !isOn;
+  if (bar.childElementCount > 0) return;
+  bar.replaceChildren(
+    h(
+      'div',
+      { className: 'recent-diff-head' },
+      h(
+        'div',
+        { className: 'recent-diff-title' },
+        h('span', { className: 'code-diff-pill' }, `최근 수정 ${RECENT_CODE_CHANGES.length}건`),
+        h('span', {}, '이번 코딩에서 바뀐 화면·기능 안내 (버튼 클릭 시 바뀐 위치로 바로 이동)')
+      ),
+      h(
+        'button',
+        {
+          type: 'button',
+          className: 'btn btn-secondary btn-sm',
+          onClick: () => {
+            appState.showCodeDiffMarks = false;
+            syncCodeDiffMarksState();
+            document.getElementById('btn-toggle-diff-marks')?.focus();
+          },
+        },
+        '변경 표시 숨기기'
+      )
+    ),
+    h(
+      'div',
+      { className: 'recent-diff-list' },
+      ...RECENT_CODE_CHANGES.map((chg) =>
+        h(
+          'div',
+          { className: 'recent-diff-item' },
+          h(
+            'div',
+            { className: 'recent-diff-item-main' },
+            h('span', { className: 'code-diff-pill' }, chg.badge),
+            h('span', { className: 'recent-diff-item-desc' }, chg.desc)
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'btn btn-primary btn-sm',
+              onClick: (e) => chg.action(e.currentTarget),
+            },
+            chg.btnLabel
+          )
+        )
+      )
+    )
+  );
+}
+
 function updateSnapshot(snapshot) {
   appState.snapshot = snapshot;
   const gate = document.getElementById('pc-auth-gate');
   if (gate) gate.hidden = true;
+  syncCodeDiffMarksState();
   syncSimFormControls(snapshot);
   renderHeadcountKpis(snapshot);
   renderMonthlyChangeBannerAndScaleBox(snapshot);
@@ -5478,6 +5604,11 @@ function bindEvents() {
 
   document.getElementById('sidebar-company-card')?.addEventListener('click', () => {
     switchTab('settings-master', false);
+  });
+
+  document.getElementById('btn-toggle-diff-marks')?.addEventListener('click', () => {
+    appState.showCodeDiffMarks = !appState.showCodeDiffMarks;
+    syncCodeDiffMarksState();
   });
 
   document.getElementById('btn-quick-forms-jump')?.addEventListener('click', () => {

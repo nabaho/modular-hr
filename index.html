@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>인사노무 관리 | MODULAR HR</title>
   <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="./styles.css?v=d45cbd6fd2ba" />
+  <link rel="stylesheet" href="./styles.css?v=1c398065676d" />
 </head>
 <body>
   <a href="#main-content" class="skip-link">본문 바로가기</a>
@@ -91,6 +91,14 @@
           </div>
         </div>
         <div class="workspace-topbar-actions">
+          <button
+            type="button"
+            id="btn-toggle-diff-marks"
+            class="btn btn-secondary btn-sm"
+            aria-pressed="true"
+          >
+            변경점 표시 켜짐
+          </button>
           <button type="button" id="btn-quick-forms-jump" class="btn btn-secondary btn-sm">
             표준 서식함
           </button>
@@ -111,6 +119,7 @@
       </div>
 
       <div class="workspace-inner workspace-alerts-slot">
+        <div id="recent-diff-bar" class="recent-diff-bar" role="region" aria-label="최근 코딩 변경 내역 안내" hidden></div>
         <div id="monthly-change-banner" class="monthly-change-banner" role="region" aria-label="월초 급여 및 사업장 규모 변경 표시" hidden></div>
         <div id="status-banner" class="status-banner" role="status" aria-live="polite" hidden></div>
         <div id="pc-auth-gate" class="auth-gate-card" hidden></div>
@@ -643,7 +652,10 @@
     <div class="modal-dialog modal-dialog-wide">
       <div class="modal-header">
         <div>
-          <h2 id="att-cal-modal-title" class="modal-title">월간 근태 캘린더</h2>
+          <div class="step-pill-group">
+            <h2 id="att-cal-modal-title" class="modal-title">월간 근태 캘린더</h2>
+            <span class="code-diff-pill">변경됨 · 직원 클릭 전용 팝업</span>
+          </div>
           <p id="att-cal-modal-subtitle" class="modal-subtitle"></p>
         </div>
         <div class="step-pill-group">
@@ -680,7 +692,7 @@
     </div>
   </div>
 
-  <script type="module" src="./static-api-runtime.mjs?v=d45cbd6fd2ba"></script>
-  <script type="module" src="./app.js?v=d45cbd6fd2ba"></script>
+  <script type="module" src="./static-api-runtime.mjs?v=1c398065676d"></script>
+  <script type="module" src="./app.js?v=1c398065676d"></script>
 </body>
 </html>

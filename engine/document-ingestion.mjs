@@ -5,10 +5,10 @@
  * - 대표자(사용자) 자동 제외, 건보↔고보 자격·보수월액 괴리 탐지, 상시근로자 역산, 재직/퇴사자 자동 분기를 수행한다.
  */
 
-import crypto from './browser-crypto-shim.mjs?v=d45cbd6fd2ba';
-import { INDUSTRIES, LAW_BASELINE } from './labor-rules.mjs?v=d45cbd6fd2ba';
-import { addDaysISO, isValidIsoDate, provisionWorkplaceSystem } from './compliance-provisioner.mjs?v=d45cbd6fd2ba';
-import { buildOffboardedWorkerRecord, mapEiLossCodeToResignReason } from './offboarding-registry.mjs?v=d45cbd6fd2ba';
+import crypto from './browser-crypto-shim.mjs?v=1c398065676d';
+import { INDUSTRIES, LAW_BASELINE } from './labor-rules.mjs?v=1c398065676d';
+import { addDaysISO, isValidIsoDate, provisionWorkplaceSystem } from './compliance-provisioner.mjs?v=1c398065676d';
+import { buildOffboardedWorkerRecord, mapEiLossCodeToResignReason } from './offboarding-registry.mjs?v=1c398065676d';
 
 const MAX_DOC_CHARS = 48_000;
 const MAX_TABLE_ROWS = 400;
