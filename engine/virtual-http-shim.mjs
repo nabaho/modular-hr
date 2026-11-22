@@ -2,7 +2,7 @@
  * src/server.mjs 의 http.createServer(handler) 를 SharedWorker / 브라우저 메모리 안에서 구동하는 가상 HTTP 어댑터
  */
 
-import { BufferShim } from './browser-crypto-shim.mjs?v=7df477f6fc75';
+import { BufferShim } from './browser-crypto-shim.mjs?v=d45cbd6fd2ba';
 
 export function createVirtualHttpServer(handler) {
   const closeListeners = [];

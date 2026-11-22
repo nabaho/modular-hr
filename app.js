@@ -16,6 +16,7 @@ const appState = {
   latestStaging: null,
   lastFocusedBeforeModal: null,
   lastFocusedBeforeModulePopup: null,
+  lastFocusedBeforeAttModal: null,
   popupModalTabKey: null,
   popupRestoreSlot: null,
   autoUnlockAttempted: false,
@@ -115,7 +116,6 @@ const BACKGROUND_SELECTORS = [
   'a.skip-link',
   '#app-shell',
   '#sidebar-backdrop',
-  '#floating-toast',
 ];
 
 function fmtWon(num) {
@@ -408,7 +408,202 @@ function renderHeadcountKpis(snapshot) {
   if (sbName) sbName.textContent = snapshot.company.companyName;
   const sbMeta = document.getElementById('sidebar-company-meta');
   if (sbMeta) {
-    sbMeta.textContent = `상시 ${hc.lsaRegularCount}명 · ${leaveBasisLabel}`;
+    sbMeta.textContent = `상시 ${hc.lsaRegularCount}명 (${hc.is5OrMore ? '5인 이상' : '5인 미만'}) · ${leaveBasisLabel}`;
+  }
+}
+
+function renderMonthlyChangeBannerAndScaleBox(snapshot) {
+  const notice = snapshot.monthlyStartNotice;
+  const banner = document.getElementById('monthly-change-banner');
+  const scaleBox = document.getElementById('settings-scale-check-box');
+
+  const applyScaleQuick = async (targetRegularCount, triggerBtn) => {
+    try {
+      const res = await apiPost(
+        '/api/simulate-company',
+        {
+          headcountInput: {
+            regularWorkers: targetRegularCount,
+            partTimeWorkers: 0,
+            dailyWorkerManDays: 0,
+            dispatchedWorkers: 0,
+            operatingDays: 22,
+          },
+          resetPeak: true,
+        },
+        triggerBtn
+      );
+      updateSnapshot(res.snapshot);
+      const nextN = res.snapshot.monthlyStartNotice;
+      showBanner(
+        `사업장 규모 변경 적용: [${nextN.scaleBadge}] (상시 ${nextN.lsaRegularCount}명) — ${nextN.monthStartDate} 월초 변경 표시가 활성화되었습니다.`
+      );
+    } catch (err) {
+      showBanner(err.message, true);
+    }
+  };
+
+  if (banner) {
+    if (!notice || !notice.hasChanges) {
+      banner.hidden = true;
+      banner.replaceChildren();
+    } else {
+      banner.hidden = false;
+      banner.className = notice.checked
+        ? 'monthly-change-banner is-checked-done'
+        : 'monthly-change-banner';
+      banner.replaceChildren(
+        h(
+          'div',
+          { className: 'monthly-change-main' },
+          h(
+            'div',
+            { className: 'monthly-change-badges' },
+            h(
+              'span',
+              {
+                className: notice.checked
+                  ? 'tag tag-green'
+                  : notice.scaleTransitioned
+                    ? 'tag tag-red'
+                    : 'tag tag-amber',
+              },
+              `★ ${notice.monthStartBadgeText}`
+            ),
+            h(
+              'span',
+              { className: notice.is5OrMore ? 'tag tag-blue' : 'tag tag-amber' },
+              `${notice.scaleBadge} (상시 ${notice.lsaRegularCount}명)`
+            ),
+            h('span', { className: 'tag tag-gray' }, notice.scaleRuleSummary)
+          ),
+          h(
+            'ul',
+            { className: 'monthly-change-reasons' },
+            ...notice.changeReasons.map((reason) => h('li', {}, reason))
+          )
+        ),
+        h(
+          'div',
+          { className: 'step-pill-group' },
+          h(
+            'button',
+            {
+              type: 'button',
+              className: notice.checked ? 'btn btn-secondary btn-sm' : 'btn btn-primary btn-sm',
+              'aria-pressed': String(Boolean(notice.checked)),
+              onClick: (e) =>
+                runOpsAction(
+                  {
+                    actionType: 'ACK_MONTHLY_CHANGE_NOTICE',
+                    checked: !notice.checked,
+                    expectedSignature: notice.signature,
+                  },
+                  e.currentTarget
+                ),
+            },
+            notice.checked
+              ? `☑ 월초(${notice.monthStartDate}) 변화 확인완료`
+              : `☐ 월초(${notice.monthStartDate}) 변화 확인 체크`
+          )
+        )
+      );
+    }
+  }
+
+  if (scaleBox && notice) {
+    const is5 = Boolean(notice.is5OrMore);
+    scaleBox.replaceChildren(
+      h(
+        'div',
+        { className: 'scale-check-grid' },
+        h(
+          'div',
+          { className: !is5 ? 'scale-check-card is-active-scale' : 'scale-check-card' },
+          h(
+            'div',
+            { className: 'scale-check-head' },
+            h('span', {}, `${!is5 ? '☑' : '☐'} 5인 미만 사업장`),
+            h('span', { className: !is5 ? 'tag tag-amber' : 'tag tag-gray' }, !is5 ? `현재 적용 (상시 ${notice.lsaRegularCount}명)` : '미적용')
+          ),
+          h(
+            'p',
+            { className: 'scale-check-desc' },
+            '연장·야간·휴일 가산수당 미적용(1.0배 정산) · 법정 연차휴가 의무 제외 · 해고제한 일부 제외'
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: !is5 ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm',
+              'aria-pressed': String(!is5),
+              onClick: (e) => applyScaleQuick(4, e.currentTarget),
+            },
+            !is5 ? '5인 미만(4인) 적용중' : '5인 미만(4인)으로 전환'
+          )
+        ),
+        h(
+          'div',
+          { className: is5 ? 'scale-check-card is-active-scale' : 'scale-check-card' },
+          h(
+            'div',
+            { className: 'scale-check-head' },
+            h('span', {}, `${is5 ? '☑' : '☐'} 5인 이상 사업장`),
+            h('span', { className: is5 ? 'tag tag-blue' : 'tag tag-gray' }, is5 ? `현재 적용 (상시 ${notice.lsaRegularCount}명)` : '미적용')
+          ),
+          h(
+            'p',
+            { className: 'scale-check-desc' },
+            '연장·야간·휴일 50%·100% 가산수당 자동 반영 · 법정 연차휴가 및 법정공휴일 유급 적용'
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: is5 ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm',
+              'aria-pressed': String(is5),
+              onClick: (e) => applyScaleQuick(Math.max(10, notice.lsaRegularCount >= 5 ? notice.lsaRegularCount : 10), e.currentTarget),
+            },
+            is5 ? '5인 이상 적용중' : '5인 이상(10인)으로 전환'
+          )
+        )
+      ),
+      h(
+        'div',
+        { className: 'ops-section-head' },
+        h(
+          'div',
+          { className: 'step-pill-group' },
+          h(
+            'span',
+            { className: notice.hasChanges ? 'tag tag-amber' : 'tag tag-green' },
+            notice.hasChanges
+              ? `★ ${notice.monthStartBadgeText} (${notice.checked ? '확인 체크 완료' : '확인 체크 필요'})`
+              : `${notice.monthStartDate} 월초 기준 변동 없음 (${notice.scaleBadge})`
+          )
+        ),
+        notice.hasChanges
+          ? h(
+              'button',
+              {
+                type: 'button',
+                className: notice.checked ? 'btn btn-secondary btn-sm' : 'btn btn-primary btn-sm',
+                'aria-pressed': String(Boolean(notice.checked)),
+                onClick: (e) =>
+                  runOpsAction(
+                    {
+                      actionType: 'ACK_MONTHLY_CHANGE_NOTICE',
+                      checked: !notice.checked,
+                      expectedSignature: notice.signature,
+                    },
+                    e.currentTarget
+                  ),
+              },
+              notice.checked ? '☑ 변화 확인 완료' : '☐ 변화 확인 체크'
+            )
+          : null
+      )
+    );
   }
 }
 
@@ -950,12 +1145,20 @@ function renderPayrollTab(snapshot) {
   const policy = snapshot.operationsSuite?.policySettings || snapshot.company.policySettings || {};
 
   const policyBar = document.getElementById('payroll-policy-bar');
+  const notice = snapshot.monthlyStartNotice || null;
   if (policyBar) {
     policyBar.replaceChildren(
       h(
         'div',
         { className: 'policy-sync-items' },
         h('span', { className: 'tag tag-blue' }, '환경 설정 연동 중'),
+        notice && notice.hasChanges
+          ? h(
+              'span',
+              { className: notice.checked ? 'tag tag-green' : 'tag tag-amber' },
+              `★ ${notice.monthStartBadgeText}`
+            )
+          : null,
         h('span', {}, `정기 급여일: ${policy.payDayLabel || '매월 25일'}`),
         h('span', {}, `· 원천징수: 간이세액 ${policy.withholdingTaxRatePct ?? 100}%`),
         h('span', {}, `· 식대 비과세 한도: ${fmtWon(policy.nonTaxableMealLimit ?? 200000)}`),
@@ -1219,6 +1422,11 @@ function openModalWithText(title, subtitle, bodyText, triggerEl) {
   if (feedbackEl) feedbackEl.textContent = '';
 
   setBackgroundInert(true);
+  const attModal = document.getElementById('att-calendar-modal');
+  if (attModal && !attModal.hidden) {
+    attModal.inert = true;
+    attModal.setAttribute('aria-hidden', 'true');
+  }
   if (modPopup && !modPopup.hidden) {
     modPopup.inert = true;
     modPopup.setAttribute('aria-hidden', 'true');
@@ -1229,10 +1437,14 @@ function openModalWithText(title, subtitle, bodyText, triggerEl) {
 
 function closeModal() {
   const modal = document.getElementById('doc-modal');
+  const attModal = document.getElementById('att-calendar-modal');
   const modPopup = document.getElementById('module-popup-modal');
   if (!modal || modal.hidden) return;
   modal.hidden = true;
-  if (modPopup && !modPopup.hidden) {
+  if (attModal && !attModal.hidden) {
+    attModal.inert = false;
+    attModal.removeAttribute('aria-hidden');
+  } else if (modPopup && !modPopup.hidden) {
     modPopup.inert = false;
     modPopup.removeAttribute('aria-hidden');
   } else {
@@ -1247,6 +1459,8 @@ function closeModal() {
     typeof prev.focus === 'function'
   ) {
     prev.focus();
+  } else if (attModal && !attModal.hidden) {
+    document.getElementById('att-cal-close-btn')?.focus();
   } else if (modPopup && !modPopup.hidden) {
     (document.getElementById('popup-module-select') || document.getElementById('module-popup-close-btn'))?.focus();
   } else {
@@ -1423,6 +1637,10 @@ async function openDocumentPreview(
 
 function openPayslipModal(line, triggerBtn) {
   const companyName = appState.snapshot?.company?.companyName || '사업장';
+  const notice = appState.snapshot?.monthlyStartNotice || null;
+  const scaleMeta = notice
+    ? ` | 사업장 기준 : ${notice.scaleBadge} (${notice.monthStartBadgeText}${notice.hasChanges ? (notice.checked ? ' · 확인완료' : ' · 변화확인필요') : ''})`
+    : '';
   const att = line.attendanceSummary || null;
   const lv = line.leaveSummary || null;
 
@@ -1435,10 +1653,12 @@ function openPayslipModal(line, triggerBtn) {
           ? ['   * 당월 출퇴근 기록 없음']
           : att.workedDays.map((d) => {
               const timePart = d.clockIn && d.clockIn !== '-' ? `${d.clockIn}~${d.clockOut} ` : '';
-              const hParts = [`정상 ${d.normalHours}h`];
-              if (d.overtimeHours > 0) hParts.push(`연장 ${d.overtimeHours}h`);
-              if (d.nightHours > 0) hParts.push(`야간 ${d.nightHours}h`);
+              const hParts = [];
+              if (d.normalHours > 0) hParts.push(`정상 ${d.normalHours}h`);
+              if (d.overtimeHours > 0) hParts.push(`연장(8h초과) ${d.overtimeHours}h`);
+              if (d.nightHours > 0) hParts.push(`야간(22~07시) ${d.nightHours}h`);
               if (d.holidayHours > 0) hParts.push(`휴일 ${d.holidayHours}h`);
+              if (hParts.length === 0) hParts.push(d.statusLabel);
               const memoPart = d.memo ? ` (${d.memo})` : '';
               return `   * ${d.date}(${d.weekday}) [${d.statusLabel}] ${timePart}— ${hParts.join(' · ')}${memoPart}`;
             })),
@@ -1476,7 +1696,7 @@ function openPayslipModal(line, triggerBtn) {
   const body = `======================================================================
 ${companyName} 급여 명세서 (근태 캘린더 · 연차 이력 · 산출식 통합본)
 ======================================================================
-순번 · 성명(사번) : No.${line.rowNo ?? '-'} ${line.displayName} (${line.empCode}) | 소속 : ${line.deptName}
+순번 · 성명(사번) : No.${line.rowNo ?? '-'} ${line.displayName} (${line.empCode}) | 소속 : ${line.deptName}${scaleMeta}
 
 1. 지급 내역 합계 : ${fmtWon(line.grossPay)}
    - 기본급 반영액           : ${fmtWon(line.basePayApplied)}
@@ -2170,6 +2390,15 @@ function renderOpsHomeTab(snapshot) {
   );
 
   const actionItems = [];
+  const monthNotice = snapshot.monthlyStartNotice;
+  if (monthNotice && monthNotice.hasChanges && !monthNotice.checked) {
+    actionItems.push({
+      tagClass: monthNotice.scaleTransitioned ? 'tag tag-red' : 'tag tag-amber',
+      tagText: `월초(${monthNotice.monthStartDate})`,
+      text: `${monthNotice.scaleBadge} · 당월 급여·규모 변화 확인 체크 필요`,
+      tab: 'settings-master',
+    });
+  }
   if (k.unsignedContractCount > 0) {
     actionItems.push({
       tagClass: 'tag tag-red',
@@ -2803,6 +3032,776 @@ function renderOpsOrgTab(snapshot) {
   wrap.replaceChildren(rosterAndCertSection);
 }
 
+const CLIENT_FIXED_HOLIDAYS = Object.freeze({
+  '01-01': '신정',
+  '03-01': '삼일절',
+  '05-01': '근로자의 날',
+  '05-05': '어린이날',
+  '06-06': '현충일',
+  '08-15': '광복절',
+  '10-03': '개천절',
+  '10-09': '한글날',
+  '12-25': '성탄절',
+});
+
+const CLIENT_YEAR_HOLIDAYS = Object.freeze({
+  '2025-01-28': '설날 연휴',
+  '2025-01-29': '설날',
+  '2025-01-30': '설날 연휴',
+  '2025-03-03': '삼일절 대체공휴일',
+  '2025-05-06': '대체공휴일',
+  '2025-10-05': '추석 연휴',
+  '2025-10-06': '추석',
+  '2025-10-07': '추석 연휴',
+  '2025-10-08': '추석 대체공휴일',
+  '2026-02-16': '설날 연휴',
+  '2026-02-17': '설날',
+  '2026-02-18': '설날 연휴',
+  '2026-03-02': '삼일절 대체공휴일',
+  '2026-05-24': '부처님오신날',
+  '2026-05-25': '부처님오신날 대체공휴일',
+  '2026-08-17': '광복절 대체공휴일',
+  '2026-09-24': '추석 연휴',
+  '2026-09-25': '추석',
+  '2026-09-26': '추석 연휴',
+  '2026-10-05': '개천절 대체공휴일',
+  '2027-02-06': '설날 연휴',
+  '2027-02-07': '설날',
+  '2027-02-08': '설날 연휴',
+  '2027-02-09': '설날 대체공휴일',
+  '2027-05-13': '부처님오신날',
+  '2027-08-16': '광복절 대체공휴일',
+  '2027-09-14': '추석 연휴',
+  '2027-09-15': '추석',
+  '2027-09-16': '추석 연휴',
+  '2027-10-04': '개천절 대체공휴일',
+  '2027-10-11': '한글날 대체공휴일',
+  '2027-12-27': '성탄절 대체공휴일',
+});
+
+function getClientStatutoryHolidayName(isoDate) {
+  if (!isoDate || typeof isoDate !== 'string') return null;
+  if (Object.hasOwn(CLIENT_YEAR_HOLIDAYS, isoDate)) return CLIENT_YEAR_HOLIDAYS[isoDate];
+  const md = isoDate.slice(5, 10);
+  if (Object.hasOwn(CLIENT_FIXED_HOLIDAYS, md)) return CLIENT_FIXED_HOLIDAYS[md];
+  return null;
+}
+
+function computeClientAutoShift(date, clockIn, clockOut, breakHoursRaw, customHoliday = false) {
+  const hhmmRe = /^([01]\d|2[0-3]):([0-5]\d)$/;
+  const inM = String(clockIn || '').trim().match(hhmmRe);
+  const outM = String(clockOut || '').trim().match(hhmmRe);
+  if (!inM || !outM) {
+    return { valid: false, error: '출근·퇴근 시각(HH:MM)을 올바르게 입력해 주세요.' };
+  }
+  const inMin = Number(inM[1]) * 60 + Number(inM[2]);
+  const rawOutMin = Number(outM[1]) * 60 + Number(outM[2]);
+  if (inMin === rawOutMin) {
+    return { valid: false, error: '출근 시각과 퇴근 시각이 동일합니다. 미출근일은 휴무로 지정해 주세요.' };
+  }
+  const endMin = rawOutMin < inMin ? rawOutMin + 1440 : rawOutMin;
+  const grossHours = (endMin - inMin) / 60;
+
+  let brk =
+    breakHoursRaw === '' || breakHoursRaw === undefined || breakHoursRaw === null
+      ? grossHours >= 9
+        ? 1
+        : grossHours >= 4.5
+          ? 0.5
+          : 0
+      : Number(breakHoursRaw);
+  if (!Number.isFinite(brk) || brk < 0) brk = 0;
+  if (brk >= grossHours) {
+    return { valid: false, error: '휴게시간이 총 체류시간 이상입니다.' };
+  }
+  const netWorked = Number(Math.max(0, grossHours - brk).toFixed(1));
+  const overlap = (aS, aE, bS, bE) => Math.max(0, Math.min(aE, bE) - Math.max(aS, bS));
+  const nightMin =
+    overlap(inMin, endMin, 0, 7 * 60) +
+    overlap(inMin, endMin, 22 * 60, 31 * 60) +
+    overlap(inMin, endMin, 46 * 60, 55 * 60);
+  const nightHours = Number(Math.min(netWorked, nightMin / 60).toFixed(1));
+
+  const pubHoliday = getClientStatutoryHolidayName(date);
+  const [y, m, d] = String(date || '2026-11-02').split('-').map(Number);
+  const wd = new Date(Date.UTC(y, (m || 1) - 1, d || 1)).getUTCDay();
+  const isSunday = wd === 0;
+  const isHol = Boolean(pubHoliday) || isSunday || customHoliday === true;
+  const holidayReason = pubHoliday || (isSunday ? '주휴일(일요일)' : customHoliday ? '지정 공휴일' : null);
+
+  if (isHol) {
+    return {
+      valid: true,
+      netWorked,
+      breakHours: brk,
+      normalHours: 0,
+      overtimeHours: 0,
+      nightHours,
+      holidayHours: netWorked,
+      holidayGt8Hours: Number(Math.max(0, netWorked - 8).toFixed(1)),
+      autoOvertime: netWorked > 8,
+      autoNight: nightHours > 0,
+      autoHoliday: netWorked > 0,
+      holidayReason,
+    };
+  }
+  const normalHours = Number(Math.min(8, netWorked).toFixed(1));
+  const overtimeHours = Number(Math.max(0, netWorked - 8).toFixed(1));
+  return {
+    valid: true,
+    netWorked,
+    breakHours: brk,
+    normalHours,
+    overtimeHours,
+    nightHours,
+    holidayHours: 0,
+    holidayGt8Hours: 0,
+    autoOvertime: overtimeHours > 0,
+    autoNight: nightHours > 0,
+    autoHoliday: false,
+    holidayReason: null,
+  };
+}
+
+function openAttCalendarModal(empCode, triggerEl = null) {
+  if (!appState.snapshot) return;
+  const modal = document.getElementById('att-calendar-modal');
+  const modPopup = document.getElementById('module-popup-modal');
+  if (!modal) return;
+  const wasHidden = modal.hidden;
+  if (empCode) {
+    appState.selectedEmpCode = empCode;
+  }
+  if (wasHidden) {
+    appState.lastFocusedBeforeAttModal = triggerEl || document.activeElement;
+  }
+  renderOpsAttendanceTab(appState.snapshot);
+  renderAttCalendarModalContent(appState.snapshot);
+  setBackgroundInert(true);
+  if (modPopup && !modPopup.hidden) {
+    modPopup.inert = true;
+    modPopup.setAttribute('aria-hidden', 'true');
+  }
+  modal.hidden = false;
+  modal.inert = false;
+  modal.removeAttribute('aria-hidden');
+  if (wasHidden) {
+    document.getElementById('att-cal-close-btn')?.focus();
+  }
+}
+
+function closeAttCalendarModal(restoreFocus = true) {
+  const modal = document.getElementById('att-calendar-modal');
+  const modPopup = document.getElementById('module-popup-modal');
+  if (!modal || modal.hidden) return;
+  modal.hidden = true;
+  if (modPopup && !modPopup.hidden) {
+    modPopup.inert = false;
+    modPopup.removeAttribute('aria-hidden');
+  } else {
+    setBackgroundInert(false);
+  }
+  if (appState.snapshot) {
+    renderOpsAttendanceTab(appState.snapshot);
+  }
+  if (restoreFocus) {
+    const prev = appState.lastFocusedBeforeAttModal;
+    if (
+      prev &&
+      prev !== document.body &&
+      prev.isConnected &&
+      !prev.closest('[hidden]') &&
+      typeof prev.focus === 'function'
+    ) {
+      prev.focus();
+    } else if (appState.selectedEmpCode) {
+      const recreatedBtn = Array.from(document.querySelectorAll('[data-att-cal-btn]')).find(
+        (b) => b.dataset.attCalBtn === appState.selectedEmpCode && !b.closest('[hidden]')
+      );
+      recreatedBtn?.focus();
+    }
+  }
+}
+
+function renderAttCalendarModalContent(snapshot) {
+  const bodyEl = document.getElementById('att-cal-modal-body');
+  const titleEl = document.getElementById('att-cal-modal-title');
+  const subEl = document.getElementById('att-cal-modal-subtitle');
+  if (!bodyEl || !snapshot?.operationsSuite) return;
+
+  const att = snapshot.operationsSuite.attendanceControl;
+  const notice = snapshot.monthlyStartNotice || null;
+  const selectedCode = resolveSelectedWorkerCode(att.board);
+  const selectedRow = att.board.find((r) => r.empCode === selectedCode) || att.board[0] || null;
+  if (!selectedRow || !selectedRow.monthlyCalendar) {
+    bodyEl.replaceChildren(h('div', { className: 'empty-state' }, '표시할 직원 근태 캘린더가 없습니다.'));
+    return;
+  }
+
+  const cal = selectedRow.monthlyCalendar;
+  const ym = cal.yearMonth;
+  if (!appState.selectedAttDate || !appState.selectedAttDate.startsWith(`${ym}-`)) {
+    appState.selectedAttDate = cal.days[0]?.date || `${ym}-01`;
+  }
+  const activeDay = cal.days.find((d) => d.date === appState.selectedAttDate) || cal.days[0];
+
+  if (titleEl) {
+    titleEl.textContent = `[월간 근태 캘린더] No.${selectedRow.rowNo} ${selectedRow.displayName} (${selectedRow.empCode} · ${selectedRow.deptName})`;
+  }
+  if (subEl) {
+    const scaleTxt = notice ? ` · ${notice.scaleBadge}` : '';
+    subEl.textContent = `${ym} 귀속 | 출근 ${cal.workDaysCount}일 · 정상 ${cal.totalNormalHours}h · 8h초과 연장 ${cal.totalOvertimeHours}h · 야간(22~07시) ${cal.totalNightHours}h · 휴일 ${cal.totalHolidayHours}h${scaleTxt}`;
+  }
+
+  const changeMonthInModal = (nextYm, triggerEl) => {
+    if (!nextYm) return;
+    appState.selectedAttDate = `${nextYm}-01`;
+    runOpsAction({ actionType: 'SET_ATTENDANCE_MONTH', yearMonth: nextYm }, triggerEl);
+  };
+
+  const modalTopToolbar = h(
+    'div',
+    { className: 'ops-section-head' },
+    h(
+      'div',
+      { className: 'step-pill-group' },
+      h(
+        'select',
+        {
+          className: 'month-input-box',
+          'aria-label': '캘린더 대상 직원 선택',
+          onChange: (e) => {
+            appState.selectedEmpCode = e.currentTarget.value;
+            renderAttCalendarModalContent(snapshot);
+            renderOpsAttendanceTab(snapshot);
+          },
+        },
+        ...att.board.map((r) =>
+          h(
+            'option',
+            { value: r.empCode, selected: r.empCode === selectedRow.empCode },
+            `No.${r.rowNo} ${r.displayName} (${r.empCode} · ${r.deptName})`
+          )
+        )
+      ),
+      h(
+        'div',
+        { className: 'month-nav-group' },
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'btn btn-secondary btn-sm',
+            'aria-label': '이전 달',
+            onClick: (e) => changeMonthInModal(shiftYearMonth(ym, -1), e.currentTarget),
+          },
+          '◀'
+        ),
+        h('input', {
+          type: 'month',
+          className: 'month-input-box',
+          value: ym,
+          'aria-label': '캘린더 연월 선택',
+          onChange: (e) => changeMonthInModal(e.currentTarget.value, e.currentTarget),
+        }),
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'btn btn-secondary btn-sm',
+            'aria-label': '다음 달',
+            onClick: (e) => changeMonthInModal(shiftYearMonth(ym, 1), e.currentTarget),
+          },
+          '▶'
+        )
+      ),
+      h(
+        'button',
+        {
+          type: 'button',
+          className: ym === '2026-10' ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm',
+          onClick: (e) => {
+            appState.selectedAttDate = '2026-10-09';
+            runOpsAction({ actionType: 'SET_ATTENDANCE_MONTH', yearMonth: '2026-10' }, e.currentTarget);
+          },
+        },
+        '2026-10 (개천절·한글날)'
+      ),
+      h(
+        'button',
+        {
+          type: 'button',
+          className: ym === '2026-11' ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm',
+          onClick: (e) => {
+            appState.selectedAttDate = '2026-11-11';
+            runOpsAction({ actionType: 'SET_ATTENDANCE_MONTH', yearMonth: '2026-11' }, e.currentTarget);
+          },
+        },
+        '2026-11 (당월)'
+      )
+    ),
+    notice
+      ? h(
+          'div',
+          { className: 'step-pill-group' },
+          h(
+            'span',
+            {
+              className: notice.hasChanges
+                ? notice.checked
+                  ? 'tag tag-green'
+                  : 'tag tag-amber'
+                : 'tag tag-blue',
+            },
+            notice.hasChanges ? `★ ${notice.monthStartBadgeText}` : notice.monthStartBadgeText
+          ),
+          notice.hasChanges
+            ? h(
+                'button',
+                {
+                  type: 'button',
+                  className: notice.checked ? 'btn btn-secondary btn-sm' : 'btn btn-primary btn-sm',
+                  'aria-pressed': String(Boolean(notice.checked)),
+                  onClick: (e) =>
+                    runOpsAction(
+                      {
+                        actionType: 'ACK_MONTHLY_CHANGE_NOTICE',
+                        checked: !notice.checked,
+                        expectedSignature: notice.signature,
+                      },
+                      e.currentTarget
+                    ),
+                },
+                notice.checked ? '☑ 월초 변화 확인완료' : '☐ 월초 변화 확인 체크'
+              )
+            : null
+        )
+      : null
+  );
+
+  const blankCells = Array.from({ length: cal.firstWeekdayIdx }, () =>
+    h('div', { className: 'att-cal-empty', 'aria-hidden': 'true' })
+  );
+
+  const dayCells = cal.days.map((d) => {
+    const isSundayOrHol = d.weekdayIdx === 0 || Boolean(d.isStatutoryHoliday) || Boolean(d.holidayName);
+    const classes = ['att-day-cell'];
+    if (d.workStatus === 'OFF') classes.push('is-off');
+    if (d.overtimeHours > 0 || d.workStatus === 'HOLIDAY_WORK') classes.push('is-overtime');
+    if (d.isStatutoryHoliday) classes.push('is-holiday-cell');
+    if (d.workStatus === 'LEAVE' || d.workStatus === 'HALF_LEAVE') classes.push('is-leave');
+    if (d.day === 1 && notice?.hasChanges) classes.push('is-month-start-changed');
+    if (activeDay && activeDay.date === d.date) classes.push('is-active-day');
+
+    const totalWorked = Number(
+      ((d.normalHours || 0) + (d.overtimeHours || 0) + (d.holidayHours || 0)).toFixed(1)
+    );
+
+    // 1일(월초) 셀 내 사업장 규모 및 당월 급여·기준 변경 표시
+    const monthStartPill =
+      d.day === 1 && notice
+        ? h(
+            'div',
+            {
+              className: notice.hasChanges
+                ? notice.checked
+                  ? 'cal-month-start-badge is-acked'
+                  : 'cal-month-start-badge is-alert'
+                : 'cal-month-start-badge',
+            },
+            notice.hasChanges
+              ? notice.scaleTransitioned
+                ? `★ 월초: ${notice.is5OrMore ? '5인 이상' : '5인 미만'} 전환`
+                : `★ 월초: 급여·기준 변경${notice.checked ? '(확인)' : ''}`
+              : `월초 기준: ${notice.is5OrMore ? '5인 이상' : '5인 미만'}`
+          )
+        : null;
+
+    const topRightTag = d.holidayName
+      ? h('span', { className: 'att-day-holiday-tag' }, d.holidayName)
+      : h(
+          'span',
+          {
+            className:
+              d.workStatus === 'LEAVE' || d.workStatus === 'HALF_LEAVE'
+                ? 'tag tag-blue'
+                : d.overtimeHours > 0 || d.nightHours > 0
+                  ? 'tag tag-amber'
+                  : d.workStatus === 'WORK'
+                    ? 'tag tag-green'
+                    : 'tag tag-gray',
+          },
+          d.statusLabel
+        );
+
+    const timeLine =
+      d.clockIn && d.clockIn !== '-'
+        ? h(
+            'div',
+            { className: 'att-day-time' },
+            `${d.clockIn} ~ ${d.clockOut}${d.breakHours ? ` (휴게 ${d.breakHours}h)` : ''}`
+          )
+        : h(
+            'div',
+            { className: 'att-day-time' },
+            d.workStatus === 'LEAVE'
+              ? '유급연차 종일'
+              : d.workStatus === 'HALF_LEAVE'
+                ? '반차 사용'
+                : d.holidayName || '휴무'
+          );
+
+    const chips = [];
+    if (d.normalHours > 0) {
+      chips.push(h('span', { className: 'att-chip' }, `정상 ${d.normalHours}h`));
+    }
+    if (d.overtimeHours > 0) {
+      chips.push(h('span', { className: 'att-chip att-chip-ot' }, `☑연장 ${d.overtimeHours}h`));
+    }
+    if (d.nightHours > 0) {
+      chips.push(h('span', { className: 'att-chip att-chip-night' }, `☑야간 ${d.nightHours}h`));
+    }
+    if (d.holidayHours > 0) {
+      const gt8 = Number(Math.max(0, d.holidayHours - 8).toFixed(1));
+      chips.push(
+        h(
+          'span',
+          { className: 'att-chip att-chip-hol' },
+          gt8 > 0 ? `☑휴일 ${d.holidayHours}h(8h+${gt8}h)` : `☑휴일 ${d.holidayHours}h`
+        )
+      );
+    }
+    if (d.workStatus === 'LEAVE' || d.workStatus === 'HALF_LEAVE') {
+      chips.push(
+        h(
+          'span',
+          { className: 'att-chip att-chip-leave' },
+          d.workStatus === 'LEAVE' ? '연차 8h' : '반차 4h'
+        )
+      );
+    }
+
+    return h(
+      'button',
+      {
+        type: 'button',
+        className: classes.join(' '),
+        'aria-pressed': String(Boolean(activeDay && activeDay.date === d.date)),
+        'aria-label': `${d.date}(${d.weekday}) ${d.statusLabel} ${totalWorked}시간`,
+        onClick: () => {
+          appState.selectedAttDate = d.date;
+          renderAttCalendarModalContent(snapshot);
+        },
+      },
+      monthStartPill,
+      h(
+        'div',
+        { className: 'att-day-top' },
+        h(
+          'span',
+          { className: isSundayOrHol ? 'att-day-num is-sunday-or-hol' : 'att-day-num' },
+          `${d.day}일 (${d.weekday})`
+        ),
+        topRightTag
+      ),
+      timeLine,
+      chips.length > 0 ? h('div', { className: 'att-day-chips' }, ...chips) : null
+    );
+  });
+
+  // 선택 일자 출근~퇴근 시각 기반 자동 판정(연장 >8h · 야간 22~07시 · 법정공휴일 휴일근로) 에디터
+  const statutoryName = getClientStatutoryHolidayName(activeDay.date);
+  const isFixedOrSunHoliday = Boolean(statutoryName) || activeDay.weekdayIdx === 0;
+  const initialMode =
+    activeDay.workStatus === 'LEAVE' ||
+    activeDay.workStatus === 'HALF_LEAVE' ||
+    activeDay.workStatus === 'OFF'
+      ? activeDay.workStatus
+      : 'AUTO';
+  const defaultIn = activeDay.clockIn && activeDay.clockIn !== '-' ? activeDay.clockIn : '09:00';
+  const defaultOut = activeDay.clockOut && activeDay.clockOut !== '-' ? activeDay.clockOut : '18:00';
+  const hasSavedShift =
+    activeDay.clockIn &&
+    activeDay.clockIn !== '-' &&
+    (activeDay.workStatus === 'WORK' || activeDay.workStatus === 'HOLIDAY_WORK');
+  const defaultBreak =
+    hasSavedShift && activeDay.breakHours !== undefined && activeDay.breakHours !== null
+      ? activeDay.breakHours
+      : 1;
+  const defaultCustomHol =
+    isFixedOrSunHoliday || (activeDay.workStatus === 'HOLIDAY_WORK' && !isFixedOrSunHoliday);
+
+  const previewBar = h('div', { className: 'auto-check-preview-bar', 'aria-live': 'polite' });
+
+  const refreshAutoPreview = (formEl) => {
+    if (!formEl) return;
+    const modeVal = formEl.querySelector('[name="dayMode"]')?.value || 'AUTO';
+    const inInput = formEl.querySelector('[name="dayIn"]');
+    const outInput = formEl.querySelector('[name="dayOut"]');
+    const brkInput = formEl.querySelector('[name="dayBreak"]');
+    const holChk = formEl.querySelector('[name="dayCustomHol"]');
+    const isTimeDisabled = modeVal !== 'AUTO';
+    if (inInput) inInput.disabled = isTimeDisabled;
+    if (outInput) outInput.disabled = isTimeDisabled;
+    if (brkInput) brkInput.disabled = isTimeDisabled;
+    if (holChk) holChk.disabled = isTimeDisabled || isFixedOrSunHoliday;
+
+    if (modeVal !== 'AUTO') {
+      const modeText =
+        modeVal === 'LEAVE'
+          ? '유급 연차휴가 (8시간 유급 반영 · 연장/야간/휴일 해당 없음)'
+          : modeVal === 'HALF_LEAVE'
+            ? '반차휴가 (소정 4시간 근무 + 연차 0.5일 차감)'
+            : '휴무일 (미출근 · 근로시간 0h)';
+      previewBar.replaceChildren(
+        h('span', { className: 'tag tag-blue' }, modeText),
+        h(
+          'span',
+          { className: 'cell-dept-name' },
+          notice?.is5OrMore ? '5인 이상 가산율 기준 연동' : '5인 미만(1.0배) 기준 연동'
+        )
+      );
+      return;
+    }
+
+    const res = computeClientAutoShift(
+      activeDay.date,
+      inInput?.value || '09:00',
+      outInput?.value || '18:00',
+      brkInput?.value ?? '1',
+      isFixedOrSunHoliday || Boolean(holChk?.checked)
+    );
+    if (!res.valid) {
+      previewBar.replaceChildren(h('span', { className: 'tag tag-red' }, res.error));
+      return;
+    }
+
+    const otHoursDisplay = res.autoHoliday ? res.holidayGt8Hours : res.overtimeHours;
+    previewBar.replaceChildren(
+      h(
+        'div',
+        { className: 'auto-check-group' },
+        h(
+          'span',
+          { className: res.autoOvertime ? 'auto-check-pill is-checked-ot' : 'auto-check-pill' },
+          `${res.autoOvertime ? '☑' : '☐'} 8시간 초과 연장근로${res.autoOvertime ? ` (${otHoursDisplay}h)` : ''}`
+        ),
+        h(
+          'span',
+          { className: res.autoNight ? 'auto-check-pill is-checked-night' : 'auto-check-pill' },
+          `${res.autoNight ? '☑' : '☐'} 야간근로 22:00~07:00${res.autoNight ? ` (${res.nightHours}h)` : ''}`
+        ),
+        h(
+          'span',
+          { className: res.autoHoliday ? 'auto-check-pill is-checked-hol' : 'auto-check-pill' },
+          `${res.autoHoliday ? '☑' : '☐'} 휴일근로${res.autoHoliday ? ` (${res.holidayReason} · ${res.holidayHours}h)` : ''}`
+        )
+      ),
+      h(
+        'div',
+        { className: 'cell-dept-name' },
+        `실근로 총 ${res.netWorked}h (휴게 ${res.breakHours}h 공제) · ${notice?.is5OrMore ? '5인 이상 50%/100% 가산 자동반영' : '5인 미만 1.0배 자동반영'}`
+      )
+    );
+  };
+
+  let dayEditor = null;
+  if (selectedRow.workerCategory === 'BIZ_33') {
+    dayEditor = h(
+      'div',
+      { className: 'att-day-editor' },
+      '3.3% 사업소득 계약자는 출퇴근 시간 통제 대상이 아니며 위탁 결과물 기준으로 정산됩니다.'
+    );
+  } else {
+    const formEl = h(
+      'form',
+      {
+        className: 'att-day-editor',
+        onInput: (e) => refreshAutoPreview(e.currentTarget),
+        onChange: (e) => refreshAutoPreview(e.currentTarget),
+        onSubmit: (e) => {
+          e.preventDefault();
+          const f = e.currentTarget;
+          const modeVal = f.querySelector('[name="dayMode"]').value;
+          const memoVal = f.querySelector('[name="dayMemo"]').value;
+          if (modeVal === 'AUTO') {
+            const rawBreakStr = String(f.querySelector('[name="dayBreak"]').value ?? '').trim();
+            runOpsAction(
+              {
+                actionType: 'SET_DAILY_ATTENDANCE',
+                empCode: selectedRow.empCode,
+                date: activeDay.date,
+                workStatus: 'AUTO',
+                autoClassify: true,
+                clockIn: f.querySelector('[name="dayIn"]').value,
+                clockOut: f.querySelector('[name="dayOut"]').value,
+                breakHours: rawBreakStr === '' ? undefined : Number(rawBreakStr),
+                customHoliday:
+                  isFixedOrSunHoliday || Boolean(f.querySelector('[name="dayCustomHol"]')?.checked),
+                memo: memoVal,
+              },
+              f.querySelector('button[type="submit"]')
+            );
+          } else {
+            runOpsAction(
+              {
+                actionType: 'SET_DAILY_ATTENDANCE',
+                empCode: selectedRow.empCode,
+                date: activeDay.date,
+                workStatus: modeVal,
+                memo: memoVal,
+              },
+              f.querySelector('button[type="submit"]')
+            );
+          }
+        },
+      },
+      h(
+        'div',
+        { className: 'ops-section-head' },
+        h(
+          'div',
+          { className: 'step-pill-group' },
+          h(
+            'strong',
+            { className: 'ops-section-title' },
+            `선택일 근무시간 설정: ${activeDay.date} (${activeDay.weekday})`
+          ),
+          statutoryName
+            ? h('span', { className: 'att-day-holiday-tag' }, `법정공휴일: ${statutoryName}`)
+            : activeDay.weekdayIdx === 0
+              ? h('span', { className: 'att-day-holiday-tag' }, '주휴일(일요일)')
+              : null
+        ),
+        h(
+          'div',
+          { className: 'step-pill-group' },
+          h(
+            'label',
+            { className: 'check-label' },
+            h('input', {
+              type: 'checkbox',
+              name: 'dayCustomHol',
+              checked: defaultCustomHol,
+              disabled: isFixedOrSunHoliday,
+            }),
+            h(
+              'span',
+              {},
+              isFixedOrSunHoliday
+                ? `법정공휴일·주휴일 자동체크됨 (${statutoryName || '일요일'})`
+                : '공휴일·약정휴일 출근으로 체크'
+            )
+          )
+        )
+      ),
+      previewBar,
+      h(
+        'div',
+        { className: 'ops-inline-form' },
+        h(
+          'div',
+          { className: 'field' },
+          h('label', { for: 'att-day-mode' }, '근무 구분'),
+          h(
+            'select',
+            { id: 'att-day-mode', name: 'dayMode' },
+            [
+              ['AUTO', '출근~퇴근 자동판정 (연장·야간·휴일 자동체크)'],
+              ['LEAVE', '연차휴가 (종일 8h)'],
+              ['HALF_LEAVE', '반차휴가 (4h)'],
+              ['OFF', '휴무 (미출근)'],
+            ].map(([val, lbl]) => h('option', { value: val, selected: initialMode === val }, lbl))
+          )
+        ),
+        h(
+          'div',
+          { className: 'field' },
+          h('label', { for: 'att-day-in' }, '출근 시각'),
+          h('input', {
+            id: 'att-day-in',
+            name: 'dayIn',
+            type: 'time',
+            step: '600',
+            value: defaultIn,
+          })
+        ),
+        h(
+          'div',
+          { className: 'field' },
+          h('label', { for: 'att-day-out' }, '퇴근 시각 (익일 새벽 가능)'),
+          h('input', {
+            id: 'att-day-out',
+            name: 'dayOut',
+            type: 'time',
+            step: '600',
+            value: defaultOut,
+          })
+        ),
+        h(
+          'div',
+          { className: 'field' },
+          h('label', { for: 'att-day-break' }, '휴게시간(h)'),
+          h('input', {
+            id: 'att-day-break',
+            name: 'dayBreak',
+            type: 'number',
+            min: '0',
+            max: '6',
+            step: '0.5',
+            value: String(defaultBreak),
+          })
+        ),
+        h(
+          'div',
+          { className: 'field' },
+          h('label', { for: 'att-day-memo' }, '메모'),
+          h('input', {
+            id: 'att-day-memo',
+            name: 'dayMemo',
+            type: 'text',
+            placeholder: '예: 야간 특근, 성탄절 출근',
+            value: activeDay.memo || '',
+          })
+        ),
+        h(
+          'div',
+          { className: 'field' },
+          h(
+            'button',
+            { type: 'submit', className: 'btn btn-primary full-width' },
+            '자동체크 저장 · 급여명세서 반영'
+          )
+        )
+      )
+    );
+    refreshAutoPreview(formEl);
+    dayEditor = formEl;
+  }
+
+  bodyEl.replaceChildren(
+    modalTopToolbar,
+    h(
+      'div',
+      { className: 'att-calendar-scroll' },
+      h(
+        'div',
+        {
+          className: 'att-calendar-grid',
+          role: 'group',
+          'aria-label': `${selectedRow.displayName} ${ym} 월간 근태 캘린더`,
+        },
+        ...['일', '월', '화', '수', '목', '금', '토'].map((wName) =>
+          h('div', { className: 'att-cal-weekday' }, wName)
+        ),
+        ...blankCells,
+        ...dayCells
+      )
+    ),
+    dayEditor
+  );
+}
+
 function renderOpsAttendanceTab(snapshot) {
   const wrap = document.getElementById('ops-attendance-container');
   if (!wrap || !snapshot.operationsSuite) return;
@@ -2812,6 +3811,7 @@ function renderOpsAttendanceTab(snapshot) {
   const visibleBoard = applyStarFilter(att.board);
   const selectedCode = resolveSelectedWorkerCode(att.board);
   const selectedRow = att.board.find((r) => r.empCode === selectedCode) || att.board[0] || null;
+  const notice = snapshot.monthlyStartNotice || null;
 
   const changeMonth = (nextYm, triggerEl) => {
     if (!nextYm) return;
@@ -2848,7 +3848,14 @@ function renderOpsAttendanceTab(snapshot) {
         onClick: (e) => changeMonth(shiftYearMonth(ym, 1), e.currentTarget),
       },
       '▶'
-    )
+    ),
+    notice
+      ? h(
+          'span',
+          { className: notice.hasChanges ? 'tag tag-amber' : 'tag tag-blue' },
+          notice.hasChanges ? `★ ${notice.monthStartBadgeText}` : notice.scaleBadge
+        )
+      : null
   );
 
   const section = h(
@@ -2860,7 +3867,7 @@ function renderOpsAttendanceTab(snapshot) {
       h(
         'div',
         { className: 'step-pill-group' },
-        h('h3', { className: 'ops-section-title' }, '출퇴근 · 근로시간 현황'),
+        h('h3', { className: 'ops-section-title' }, '출퇴근 · 근로시간 현황 (직원 클릭 시 월간 캘린더 팝업)'),
         monthControls
       ),
       renderRosterSyncControls(att.board, renderOpsAttendanceTab)
@@ -2883,7 +3890,7 @@ function renderOpsAttendanceTab(snapshot) {
             h('th', { scope: 'col', className: 'num' }, '정상 · 연장 · 야간 · 휴일'),
             h('th', { scope: 'col' }, '주간 최대'),
             h('th', { scope: 'col' }, '상태'),
-            h('th', { scope: 'col' }, '월간 캘린더')
+            h('th', { scope: 'col' }, '월간 캘린더 팝업')
           )
         ),
         h(
@@ -2914,9 +3921,8 @@ function renderOpsAttendanceTab(snapshot) {
                   'tr',
                   {
                     className: isSelected ? 'emp-select-row is-selected-worker' : 'emp-select-row',
-                    onClick: () => {
-                      appState.selectedEmpCode = row.empCode;
-                      renderOpsAttendanceTab(snapshot);
+                    onClick: (e) => {
+                      openAttCalendarModal(row.empCode, e.currentTarget);
                     },
                   },
                   renderMasterMarkTd(row),
@@ -2978,7 +3984,7 @@ function renderOpsAttendanceTab(snapshot) {
                   ),
                   h(
                     'td',
-                    { 'data-label': '월간 캘린더', onClick: (e) => e.stopPropagation() },
+                    { 'data-label': '월간 캘린더 팝업', onClick: (e) => e.stopPropagation() },
                     h(
                       'div',
                       { className: 'step-pill-group' },
@@ -2986,14 +3992,11 @@ function renderOpsAttendanceTab(snapshot) {
                         'button',
                         {
                           type: 'button',
-                          className: isSelected ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm',
-                          'aria-pressed': String(Boolean(isSelected)),
-                          onClick: () => {
-                            appState.selectedEmpCode = row.empCode;
-                            renderOpsAttendanceTab(snapshot);
-                          },
+                          className: 'btn btn-primary btn-sm',
+                          dataset: { attCalBtn: row.empCode },
+                          onClick: (e) => openAttCalendarModal(row.empCode, e.currentTarget),
                         },
-                        isSelected ? '캘린더 열림' : '캘린더 보기'
+                        '월간 캘린더 팝업'
                       ),
                       h(
                         'button',
@@ -3013,274 +4016,7 @@ function renderOpsAttendanceTab(snapshot) {
     )
   );
 
-  // 선택된 직원의 월간 근태 캘린더 + 일별 시간 기록/수정 패널
-  let calendarCard = null;
-  if (selectedRow && selectedRow.monthlyCalendar) {
-    const cal = selectedRow.monthlyCalendar;
-    if (!appState.selectedAttDate || !appState.selectedAttDate.startsWith(`${cal.yearMonth}-`)) {
-      appState.selectedAttDate = cal.days[0]?.date || `${cal.yearMonth}-01`;
-    }
-    const activeDay =
-      cal.days.find((d) => d.date === appState.selectedAttDate) || cal.days[0];
-
-    const blankCells = Array.from({ length: cal.firstWeekdayIdx }, () =>
-      h('div', { className: 'att-cal-empty', 'aria-hidden': 'true' })
-    );
-
-    const dayCells = cal.days.map((d) => {
-      const classes = ['att-day-cell'];
-      if (d.workStatus === 'OFF') classes.push('is-off');
-      if (d.overtimeHours > 0 || d.workStatus === 'HOLIDAY_WORK') classes.push('is-overtime');
-      if (d.workStatus === 'LEAVE' || d.workStatus === 'HALF_LEAVE') classes.push('is-leave');
-      if (activeDay && activeDay.date === d.date) classes.push('is-active-day');
-
-      const badgeClass =
-        d.workStatus === 'LEAVE' || d.workStatus === 'HALF_LEAVE'
-          ? 'tag tag-blue'
-          : d.workStatus === 'HOLIDAY_WORK' || d.overtimeHours > 0
-            ? 'tag tag-amber'
-            : d.workStatus === 'WORK'
-              ? 'tag tag-green'
-              : 'tag tag-gray';
-
-      const totalWorked = Number(
-        ((d.normalHours || 0) + (d.overtimeHours || 0) + (d.holidayHours || 0)).toFixed(1)
-      );
-
-      return h(
-        'button',
-        {
-          type: 'button',
-          className: classes.join(' '),
-          'aria-pressed': String(Boolean(activeDay && activeDay.date === d.date)),
-          'aria-label': `${d.date}(${d.weekday}) ${d.statusLabel} ${totalWorked}시간`,
-          onClick: () => {
-            appState.selectedAttDate = d.date;
-            renderOpsAttendanceTab(snapshot);
-          },
-        },
-        h(
-          'div',
-          { className: 'att-day-top' },
-          h('span', { className: 'att-day-num' }, `${d.day}일 (${d.weekday})`),
-          h('span', { className: badgeClass }, d.statusLabel)
-        ),
-        h(
-          'div',
-          { className: 'att-day-hours' },
-          d.workStatus === 'OFF'
-            ? '휴무'
-            : d.workStatus === 'HOLIDAY_WORK'
-              ? `휴일 ${d.holidayHours}h`
-              : `정상 ${d.normalHours}h${d.overtimeHours > 0 ? ` + 연장 ${d.overtimeHours}h` : ''}`
-        ),
-        h(
-          'div',
-          { className: 'att-day-time' },
-          d.clockIn && d.clockIn !== '-' ? `${d.clockIn} ~ ${d.clockOut}` : d.memo || '-'
-        )
-      );
-    });
-
-    const dayEditor =
-      selectedRow.workerCategory === 'BIZ_33'
-        ? h(
-            'div',
-            { className: 'att-day-editor' },
-            '3.3% 사업소득 계약자는 출퇴근 시간 지정 대상이 아니며 용역 결과물 기준으로 정산됩니다.'
-          )
-        : h(
-            'form',
-            {
-              className: 'ops-inline-form att-day-editor',
-              onSubmit: (e) => {
-                e.preventDefault();
-                const f = e.currentTarget;
-                runOpsAction(
-                  {
-                    actionType: 'SET_DAILY_ATTENDANCE',
-                    empCode: selectedRow.empCode,
-                    date: activeDay.date,
-                    workStatus: f.querySelector('[name="dayStatus"]').value,
-                    clockIn: f.querySelector('[name="dayIn"]').value,
-                    clockOut: f.querySelector('[name="dayOut"]').value,
-                    normalHours: Number(f.querySelector('[name="dayNorm"]').value),
-                    overtimeHours: Number(f.querySelector('[name="dayOt"]').value),
-                    nightHours: Number(f.querySelector('[name="dayNight"]').value),
-                    holidayHours: Number(f.querySelector('[name="dayHol"]').value),
-                    memo: f.querySelector('[name="dayMemo"]').value,
-                  },
-                  f.querySelector('button[type="submit"]')
-                );
-              },
-            },
-            h(
-              'div',
-              { className: 'field' },
-              h('label', { for: 'att-day-status' }, `${activeDay.date}(${activeDay.weekday}) 구분`),
-              h(
-                'select',
-                { id: 'att-day-status', name: 'dayStatus' },
-                [
-                  ['WORK', '정상/연장근무'],
-                  ['HOLIDAY_WORK', '휴일근무'],
-                  ['LEAVE', '연차휴가'],
-                  ['HALF_LEAVE', '반차휴가'],
-                  ['OFF', '휴무'],
-                ].map(([val, lbl]) =>
-                  h('option', { value: val, selected: activeDay.workStatus === val }, lbl)
-                )
-              )
-            ),
-            h(
-              'div',
-              { className: 'field' },
-              h('label', { for: 'att-day-in' }, '출근'),
-              h('input', {
-                id: 'att-day-in',
-                name: 'dayIn',
-                type: 'text',
-                value: activeDay.clockIn === '-' ? '09:00' : activeDay.clockIn,
-              })
-            ),
-            h(
-              'div',
-              { className: 'field' },
-              h('label', { for: 'att-day-out' }, '퇴근'),
-              h('input', {
-                id: 'att-day-out',
-                name: 'dayOut',
-                type: 'text',
-                value: activeDay.clockOut === '-' ? '18:00' : activeDay.clockOut,
-              })
-            ),
-            h(
-              'div',
-              { className: 'field' },
-              h('label', { for: 'att-day-norm' }, '정상(h)'),
-              h('input', {
-                id: 'att-day-norm',
-                name: 'dayNorm',
-                type: 'number',
-                min: '0',
-                max: '12',
-                step: '0.5',
-                value: String(activeDay.normalHours ?? 8),
-              })
-            ),
-            h(
-              'div',
-              { className: 'field' },
-              h('label', { for: 'att-day-ot' }, '연장(h)'),
-              h('input', {
-                id: 'att-day-ot',
-                name: 'dayOt',
-                type: 'number',
-                min: '0',
-                max: '12',
-                step: '0.5',
-                value: String(activeDay.overtimeHours ?? 0),
-              })
-            ),
-            h(
-              'div',
-              { className: 'field' },
-              h('label', { for: 'att-day-night' }, '야간(h)'),
-              h('input', {
-                id: 'att-day-night',
-                name: 'dayNight',
-                type: 'number',
-                min: '0',
-                max: '8',
-                step: '0.5',
-                value: String(activeDay.nightHours ?? 0),
-              })
-            ),
-            h(
-              'div',
-              { className: 'field' },
-              h('label', { for: 'att-day-hol' }, '휴일(h)'),
-              h('input', {
-                id: 'att-day-hol',
-                name: 'dayHol',
-                type: 'number',
-                min: '0',
-                max: '12',
-                step: '0.5',
-                value: String(activeDay.holidayHours ?? 0),
-              })
-            ),
-            h(
-              'div',
-              { className: 'field' },
-              h('label', { for: 'att-day-memo' }, '메모'),
-              h('input', {
-                id: 'att-day-memo',
-                name: 'dayMemo',
-                type: 'text',
-                placeholder: '비고',
-                value: activeDay.memo || '',
-              })
-            ),
-            h(
-              'div',
-              { className: 'field' },
-              h(
-                'button',
-                { type: 'submit', className: 'btn btn-primary full-width' },
-                '저장 · 급여명세서 반영'
-              )
-            )
-          );
-
-    calendarCard = h(
-      'div',
-      { className: 'att-calendar-card', id: 'att-monthly-calendar-panel' },
-      h(
-        'div',
-        { className: 'ops-section-head' },
-        h(
-          'div',
-          { className: 'step-pill-group' },
-          h(
-            'h3',
-            { className: 'ops-section-title' },
-            `No.${selectedRow.rowNo} ${selectedRow.empCode} ${selectedRow.displayName} — ${cal.yearMonth} 월간 근태 캘린더`
-          ),
-          h(
-            'span',
-            { className: 'tag tag-blue' },
-            `출근 ${cal.workDaysCount}일 · 정상 ${cal.totalNormalHours}h · 연장 ${cal.totalOvertimeHours}h · 휴일 ${cal.totalHolidayHours}h`
-          )
-        ),
-        h(
-          'button',
-          {
-            type: 'button',
-            className: 'btn btn-secondary btn-sm',
-            onClick: (e) => openPayslipByEmpCode(selectedRow.empCode, e.currentTarget),
-          },
-          '급여 명세서에서 일별 시간 확인'
-        )
-      ),
-      h(
-        'div',
-        { className: 'att-calendar-scroll' },
-        h(
-          'div',
-          { className: 'att-calendar-grid', role: 'group', 'aria-label': `${selectedRow.displayName} ${cal.yearMonth} 근태 캘린더` },
-          ...['일', '월', '화', '수', '목', '금', '토'].map((wName) =>
-            h('div', { className: 'att-cal-weekday' }, wName)
-          ),
-          ...blankCells,
-          ...dayCells
-        )
-      ),
-      dayEditor
-    );
-  }
-
-  wrap.replaceChildren(...[section, calendarCard].filter(Boolean));
+  wrap.replaceChildren(section);
 }
 
 function renderOpsLeaveTab(snapshot) {
@@ -4533,6 +5269,7 @@ function updateSnapshot(snapshot) {
   if (gate) gate.hidden = true;
   syncSimFormControls(snapshot);
   renderHeadcountKpis(snapshot);
+  renderMonthlyChangeBannerAndScaleBox(snapshot);
   renderOpsHomeTab(snapshot);
   renderOpsRecruitTab(snapshot);
   renderOpsOrgTab(snapshot);
@@ -4548,6 +5285,10 @@ function updateSnapshot(snapshot) {
   renderLifecycleTab(snapshot);
   renderPayrollTab(snapshot);
   renderAlumniTab(snapshot);
+  const attModal = document.getElementById('att-calendar-modal');
+  if (attModal && !attModal.hidden) {
+    renderAttCalendarModalContent(snapshot);
+  }
 }
 
 function setMobileSidebarOpen(isOpen) {
@@ -4688,6 +5429,10 @@ function switchMajorGroup(groupKey, focusSubtab = false) {
 function switchTab(tabKey, focusTabBtn = false) {
   if (appState.popupModalTabKey) {
     closeModuleDetailPopup(false);
+  }
+  const attModal = document.getElementById('att-calendar-modal');
+  if (attModal && !attModal.hidden) {
+    closeAttCalendarModal(false);
   }
   setMobileSidebarOpen(false);
   syncActiveNavigationState(tabKey, focusTabBtn);
@@ -5056,6 +5801,17 @@ function bindEvents() {
   document.getElementById('doc-modal')?.addEventListener('click', (e) => {
     if (e.target.id === 'doc-modal') closeModal();
   });
+  document.getElementById('att-cal-close-btn')?.addEventListener('click', () => {
+    closeAttCalendarModal(true);
+  });
+  document.getElementById('att-cal-payslip-btn')?.addEventListener('click', (e) => {
+    if (appState.selectedEmpCode) {
+      openPayslipByEmpCode(appState.selectedEmpCode, e.currentTarget);
+    }
+  });
+  document.getElementById('att-calendar-modal')?.addEventListener('click', (e) => {
+    if (e.target.id === 'att-calendar-modal') closeAttCalendarModal(true);
+  });
   document.getElementById('modal-copy-btn')?.addEventListener('click', async () => {
     const text = document.getElementById('modal-body')?.textContent || '';
     const fb = document.getElementById('copy-feedback');
@@ -5271,14 +6027,17 @@ function bindEvents() {
 
   document.addEventListener('keydown', (e) => {
     const docModal = document.getElementById('doc-modal');
+    const attModal = document.getElementById('att-calendar-modal');
     const modPopup = document.getElementById('module-popup-modal');
     const sidebar = document.getElementById('left-sidebar');
     const activeModal =
       docModal && !docModal.hidden
         ? docModal
-        : modPopup && !modPopup.hidden
-          ? modPopup
-          : null;
+        : attModal && !attModal.hidden
+          ? attModal
+          : modPopup && !modPopup.hidden
+            ? modPopup
+            : null;
     if (!activeModal) {
       if (e.key === 'Escape' && sidebar?.getAttribute('data-sidebar-open') === 'true') {
         e.preventDefault();
@@ -5291,6 +6050,7 @@ function bindEvents() {
     if (e.key === 'Escape') {
       e.preventDefault();
       if (activeModal === docModal) closeModal();
+      else if (activeModal === attModal) closeAttCalendarModal(true);
       else closeModuleDetailPopup(true);
       return;
     }

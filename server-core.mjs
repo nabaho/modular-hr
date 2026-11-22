@@ -4,29 +4,29 @@
  * - 엄격한 입력 스키마 검증(Boolean/Number/Enum/실재 날짜 검증), CSP 헤더, 64KB 413 응답 보장
  */
 
-import http from './engine/virtual-http-shim.mjs?v=7df477f6fc75';
-import crypto from './engine/browser-crypto-shim.mjs?v=7df477f6fc75';
+import http from './engine/virtual-http-shim.mjs?v=d45cbd6fd2ba';
+import crypto from './engine/browser-crypto-shim.mjs?v=d45cbd6fd2ba';
 // 정적 자산 서빙은 GitHub Pages CDN이 담당하며 server-core.mjs는 /api/* 전용으로 구동됨
 
-import { INDUSTRIES, LAW_BASELINE } from './engine/labor-rules.mjs?v=7df477f6fc75';
+import { INDUSTRIES, LAW_BASELINE } from './engine/labor-rules.mjs?v=d45cbd6fd2ba';
 import {
   VALID_STATUTORY_TASK_IDS,
   assertValidIsoDate,
   provisionWorkplaceSystem,
-} from './engine/compliance-provisioner.mjs?v=7df477f6fc75';
+} from './engine/compliance-provisioner.mjs?v=d45cbd6fd2ba';
 import {
   VALID_RESIGN_REASONS,
   computeEmployeePayrollLine,
   computeOffboardingSettlement,
   validateJobPosting,
-} from './engine/lifecycle-payroll.mjs?v=7df477f6fc75';
-import { VALID_DOC_TEMPLATES, generateStatutoryDocument } from './engine/document-generator.mjs?v=7df477f6fc75';
-import { buildWorkerBindingKey, createMobileHub } from './engine/mobile-auth-realtime.mjs?v=7df477f6fc75';
+} from './engine/lifecycle-payroll.mjs?v=d45cbd6fd2ba';
+import { VALID_DOC_TEMPLATES, generateStatutoryDocument } from './engine/document-generator.mjs?v=d45cbd6fd2ba';
+import { buildWorkerBindingKey, createMobileHub } from './engine/mobile-auth-realtime.mjs?v=d45cbd6fd2ba';
 import {
   SAMPLE_INGESTION_BUNDLES,
   listSampleIngestionBundles,
   stageMultiDocumentBundle,
-} from './engine/document-ingestion.mjs?v=7df477f6fc75';
+} from './engine/document-ingestion.mjs?v=d45cbd6fd2ba';
 import {
   buildOffboardedWorkerRecord,
   createInitialOffboardedWorkers,
@@ -37,12 +37,12 @@ import {
   refreshOffboardedLifecycle,
   summarizeOffboardedRegistry,
   updateOffboardedChecklist,
-} from './engine/offboarding-registry.mjs?v=7df477f6fc75';
+} from './engine/offboarding-registry.mjs?v=d45cbd6fd2ba';
 import {
   createOperationsSuiteManager,
   DEFAULT_POLICY_SETTINGS,
   normalizePolicySettings,
-} from './engine/hr-operations-suite.mjs?v=7df477f6fc75';
+} from './engine/hr-operations-suite.mjs?v=d45cbd6fd2ba';
 
 const PUBLIC_DIR = '/';
 const MAX_BODY_BYTES = 64 * 1024;
@@ -564,6 +564,20 @@ export function createAppServer(options = {}) {
     ],
   };
 
+  const monthlyChangeState = {
+    initialized: false,
+    baselineYearMonth: '',
+    initialIs5OrMore: true,
+    initialLsaCount: 0,
+    initialNetPay: 0,
+    initialGrossPay: 0,
+    initialPayLinesHash: '',
+    initialPolicySig: '',
+    ackSignature: '',
+    checkedByAdmin: false,
+    checkedAt: null,
+  };
+
   if (options.statePersistence && typeof options.statePersistence.load === 'function') {
     const loaded = options.statePersistence.load();
     if (loaded && typeof loaded === 'object') {
@@ -576,6 +590,12 @@ export function createAppServer(options = {}) {
       }
       if (Array.isArray(loaded.workers)) state.workers = loaded.workers;
       if (Array.isArray(loaded.offboardedWorkers)) state.offboardedWorkers = loaded.offboardedWorkers;
+      if (loaded.monthlyChangeState && typeof loaded.monthlyChangeState === 'object') {
+        Object.assign(monthlyChangeState, loaded.monthlyChangeState);
+      }
+      if (loaded.opsPersistence && typeof loaded.opsPersistence === 'object') {
+        opsSuite.restorePersistenceState(loaded.opsPersistence);
+      }
     }
   }
 
@@ -586,6 +606,8 @@ export function createAppServer(options = {}) {
       company: state.company,
       workers: state.workers,
       offboardedWorkers: state.offboardedWorkers,
+      monthlyChangeState,
+      opsPersistence: opsSuite.exportPersistenceState(),
     });
   }
 
@@ -800,6 +822,116 @@ export function createAppServer(options = {}) {
       compliance,
       payrollLines: enrichedPayrollLines,
       payrollSummary,
+      monthlyStartNotice: (() => {
+        const policySig = JSON.stringify(activePolicy);
+        const perWorkerPayHash = crypto
+          .createHash('sha256')
+          .update(
+            JSON.stringify(
+              payrollLines.map((l) => ({
+                personId: l.personId || null,
+                empCode: l.empCode,
+                basePayApplied: l.basePayApplied,
+                fixedAllowanceApplied: l.fixedAllowanceApplied,
+                mealAllowanceApplied: l.mealAllowanceApplied,
+                nonTaxableMealApplied: l.nonTaxableMealApplied,
+                taxableMealExcess: l.taxableMealExcess,
+                overtimeNightHolidayPay: l.overtimeNightHolidayPay,
+                unusedLeavePay: l.unusedLeavePay,
+                evalBonusPay: l.evalBonusPay,
+                grossPay: l.grossPay,
+                disciplinaryCutApplied: l.disciplinaryCutApplied,
+                socialInsuranceTotal: l.socialInsuranceTotal,
+                incomeTaxTotal: l.incomeTaxTotal,
+                netPay: l.netPay,
+              }))
+            )
+          )
+          .digest('hex');
+        const yearMonth = String(state.company.referenceDate || '2026-11-15').slice(0, 7);
+        const monthStartDate = `${yearMonth}-01`;
+        const is5OrMore = Boolean(compliance.headcounts.is5OrMore);
+        const lsaRegularCount = Number(compliance.headcounts.lsaRegularCount || 0);
+
+        if (!monthlyChangeState.initialized) {
+          monthlyChangeState.initialized = true;
+          monthlyChangeState.baselineYearMonth = yearMonth;
+          monthlyChangeState.initialIs5OrMore = is5OrMore;
+          monthlyChangeState.initialLsaCount = lsaRegularCount;
+          monthlyChangeState.initialNetPay = payrollSummary.totalNet;
+          monthlyChangeState.initialGrossPay = payrollSummary.totalGross;
+          monthlyChangeState.initialPayLinesHash = perWorkerPayHash;
+          monthlyChangeState.initialPolicySig = policySig;
+        }
+
+        const scaleTransitioned = is5OrMore !== monthlyChangeState.initialIs5OrMore;
+        const payrollChanged =
+          payrollSummary.totalGross !== monthlyChangeState.initialGrossPay ||
+          payrollSummary.totalNet !== monthlyChangeState.initialNetPay ||
+          perWorkerPayHash !== monthlyChangeState.initialPayLinesHash;
+        const policyChanged = policySig !== monthlyChangeState.initialPolicySig;
+
+        const changeReasons = [];
+        if (scaleTransitioned) {
+          changeReasons.push(
+            is5OrMore
+              ? `사업장 규모 전환: 5인 미만 → 5인 이상 (상시 ${lsaRegularCount}명 · 연장/야간/휴일 50%~100% 가산 및 법정연차 적용)`
+              : `사업장 규모 전환: 5인 이상 → 5인 미만 (상시 ${lsaRegularCount}명 · 연장/야간/휴일 1.0배 정산 · 법정연차 제외)`
+          );
+        } else if (lsaRegularCount !== monthlyChangeState.initialLsaCount) {
+          changeReasons.push(
+            `상시 근로자 수 변동: ${monthlyChangeState.initialLsaCount}명 → ${lsaRegularCount}명 (${is5OrMore ? '5인 이상 유지' : '5인 미만 유지'})`
+          );
+        }
+        if (payrollChanged) {
+          const deltaGross = payrollSummary.totalGross - monthlyChangeState.initialGrossPay;
+          const sign = deltaGross >= 0 ? '+' : '';
+          changeReasons.push(
+            deltaGross === 0
+              ? `당월 개인별 급여·수당 내역 변동: 지급총액 ${payrollSummary.totalGross.toLocaleString('ko-KR')}원 · 실지급 ${payrollSummary.totalNet.toLocaleString('ko-KR')}원`
+              : `당월 급여총액 변동: 지급총액 ${payrollSummary.totalGross.toLocaleString('ko-KR')}원 (${sign}${deltaGross.toLocaleString('ko-KR')}원) · 실지급 ${payrollSummary.totalNet.toLocaleString('ko-KR')}원`
+          );
+        }
+        if (policyChanged) {
+          changeReasons.push(
+            `전사 급여·연차 환경설정 변경 (${activePolicy.leaveAccrualBasis === 'FISCAL_YEAR' ? '회계연도 기준' : '입사일 기준'} · ${activePolicy.payDayLabel})`
+          );
+        }
+        if (yearMonth !== monthlyChangeState.baselineYearMonth) {
+          changeReasons.push(`기준 귀속월 변경: ${monthlyChangeState.baselineYearMonth} → ${yearMonth}`);
+        }
+
+        const changeSignature = `${yearMonth}|${is5OrMore}|${lsaRegularCount}|${payrollSummary.totalGross}|${payrollSummary.totalNet}|${perWorkerPayHash}|${policySig}`;
+        const hasChanges = changeReasons.length > 0;
+        const isNoticeChecked =
+          hasChanges &&
+          monthlyChangeState.checkedByAdmin === true &&
+          monthlyChangeState.ackSignature === changeSignature;
+
+        return {
+          yearMonth,
+          monthStartDate,
+          is5OrMore,
+          lsaRegularCount,
+          scaleBadge: is5OrMore ? '5인 이상 사업장' : '5인 미만 사업장',
+          scaleRuleSummary: is5OrMore
+            ? '연장·야간·휴일 가산수당(50%·100%) 및 법정연차·유급공휴일 적용'
+            : '연장·야간·휴일 가산수당 미적용(1.0배 정산) · 법정연차 의무 제외',
+          scaleTransitioned,
+          payrollChanged,
+          policyChanged,
+          hasChanges,
+          checked: isNoticeChecked,
+          checkedAt: isNoticeChecked ? monthlyChangeState.checkedAt : null,
+          signature: changeSignature,
+          changeReasons,
+          monthStartBadgeText: scaleTransitioned
+            ? `월초(${monthStartDate}) 규모변경: ${is5OrMore ? '5인 이상 전환' : '5인 미만 전환'}`
+            : hasChanges
+              ? `월초(${monthStartDate}) 급여·기준 변경`
+              : `월초(${monthStartDate}) ${is5OrMore ? '5인 이상' : '5인 미만'} 기준`,
+        };
+      })(),
       auditLogs: state.auditLogs,
     };
   }
@@ -1957,6 +2089,7 @@ export function createAppServer(options = {}) {
             empCode,
             '인사원장 퇴사 전환'
           );
+          persistValidatedState();
 
           appendAudit(
             '퇴사원장전환',
@@ -2000,6 +2133,7 @@ export function createAppServer(options = {}) {
             state.company.referenceDate
           );
           state.offboardedWorkers[idx] = updated;
+          persistValidatedState();
           appendAudit(
             '퇴사사후관리',
             `[${empCode} ${updated.displayName}] 금품청산(${updated.settlementStatus}) · 건보상실(${updated.nhisLossFilingStatus}) · 고보이직(${updated.eiLossAndCertStatus}) 상태 갱신`
@@ -2048,6 +2182,7 @@ export function createAppServer(options = {}) {
             origEmpCode,
             origDisplayName,
           });
+          persistValidatedState();
           appendAudit(
             '개인정보파기',
             '퇴사 3년 법정보존 만료 건(1건) 개인정보보호법 제21조 비가역 비식별 파기 및 연관 감사·결재·알림 이력 일괄 삭제 완료'
@@ -2064,7 +2199,56 @@ export function createAppServer(options = {}) {
         }
 
         if (pathname === '/api/ops/action') {
+          if (body && body.actionType === 'ACK_MONTHLY_CHANGE_NOTICE') {
+            assertOptionalBoolean(body, 'checked');
+            const curSnap = buildSnapshot();
+            const curNotice = curSnap.monthlyStartNotice;
+            const nextChecked =
+              body.checked !== undefined ? body.checked : !curNotice.checked;
+            if (nextChecked) {
+              if (typeof body.expectedSignature !== 'string' || !body.expectedSignature.trim()) {
+                throw badRequest('월초 변경 확인 체크 시 확인 대상 서명(expectedSignature)이 필요합니다.');
+              }
+              if (body.expectedSignature !== curNotice.signature) {
+                const conflict = new Error(
+                  '확인하려는 사이 사업장 규모 또는 당월 급여 내역이 갱신되었습니다. 최신 변경 내역을 확인한 뒤 다시 체크해 주세요.'
+                );
+                conflict.statusCode = 409;
+                throw conflict;
+              }
+            }
+            const prevMonthlyAck = { ...monthlyChangeState };
+            monthlyChangeState.checkedByAdmin = nextChecked;
+            monthlyChangeState.ackSignature = nextChecked ? curNotice.signature : '';
+            monthlyChangeState.checkedAt = nextChecked
+              ? serverClockToday()
+              : null;
+            try {
+              persistValidatedState();
+            } catch (saveErr) {
+              Object.assign(monthlyChangeState, prevMonthlyAck);
+              throw saveErr;
+            }
+            appendAudit(
+              '월초변경확인',
+              `[${curNotice.monthStartDate}] ${curNotice.scaleBadge} 급여·기준 변경 확인 체크 ${nextChecked ? '완료' : '해제'}`
+            );
+            sendJson(res, 200, {
+              result: {
+                message: nextChecked
+                  ? `${curNotice.monthStartDate} 월초 급여·규모(${curNotice.scaleBadge}) 변경 확인 체크가 완료되었습니다.`
+                  : '월초 변경 확인 체크가 해제되었습니다.',
+              },
+              snapshot: buildSnapshot(),
+            });
+            return;
+          }
+
           const preSnap = buildSnapshot();
+          const prevWorkersBackup = structuredClone(state.workers);
+          const prevCompanyBackup = structuredClone(state.company);
+          const prevAuditBackup = structuredClone(state.auditLogs);
+          const prevOpsBackup = opsSuite.exportPersistenceState();
           const actionResult = opsSuite.applyAction(body, {
             state,
             payrollLocked: mobileHub.getPayrollCloseState().status === 'APPROVED_LOCKED',
@@ -2072,6 +2256,15 @@ export function createAppServer(options = {}) {
             tombstoneStore: purgeTombstones,
             lsaRegularCount: preSnap.compliance.headcounts.exactLsaRatio,
           });
+          try {
+            persistValidatedState();
+          } catch (saveErr) {
+            state.workers = prevWorkersBackup;
+            state.company = prevCompanyBackup;
+            state.auditLogs = prevAuditBackup;
+            opsSuite.restorePersistenceState(prevOpsBackup);
+            throw saveErr;
+          }
           mobileHub.syncWorkerAccessWithRoster(
             state.workers,
             state.offboardedWorkers,
@@ -2149,6 +2342,7 @@ export function createAppServer(options = {}) {
             target.maxWeeklyWorkedHours = Math.max(target.maxWeeklyWorkedHours || 0, minWeeklyFloor);
           }
           opsSuite.invalidateWorkerCalendar(target.empCode);
+          persistValidatedState();
 
           appendAudit(
             '급여파이프라인',
@@ -2242,6 +2436,14 @@ export function createAppServer(options = {}) {
 
       if (!fs.existsSync(resolvedFile) || !fs.statSync(resolvedFile).isFile()) {
         sendJson(res, 404, { error: 'Not Found' });
+        return;
+      }
+
+      const realPubRoot = fs.realpathSync(PUBLIC_DIR);
+      const realStaticFile = fs.realpathSync(resolvedFile);
+      const realRel = path.relative(realPubRoot, realStaticFile);
+      if (realRel === '' || realRel.startsWith('..') || path.isAbsolute(realRel)) {
+        sendJson(res, 403, { error: 'Symlink escape blocked' });
         return;
       }
 

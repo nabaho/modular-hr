@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>인사노무 관리 | MODULAR HR</title>
   <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="./styles.css?v=7df477f6fc75" />
+  <link rel="stylesheet" href="./styles.css?v=d45cbd6fd2ba" />
 </head>
 <body>
   <a href="#main-content" class="skip-link">본문 바로가기</a>
@@ -111,6 +111,7 @@
       </div>
 
       <div class="workspace-inner workspace-alerts-slot">
+        <div id="monthly-change-banner" class="monthly-change-banner" role="region" aria-label="월초 급여 및 사업장 규모 변경 표시" hidden></div>
         <div id="status-banner" class="status-banner" role="status" aria-live="polite" hidden></div>
         <div id="pc-auth-gate" class="auth-gate-card" hidden></div>
       </div>
@@ -405,8 +406,9 @@
             <div class="settings-card-grid">
               <article class="settings-group-card">
                 <div class="settings-group-head">
-                  <h3>1. 회사 · 근로자 수</h3>
+                  <h3>1. 회사 · 근로자 수 (5인 미만 / 5인 이상 자동 판정)</h3>
                 </div>
+                <div id="settings-scale-check-box" class="settings-scale-check-box" aria-live="polite"></div>
                 <div class="settings-fields-grid">
                   <div class="field">
                     <label for="input-company-name">회사명</label>
@@ -629,6 +631,30 @@
     </div>
   </div>
 
+  <!-- 근태 관리: 직원 클릭 시 월간 캘린더 전용 팝업 모달 -->
+  <div
+    id="att-calendar-modal"
+    class="modal-backdrop module-popup-backdrop"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="att-cal-modal-title"
+    hidden
+  >
+    <div class="modal-dialog modal-dialog-wide">
+      <div class="modal-header">
+        <div>
+          <h2 id="att-cal-modal-title" class="modal-title">월간 근태 캘린더</h2>
+          <p id="att-cal-modal-subtitle" class="modal-subtitle"></p>
+        </div>
+        <div class="step-pill-group">
+          <button type="button" id="att-cal-payslip-btn" class="btn btn-secondary btn-sm">급여 명세서 보기</button>
+          <button type="button" id="att-cal-close-btn" class="btn btn-secondary btn-sm" aria-label="월간 캘린더 닫기">닫기</button>
+        </div>
+      </div>
+      <div id="att-cal-modal-body" class="module-popup-body" tabindex="0"></div>
+    </div>
+  </div>
+
   <!-- 서식 및 명세서 미리보기 모달 -->
   <div
     id="doc-modal"
@@ -654,7 +680,7 @@
     </div>
   </div>
 
-  <script type="module" src="./static-api-runtime.mjs?v=7df477f6fc75"></script>
-  <script type="module" src="./app.js?v=7df477f6fc75"></script>
+  <script type="module" src="./static-api-runtime.mjs?v=d45cbd6fd2ba"></script>
+  <script type="module" src="./app.js?v=d45cbd6fd2ba"></script>
 </body>
 </html>

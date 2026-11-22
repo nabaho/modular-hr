@@ -10,10 +10,10 @@
  *   7) M10 노사협의회 위원·안건 · 산업안전보건 선임·위험성평가 · 5대 법정의무교육 이수 감독
  */
 
-import crypto from './browser-crypto-shim.mjs?v=7df477f6fc75';
-import { addDaysISO, diffDaysISO, isValidIsoDate } from './compliance-provisioner.mjs?v=7df477f6fc75';
-import { computeMonthlyRefHours } from './lifecycle-payroll.mjs?v=7df477f6fc75';
-import { LAW_BASELINE } from './labor-rules.mjs?v=7df477f6fc75';
+import crypto from './browser-crypto-shim.mjs?v=d45cbd6fd2ba';
+import { addDaysISO, diffDaysISO, isValidIsoDate } from './compliance-provisioner.mjs?v=d45cbd6fd2ba';
+import { computeMonthlyRefHours } from './lifecycle-payroll.mjs?v=d45cbd6fd2ba';
+import { LAW_BASELINE } from './labor-rules.mjs?v=d45cbd6fd2ba';
 
 function badRequest(message) {
   const err = new Error(message);
@@ -104,6 +104,168 @@ function getDaysInYearMonth(ym) {
 function getUtcWeekday(isoDate) {
   const [y, m, d] = isoDate.split('-').map(Number);
   return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+}
+
+const FIXED_STATUTORY_HOLIDAYS = Object.freeze({
+  '01-01': '신정',
+  '03-01': '삼일절',
+  '05-01': '근로자의 날',
+  '05-05': '어린이날',
+  '06-06': '현충일',
+  '08-15': '광복절',
+  '10-03': '개천절',
+  '10-09': '한글날',
+  '12-25': '성탄절',
+});
+
+const YEAR_SPECIFIC_HOLIDAYS = Object.freeze({
+  '2025-01-28': '설날 연휴',
+  '2025-01-29': '설날',
+  '2025-01-30': '설날 연휴',
+  '2025-03-03': '삼일절 대체공휴일',
+  '2025-05-06': '대체공휴일',
+  '2025-10-05': '추석 연휴',
+  '2025-10-06': '추석',
+  '2025-10-07': '추석 연휴',
+  '2025-10-08': '추석 대체공휴일',
+  '2026-02-16': '설날 연휴',
+  '2026-02-17': '설날',
+  '2026-02-18': '설날 연휴',
+  '2026-03-02': '삼일절 대체공휴일',
+  '2026-05-24': '부처님오신날',
+  '2026-05-25': '부처님오신날 대체공휴일',
+  '2026-08-17': '광복절 대체공휴일',
+  '2026-09-24': '추석 연휴',
+  '2026-09-25': '추석',
+  '2026-09-26': '추석 연휴',
+  '2026-10-05': '개천절 대체공휴일',
+  '2027-02-06': '설날 연휴',
+  '2027-02-07': '설날',
+  '2027-02-08': '설날 연휴',
+  '2027-02-09': '설날 대체공휴일',
+  '2027-05-13': '부처님오신날',
+  '2027-08-16': '광복절 대체공휴일',
+  '2027-09-14': '추석 연휴',
+  '2027-09-15': '추석',
+  '2027-09-16': '추석 연휴',
+  '2027-10-04': '개천절 대체공휴일',
+  '2027-10-11': '한글날 대체공휴일',
+  '2027-12-27': '성탄절 대체공휴일',
+});
+
+export function getKoreanStatutoryHolidayName(isoDate) {
+  if (!isValidIsoDate(isoDate)) return null;
+  if (Object.hasOwn(YEAR_SPECIFIC_HOLIDAYS, isoDate)) {
+    return YEAR_SPECIFIC_HOLIDAYS[isoDate];
+  }
+  const md = isoDate.slice(5, 10);
+  if (Object.hasOwn(FIXED_STATUTORY_HOLIDAYS, md)) {
+    return FIXED_STATUTORY_HOLIDAYS[md];
+  }
+  return null;
+}
+
+function overlapMinutes(aStart, aEnd, bStart, bEnd) {
+  const s = Math.max(aStart, bStart);
+  const e = Math.min(aEnd, bEnd);
+  return e > s ? e - s : 0;
+}
+
+/**
+ * 출근~퇴근 시각 및 날짜 기반 연장(>8h) · 야간(22:00~07:00) · 법정공휴일/주휴일 휴일근로 자동 판정기
+ */
+export function computeAutoClassifiedShift({
+  date,
+  clockIn = '09:00',
+  clockOut = '18:00',
+  breakHours = undefined,
+  customHoliday = false,
+  nightEndHour = 7,
+} = {}) {
+  const hhmmRe = /^([01]\d|2[0-3]):([0-5]\d)$/;
+  const inMatch = String(clockIn || '').trim().match(hhmmRe);
+  const outMatch = String(clockOut || '').trim().match(hhmmRe);
+  if (!inMatch || !outMatch) {
+    throw badRequest('출근·퇴근 시각은 HH:MM(00:00~23:59) 형식이어야 합니다.');
+  }
+  const inMin = Number(inMatch[1]) * 60 + Number(inMatch[2]);
+  const rawOutMin = Number(outMatch[1]) * 60 + Number(outMatch[2]);
+  if (inMin === rawOutMin) {
+    throw badRequest('출근 시각과 퇴근 시각이 동일할 수 없습니다. 미출근일은 휴무(OFF)로 지정해 주세요.');
+  }
+  const endMin = rawOutMin < inMin ? rawOutMin + 1440 : rawOutMin;
+  const grossHours = (endMin - inMin) / 60;
+
+  let appliedBreak = breakHours;
+  if (appliedBreak === undefined || appliedBreak === null || appliedBreak === '') {
+    appliedBreak = grossHours >= 9 ? 1 : grossHours >= 4.5 ? 0.5 : 0;
+  } else {
+    appliedBreak = assertBoundedFiniteNumber(Number(appliedBreak), 'breakHours', 0, 6);
+  }
+  if (appliedBreak >= grossHours) {
+    throw badRequest('휴게시간은 총 체류시간보다 작아야 합니다.');
+  }
+  const netWorked = Number(Math.max(0, grossHours - appliedBreak).toFixed(1));
+  if (netWorked > 24) {
+    throw badRequest('1일 실근로시간은 24시간을 초과할 수 없습니다.');
+  }
+
+  // 밤 22:00 ~ 새벽 07:00 (기본 nightEndHour = 7) 야간근로 구간 자동 산출
+  const nightEndMin = nightEndHour * 60;
+  const rawNightMin =
+    overlapMinutes(inMin, endMin, 0, nightEndMin) +
+    overlapMinutes(inMin, endMin, 22 * 60, 24 * 60 + nightEndMin) +
+    overlapMinutes(inMin, endMin, 46 * 60, 48 * 60 + nightEndMin);
+  const nightHours = Number(Math.min(netWorked, rawNightMin / 60).toFixed(1));
+
+  const statutoryHolidayName = isValidIsoDate(date) ? getKoreanStatutoryHolidayName(date) : null;
+  const wd = isValidIsoDate(date) ? getUtcWeekday(date) : 1;
+  const isWeeklyRestSunday = wd === 0;
+  const isHolidayWork = Boolean(statutoryHolidayName) || isWeeklyRestSunday || customHoliday === true;
+  const holidayReason =
+    statutoryHolidayName || (isWeeklyRestSunday ? '주휴일(일요일)' : customHoliday ? '지정휴일' : null);
+
+  if (isHolidayWork) {
+    return {
+      workStatus: netWorked > 0 ? 'HOLIDAY_WORK' : 'OFF',
+      clockIn: `${inMatch[1]}:${inMatch[2]}`,
+      clockOut: `${outMatch[1]}:${outMatch[2]}`,
+      breakHours: appliedBreak,
+      netWorkedHours: netWorked,
+      normalHours: 0,
+      overtimeHours: 0,
+      nightHours,
+      holidayHours: netWorked,
+      holidayLe8Hours: Number(Math.min(8, netWorked).toFixed(1)),
+      holidayGt8Hours: Number(Math.max(0, netWorked - 8).toFixed(1)),
+      holidayName: holidayReason,
+      isStatutoryHoliday: Boolean(statutoryHolidayName),
+      autoOvertime: netWorked > 8,
+      autoNight: nightHours > 0,
+      autoHoliday: netWorked > 0,
+    };
+  }
+
+  const normalHours = Number(Math.min(8, netWorked).toFixed(1));
+  const overtimeHours = Number(Math.max(0, netWorked - 8).toFixed(1));
+  return {
+    workStatus: netWorked > 0 ? 'WORK' : 'OFF',
+    clockIn: `${inMatch[1]}:${inMatch[2]}`,
+    clockOut: `${outMatch[1]}:${outMatch[2]}`,
+    breakHours: appliedBreak,
+    netWorkedHours: netWorked,
+    normalHours,
+    overtimeHours,
+    nightHours,
+    holidayHours: 0,
+    holidayLe8Hours: 0,
+    holidayGt8Hours: 0,
+    holidayName: null,
+    isStatutoryHoliday: false,
+    autoOvertime: overtimeHours > 0,
+    autoNight: nightHours > 0,
+    autoHoliday: false,
+  };
 }
 
 /**
@@ -413,6 +575,58 @@ export function createOperationsSuiteManager() {
     evalGradeMap.clear();
   }
 
+  function exportPersistenceState() {
+    const calendars = {};
+    for (const [key, dayMap] of dailyAttendanceMap.entries()) {
+      calendars[key] = Array.from(dayMap.entries());
+    }
+    const leaveRecords = {};
+    for (const [empCode, recs] of leaveRecordsMap.entries()) {
+      leaveRecords[empCode] = structuredClone(recs);
+    }
+    const leaveBackups = {};
+    for (const [recId, bk] of leavePrevCalendarBackup.entries()) {
+      leaveBackups[recId] = structuredClone(bk);
+    }
+    return {
+      selectedYearMonth,
+      calendars,
+      leaveRecords,
+      leaveBackups,
+    };
+  }
+
+  function restorePersistenceState(saved = {}) {
+    if (!saved || typeof saved !== 'object') return;
+    if (isValidYearMonth(saved.selectedYearMonth)) {
+      selectedYearMonth = saved.selectedYearMonth;
+    }
+    if (saved.calendars && typeof saved.calendars === 'object') {
+      dailyAttendanceMap.clear();
+      for (const [key, entries] of Object.entries(saved.calendars)) {
+        if (Array.isArray(entries)) {
+          dailyAttendanceMap.set(key, new Map(entries));
+        }
+      }
+    }
+    if (saved.leaveRecords && typeof saved.leaveRecords === 'object') {
+      leaveRecordsMap.clear();
+      for (const [empCode, recs] of Object.entries(saved.leaveRecords)) {
+        if (Array.isArray(recs)) {
+          leaveRecordsMap.set(empCode, structuredClone(recs));
+        }
+      }
+    }
+    if (saved.leaveBackups && typeof saved.leaveBackups === 'object') {
+      leavePrevCalendarBackup.clear();
+      for (const [recId, bk] of Object.entries(saved.leaveBackups)) {
+        if (Array.isArray(bk)) {
+          leavePrevCalendarBackup.set(recId, structuredClone(bk));
+        }
+      }
+    }
+  }
+
   function getWorkerLeaveRecords(w) {
     if (w.workerCategory === 'DAILY' || w.workerCategory === 'BIZ_33') return [];
     if (leaveRecordsMap.has(w.empCode)) {
@@ -532,11 +746,12 @@ export function createOperationsSuiteManager() {
       weekIndexByDay[d] = wIdx;
       if (weekBaseWorked[wIdx] === undefined) weekBaseWorked[wIdx] = 0;
       const lvInfo = leaveByDate.get(iso);
+      const pubHoliday = getKoreanStatutoryHolidayName(iso);
       if (lvInfo) {
         if (lvInfo.dayFraction < 1) {
           weekBaseWorked[wIdx] += Number((dailyH / 2).toFixed(1));
         }
-      } else if (wd >= 1 && wd <= 5) {
+      } else if (wd >= 1 && wd <= 5 && !pubHoliday) {
         weekBaseWorked[wIdx] += dailyH;
       }
     }
@@ -549,6 +764,7 @@ export function createOperationsSuiteManager() {
       const wd = getUtcWeekday(iso);
       const curWeek = weekIndexByDay[d];
       const lvInfo = leaveByDate.get(iso);
+      const pubHoliday = getKoreanStatutoryHolidayName(iso);
 
       if (lvInfo) {
         const isHalf = lvInfo.dayFraction < 1;
@@ -561,11 +777,42 @@ export function createOperationsSuiteManager() {
           statusLabel: isHalf ? '반차휴가' : '연차휴가',
           clockIn: isHalf ? '09:00' : '-',
           clockOut: isHalf ? '13:00' : '-',
+          breakHours: 0,
           normalHours: isHalf ? Number((dailyH / 2).toFixed(1)) : dailyH,
           overtimeHours: 0,
           nightHours: 0,
           holidayHours: 0,
+          holidayName: pubHoliday,
+          isStatutoryHoliday: Boolean(pubHoliday),
+          autoOvertime: false,
+          autoNight: false,
+          autoHoliday: false,
           memo: lvInfo.rec.reason || lvInfo.rec.leaveType,
+        });
+        continue;
+      }
+
+      if (pubHoliday) {
+        map.set(iso, {
+          date: iso,
+          day: d,
+          weekday: WEEKDAY_KO[wd],
+          weekdayIdx: wd,
+          workStatus: 'OFF',
+          statusLabel: pubHoliday,
+          clockIn: '-',
+          clockOut: '-',
+          breakHours: 0,
+          normalHours: 0,
+          overtimeHours: 0,
+          nightHours: 0,
+          holidayHours: 0,
+          holidayName: pubHoliday,
+          isStatutoryHoliday: true,
+          autoOvertime: false,
+          autoNight: false,
+          autoHoliday: false,
+          memo: `법정공휴일 (${pubHoliday})`,
         });
         continue;
       }
@@ -580,10 +827,16 @@ export function createOperationsSuiteManager() {
           statusLabel: '주휴일',
           clockIn: '-',
           clockOut: '-',
+          breakHours: 0,
           normalHours: 0,
           overtimeHours: 0,
           nightHours: 0,
           holidayHours: 0,
+          holidayName: '주휴일',
+          isStatutoryHoliday: false,
+          autoOvertime: false,
+          autoNight: false,
+          autoHoliday: false,
           memo: '',
         });
         continue;
@@ -595,7 +848,8 @@ export function createOperationsSuiteManager() {
           const hHours = Number(Math.min(10, remHol, room).toFixed(1));
           remHol = Number((remHol - hHours).toFixed(1));
           weekRemainingRoom[curWeek] = Number((room - hHours).toFixed(1));
-          const endHour = Math.min(22, 9 + Math.ceil(hHours) + (hHours >= 8 ? 1 : 0));
+          const brk = hHours >= 8 ? 1 : hHours >= 4 ? 0.5 : 0;
+          const endHour = Math.min(22, 9 + Math.ceil(hHours + brk));
           map.set(iso, {
             date: iso,
             day: d,
@@ -605,11 +859,17 @@ export function createOperationsSuiteManager() {
             statusLabel: '휴일근무',
             clockIn: '09:00',
             clockOut: `${String(endHour).padStart(2, '0')}:00`,
+            breakHours: brk,
             normalHours: 0,
             overtimeHours: 0,
             nightHours: 0,
             holidayHours: hHours,
-            memo: '토요 특근',
+            holidayName: '휴일근무',
+            isStatutoryHoliday: false,
+            autoOvertime: hHours > 8,
+            autoNight: false,
+            autoHoliday: true,
+            memo: '휴일 특근',
           });
         } else {
           map.set(iso, {
@@ -621,10 +881,16 @@ export function createOperationsSuiteManager() {
             statusLabel: '휴무',
             clockIn: '-',
             clockOut: '-',
+            breakHours: 0,
             normalHours: 0,
             overtimeHours: 0,
             nightHours: 0,
             holidayHours: 0,
+            holidayName: null,
+            isStatutoryHoliday: false,
+            autoOvertime: false,
+            autoNight: false,
+            autoHoliday: false,
             memo: '',
           });
         }
@@ -644,8 +910,12 @@ export function createOperationsSuiteManager() {
         nt = Number(Math.min(2, remNight, dailyH + ot).toFixed(1));
         remNight = Number((remNight - nt).toFixed(1));
       }
-      const baseEnd = dailyH <= 4 ? 13 : 18;
-      const outHour = Math.min(23, baseEnd + Math.ceil(ot));
+      const brk = dailyH >= 8 ? 1 : 0.5;
+      const startH = nt > 0 ? 13 : 9;
+      const totalSpan = dailyH + ot + brk;
+      const rawEnd = startH + totalSpan;
+      const endH = Math.floor(rawEnd) % 24;
+      const endM = Math.round((rawEnd % 1) * 60);
       map.set(iso, {
         date: iso,
         day: d,
@@ -653,12 +923,18 @@ export function createOperationsSuiteManager() {
         weekdayIdx: wd,
         workStatus: 'WORK',
         statusLabel: ot > 0 ? '연장근무' : '정상근무',
-        clockIn: '09:00',
-        clockOut: `${String(outHour).padStart(2, '0')}:${ot % 1 === 0.5 ? '30' : '00'}`,
+        clockIn: `${String(startH).padStart(2, '0')}:00`,
+        clockOut: `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`,
+        breakHours: brk,
         normalHours: dailyH,
         overtimeHours: ot,
         nightHours: nt,
         holidayHours: 0,
+        holidayName: null,
+        isStatutoryHoliday: false,
+        autoOvertime: ot > 0,
+        autoNight: nt > 0,
+        autoHoliday: false,
         memo: '',
       });
     }
@@ -1834,11 +2110,93 @@ export function createOperationsSuiteManager() {
         const payrollYm = (state.company.referenceDate || '2026-11-15').slice(0, 7);
         const ym = date.slice(0, 7);
         selectedYearMonth = ym;
-        const allowedStatus = ['WORK', 'HOLIDAY_WORK', 'LEAVE', 'HALF_LEAVE', 'OFF'];
-        const workStatus = String(actionPayload.workStatus || 'WORK').trim();
-        if (!allowedStatus.includes(workStatus)) {
+        const allowedStatus = ['AUTO', 'WORK', 'HOLIDAY_WORK', 'LEAVE', 'HALF_LEAVE', 'OFF'];
+        const requestedStatus = String(actionPayload.workStatus || 'WORK').trim();
+        if (!allowedStatus.includes(requestedStatus)) {
           throw badRequest('유효하지 않은 근무 구분(workStatus)입니다.');
         }
+
+        const pubHoliday = getKoreanStatutoryHolidayName(date);
+        const wd = getUtcWeekday(date);
+        const dayNum = Number(date.slice(8, 10));
+        const memo = String(actionPayload.memo ?? '').trim().slice(0, 80);
+        const dayMap = ensureWorkerMonthCalendar(w, ym, payrollYm);
+
+        // 출근~퇴근 시각 기반 연장(>8h) · 야간(22:00~07:00) · 법정공휴일 휴일근로 자동 판정 모드
+        const shouldAutoClassify =
+          actionPayload.autoClassify === true || requestedStatus === 'AUTO';
+
+        if (
+          shouldAutoClassify &&
+          requestedStatus !== 'OFF' &&
+          requestedStatus !== 'LEAVE' &&
+          requestedStatus !== 'HALF_LEAVE'
+        ) {
+          const autoRes = computeAutoClassifiedShift({
+            date,
+            clockIn: actionPayload.clockIn || '09:00',
+            clockOut: actionPayload.clockOut || '18:00',
+            breakHours: actionPayload.breakHours,
+            customHoliday:
+              requestedStatus === 'HOLIDAY_WORK' || actionPayload.customHoliday === true,
+            nightEndHour: 7,
+          });
+          const statusLabel =
+            autoRes.workStatus === 'HOLIDAY_WORK'
+              ? autoRes.holidayName
+                ? `휴일근로(${autoRes.holidayName})`
+                : '휴일근로'
+              : autoRes.overtimeHours > 0 && autoRes.nightHours > 0
+                ? '연장·야간'
+                : autoRes.overtimeHours > 0
+                  ? '연장근무'
+                  : autoRes.nightHours > 0
+                    ? '야간근무'
+                    : '정상근무';
+
+          dayMap.set(date, {
+            date,
+            day: dayNum,
+            weekday: WEEKDAY_KO[wd],
+            weekdayIdx: wd,
+            workStatus: autoRes.workStatus,
+            statusLabel,
+            clockIn: autoRes.clockIn,
+            clockOut: autoRes.clockOut,
+            breakHours: autoRes.breakHours,
+            normalHours: autoRes.normalHours,
+            overtimeHours: autoRes.overtimeHours,
+            nightHours: autoRes.nightHours,
+            holidayHours: autoRes.holidayHours,
+            holidayName: autoRes.holidayName,
+            isStatutoryHoliday: autoRes.isStatutoryHoliday,
+            autoOvertime: autoRes.autoOvertime,
+            autoNight: autoRes.autoNight,
+            autoHoliday: autoRes.autoHoliday,
+            memo,
+          });
+
+          recalculateWorkerFromCalendar(w, ym, dayMap, payrollYm);
+          const autoChecks = [];
+          if (autoRes.autoHoliday) {
+            autoChecks.push(
+              autoRes.holidayGt8Hours > 0
+                ? `휴일 ${autoRes.holidayHours}h(8h초과 ${autoRes.holidayGt8Hours}h)`
+                : `휴일 ${autoRes.holidayHours}h`
+            );
+          }
+          if (autoRes.overtimeHours > 0) autoChecks.push(`8h초과 연장 ${autoRes.overtimeHours}h`);
+          if (autoRes.autoNight) autoChecks.push(`야간(22~07시) ${autoRes.nightHours}h`);
+          appendAudit(
+            'M4자동시간판정',
+            `[${empCode} ${w.displayName}] ${date} (${autoRes.clockIn}~${autoRes.clockOut}) 자동분류(${autoChecks.join(' · ') || `정상 ${autoRes.normalHours}h`}) → 급여명세서 연동`
+          );
+          return {
+            message: `[${w.displayName}] ${date} (${autoRes.clockIn}~${autoRes.clockOut}) 출퇴근 기록이 자동 판정(${autoChecks.join(' · ') || `정상 ${autoRes.normalHours}h`})되어 반영되었습니다.`,
+          };
+        }
+
+        const workStatus = requestedStatus === 'AUTO' ? 'WORK' : requestedStatus;
         const normalHours =
           actionPayload.normalHours === undefined
             ? workStatus === 'OFF' || workStatus === 'HOLIDAY_WORK'
@@ -1846,19 +2204,19 @@ export function createOperationsSuiteManager() {
               : workStatus === 'HALF_LEAVE'
                 ? (w.dailyHours || 8) / 2
                 : w.dailyHours || 8
-            : assertBoundedFiniteNumber(actionPayload.normalHours, 'normalHours', 0, 12);
+            : assertBoundedFiniteNumber(actionPayload.normalHours, 'normalHours', 0, 16);
         const overtimeHours =
           actionPayload.overtimeHours === undefined
             ? 0
-            : assertBoundedFiniteNumber(actionPayload.overtimeHours, 'overtimeHours', 0, 12);
+            : assertBoundedFiniteNumber(actionPayload.overtimeHours, 'overtimeHours', 0, 16);
         const nightHours =
           actionPayload.nightHours === undefined
             ? 0
-            : assertBoundedFiniteNumber(actionPayload.nightHours, 'nightHours', 0, 8);
+            : assertBoundedFiniteNumber(actionPayload.nightHours, 'nightHours', 0, 16);
         const holidayHours =
           actionPayload.holidayHours === undefined
             ? 0
-            : assertBoundedFiniteNumber(actionPayload.holidayHours, 'holidayHours', 0, 12);
+            : assertBoundedFiniteNumber(actionPayload.holidayHours, 'holidayHours', 0, 16);
 
         const isOffOrFullLeave = workStatus === 'OFF' || workStatus === 'LEAVE';
         const effectiveNorm =
@@ -1882,17 +2240,13 @@ export function createOperationsSuiteManager() {
         if (!isOffOrFullLeave && (!hhmmRe.test(finalClockIn) || !hhmmRe.test(finalClockOut))) {
           throw badRequest('출근·퇴근 시각은 HH:MM(00:00~23:59) 형식이어야 합니다.');
         }
-        const memo = String(actionPayload.memo ?? '').trim().slice(0, 80);
 
-        const dayMap = ensureWorkerMonthCalendar(w, ym, payrollYm);
-        const wd = getUtcWeekday(date);
-        const dayNum = Number(date.slice(8, 10));
         const statusLabelMap = {
           WORK: effectiveOt > 0 ? '연장근무' : '정상근무',
-          HOLIDAY_WORK: '휴일근무',
+          HOLIDAY_WORK: pubHoliday ? `휴일근로(${pubHoliday})` : '휴일근무',
           LEAVE: '연차휴가',
           HALF_LEAVE: '반차휴가',
-          OFF: '휴무',
+          OFF: pubHoliday || '휴무',
         };
         dayMap.set(date, {
           date,
@@ -1903,10 +2257,16 @@ export function createOperationsSuiteManager() {
           statusLabel: statusLabelMap[workStatus],
           clockIn: finalClockIn,
           clockOut: finalClockOut,
+          breakHours: isOffOrFullLeave ? 0 : totalActiveHours >= 8 ? 1 : totalActiveHours >= 4 ? 0.5 : 0,
           normalHours: effectiveNorm,
           overtimeHours: effectiveOt,
           nightHours: effectiveNight,
           holidayHours: effectiveHol,
+          holidayName: pubHoliday || (wd === 0 ? '주휴일' : null),
+          isStatutoryHoliday: Boolean(pubHoliday),
+          autoOvertime: effectiveOt > 0 || effectiveHol > 8,
+          autoNight: effectiveNight > 0,
+          autoHoliday: effectiveHol > 0,
           memo,
         });
 
@@ -2124,5 +2484,7 @@ export function createOperationsSuiteManager() {
     scrubPurgedPerson,
     invalidateWorkerCalendar,
     resetForNewRoster,
+    exportPersistenceState,
+    restorePersistenceState,
   });
 }
