@@ -4,29 +4,29 @@
  * - 엄격한 입력 스키마 검증(Boolean/Number/Enum/실재 날짜 검증), CSP 헤더, 64KB 413 응답 보장
  */
 
-import http from './engine/virtual-http-shim.mjs?v=ded2c66c4e77';
-import crypto from './engine/browser-crypto-shim.mjs?v=ded2c66c4e77';
+import http from './engine/virtual-http-shim.mjs?v=9f5b61edb8c1';
+import crypto from './engine/browser-crypto-shim.mjs?v=9f5b61edb8c1';
 // 정적 자산 서빙은 GitHub Pages CDN이 담당하며 server-core.mjs는 /api/* 전용으로 구동됨
 
-import { INDUSTRIES, LAW_BASELINE } from './engine/labor-rules.mjs?v=ded2c66c4e77';
+import { INDUSTRIES, LAW_BASELINE } from './engine/labor-rules.mjs?v=9f5b61edb8c1';
 import {
   VALID_STATUTORY_TASK_IDS,
   assertValidIsoDate,
   provisionWorkplaceSystem,
-} from './engine/compliance-provisioner.mjs?v=ded2c66c4e77';
+} from './engine/compliance-provisioner.mjs?v=9f5b61edb8c1';
 import {
   VALID_RESIGN_REASONS,
   computeEmployeePayrollLine,
   computeOffboardingSettlement,
   validateJobPosting,
-} from './engine/lifecycle-payroll.mjs?v=ded2c66c4e77';
-import { VALID_DOC_TEMPLATES, generateStatutoryDocument } from './engine/document-generator.mjs?v=ded2c66c4e77';
-import { buildWorkerBindingKey, createMobileHub } from './engine/mobile-auth-realtime.mjs?v=ded2c66c4e77';
+} from './engine/lifecycle-payroll.mjs?v=9f5b61edb8c1';
+import { VALID_DOC_TEMPLATES, generateStatutoryDocument } from './engine/document-generator.mjs?v=9f5b61edb8c1';
+import { buildWorkerBindingKey, createMobileHub } from './engine/mobile-auth-realtime.mjs?v=9f5b61edb8c1';
 import {
   SAMPLE_INGESTION_BUNDLES,
   listSampleIngestionBundles,
   stageMultiDocumentBundle,
-} from './engine/document-ingestion.mjs?v=ded2c66c4e77';
+} from './engine/document-ingestion.mjs?v=9f5b61edb8c1';
 import {
   buildOffboardedWorkerRecord,
   createInitialOffboardedWorkers,
@@ -37,12 +37,12 @@ import {
   refreshOffboardedLifecycle,
   summarizeOffboardedRegistry,
   updateOffboardedChecklist,
-} from './engine/offboarding-registry.mjs?v=ded2c66c4e77';
+} from './engine/offboarding-registry.mjs?v=9f5b61edb8c1';
 import {
   createOperationsSuiteManager,
   DEFAULT_POLICY_SETTINGS,
   normalizePolicySettings,
-} from './engine/hr-operations-suite.mjs?v=ded2c66c4e77';
+} from './engine/hr-operations-suite.mjs?v=9f5b61edb8c1';
 
 const PUBLIC_DIR = '/';
 const MAX_BODY_BYTES = 64 * 1024;
@@ -529,13 +529,16 @@ function readJsonBody(req) {
 
 export function createAppServer(options = {}) {
   const csrfToken = crypto.randomBytes(24).toString('hex');
+  const isProdEnv = process.env.NODE_ENV === 'production';
   // 기본 보안 정책: 전사 PC API(/api/bootstrap 등)도 대표이사(CEO)·인사관리자(HR_ADMIN) 2차 인증 세션 필수!
-  const requirePcAuth = options.requirePcAuth ?? process.env.MHR_ALLOW_UNAUTH_PC !== '1';
+  // 운영 환경(NODE_ENV=production)에서는 환경변수 우회(MHR_ALLOW_UNAUTH_PC / MHR_DEMO_MODE)를 허용하지 않음
+  const requirePcAuth =
+    options.requirePcAuth ?? (isProdEnv ? true : process.env.MHR_ALLOW_UNAUTH_PC !== '1');
   const serverClockToday = () => options.serverTodayIso || getServerTodayISO(options.now);
   const purgeTombstones = createPurgeTombstoneStore();
   const opsSuite = createOperationsSuiteManager();
   const mobileHub = createMobileHub({
-    demoMode: options.demoMode ?? process.env.MHR_DEMO_MODE === '1',
+    demoMode: options.demoMode ?? (!isProdEnv && process.env.MHR_DEMO_MODE === '1'),
     seedCredentials: options.seedCredentials,
     initialBizRegNo: WORKPLACE_PRESETS.MFG_62_OSH.bizRegNo,
     initialEmp201PersonId: 'PER-INIT-EMP-201',
