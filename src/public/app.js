@@ -28,42 +28,64 @@ const appState = {
   selectedEmpCode: 'EMP-201',
   selectedAttDate: '2026-11-11',
   starredOnlyFilter: false,
+  genericStarFilter: {},
+  onboardingDocEmpCode: 'EMP-203',
+  onboardingActiveTpl: 'DOC_EMPLOYMENT_CONTRACT',
+  onboardingCompareMode: false,
+  onboardingDraftPerson: null,
+  onboardingSigState: { boundKey: '', signerName: '', dataUrl: '', consentConfirmed: false },
+  onboardingDocTimer: null,
+  onboardingReqSeq: 0,
+  formsSelectedTpl: 'DOC_EMPLOYMENT_CONTRACT',
+  formsViewMode: 'COMPARE',
+  formsDraftPerson: null,
+  formsSigState: { signerName: '', dataUrl: '', consentConfirmed: false },
+  expandedArchivedDocs: {},
+  formsDocTimer: null,
+  formsReqSeq: 0,
   showCodeDiffMarks: true,
 };
 
 const RECENT_CODE_CHANGES = [
   {
-    id: 'CHG-CAL-POPUP',
-    menuGroup: 'attendance',
-    badge: '변경 1 · 팝업 캘린더',
-    desc: '근태 관리 직원 클릭 → 전용 월간 캘린더 팝업 창 오픈 (날짜 칸 내 출퇴근·근무시간 전체 표시)',
-    btnLabel: '팝업 열기',
-    action: (btn) => {
-      switchTab('ops-attendance', false);
-      openAttCalendarModal(appState.selectedEmpCode || 'EMP-201', btn);
-    },
-  },
-  {
-    id: 'CHG-AUTO-TIME',
-    menuGroup: 'attendance',
-    badge: '변경 2 · 자동 시간체크',
-    desc: '출근~퇴근 시각 입력 시 8h초과 연장 · 밤 22~새벽 07시 야간 · 법정공휴일 휴일근로 자동 체크',
-    btnLabel: '자동체크 보기',
-    action: (btn) => {
-      switchTab('ops-attendance', false);
-      openAttCalendarModal(appState.selectedEmpCode || 'EMP-201', btn);
-      document.getElementById('att-day-in')?.focus();
-    },
-  },
-  {
-    id: 'CHG-SCALE-MONTHSTART',
-    menuGroup: 'settings',
-    badge: '변경 3 · 5인 미만/이상 & 월초표시',
-    desc: '환경 설정 5인 미만/이상 자동 판정 및 급여·규모 변동 시 월초(1일) 변경 표시·확인 체크',
-    btnLabel: '설정 보기',
+    id: 'CHG-UNIVERSAL-MARKS',
+    menuGroup: 'hr',
+    badge: '변경 1 · 전 영역 번호·체크·별표',
+    desc: '인사·채용·계약·징계·고충·퇴사·연차·서식·법정 모든 인원·리스트에 No. 번호 · ☐ 네모 체크 · ★ 별표 전면 적용',
+    btnLabel: '징계·고충 체크 보기',
     action: () => {
-      switchTab('settings-master', false);
-      document.getElementById('settings-scale-check-box')?.scrollIntoView({ block: 'center' });
+      switchTab('ops-discipline', false);
+    },
+  },
+  {
+    id: 'CHG-ONBOARDING-3DOCS',
+    menuGroup: 'hr',
+    badge: '변경 2 · 입사 3종 서식 자동연결·서명',
+    desc: '채용·입사 시 근로계약서·보안서약서·개인정보동의서 자동 오픈 + 좌측 개인정보 실시간 기입 + 자필 전자서명 연결',
+    btnLabel: '입사 서식·서명 열기',
+    action: () => {
+      switchTab('ops-recruit', false);
+      document.getElementById('onboarding-doc-studio')?.scrollIntoView({ block: 'start' });
+    },
+  },
+  {
+    id: 'CHG-FORMS-SPLIT-STUDIO',
+    menuGroup: 'legal',
+    badge: '변경 3 · 서식 좌우 분할·변경비교·이름조회',
+    desc: '서식·법정 클릭 시 오른쪽 화면에 기본양식↔변경양식 실시간 비교 및 사람 이름별 반영·서명 내역 즉시 확인',
+    btnLabel: '분할 서식함 열기',
+    action: () => {
+      switchTab('forms-center', false);
+    },
+  },
+  {
+    id: 'CHG-LEAVE-ALUMNI-MARKS',
+    menuGroup: 'leave',
+    badge: '변경 4 · 퇴사·연차 전 리스트 동기화',
+    desc: '퇴사(은퇴) 관리 원장·연차 사용이력·연차 사용촉진·육아보호 리스트까지 번호·체크·별표 일괄 적용',
+    btnLabel: '연차·촉진 보기',
+    action: () => {
+      switchTab('ops-leave-promo', false);
     },
   },
 ];
@@ -838,73 +860,104 @@ function renderComplianceTab(snapshot) {
 
   const filingsList = document.getElementById('filings-list');
   if (filingsList) {
-    const cards = compliance.statutoryFilings.map((f) =>
-      h(
-        'article',
-        { className: 'filing-card' },
-        h(
-          'div',
-          { className: 'filing-header' },
-          h('span', { className: 'tag tag-gray' }, f.scaleBadge),
-          urgencyBadge(f)
-        ),
-        h('h4', { className: 'filing-title' }, f.title),
-        h('div', { className: 'filing-meta' }, `관할/방식: ${f.authority} | 근거: ${f.legalBasis}`),
-        h(
-          'ul',
-          { className: 'step-list' },
-          f.actionSteps.map((step) => h('li', {}, step))
-        ),
-        h(
-          'div',
-          { className: 'filing-actions' },
-          f.docTemplateId
-            ? h(
-                'button',
-                {
-                  type: 'button',
-                  className: 'btn btn-primary btn-sm',
-                  onClick: (e) => openDocumentPreview(f.docTemplateId, e.currentTarget),
-                },
-                '작성 보조 초안·신고서 열람'
-              )
-            : null,
-          h(
-            'button',
-                {
-                  type: 'button',
-                  className: 'btn btn-secondary btn-sm',
-                  onClick: async (e) => {
-                    try {
-                      const res = await apiPost('/api/toggle-task', { taskId: f.id }, e.currentTarget);
-                      updateSnapshot(res.snapshot);
-                    } catch (err) {
-                      showBanner(err.message, true);
-                    }
-                  },
-                },
-                f.isCompleted ? '이행 완료 취소' : '신고·제정 완료 체크'
-              )
-        )
+    const indexedFilings = compliance.statutoryFilings.map((f, idx) => ({ ...f, _rowNo: idx + 1 }));
+    const visibleFilings = applyGenericStarFilter(
+      snapshot,
+      'filings',
+      indexedFilings,
+      (f) => f.id
+    );
+    const toolbar = h(
+      'div',
+      { className: 'ops-section-head' },
+      h('span', { className: 'cell-dept-name' }, '관공서 신고·제정 과제 체크 및 별표 관리'),
+      renderGenericSyncControls(
+        snapshot,
+        'filings',
+        indexedFilings,
+        (f) => f.id,
+        renderComplianceTab,
+        '건'
       )
     );
-    filingsList.replaceChildren(...cards);
+    const cards =
+      visibleFilings.length === 0
+        ? [h('div', { className: 'empty-state' }, '표시할 별표(★) 신고 과제가 없습니다.')]
+        : visibleFilings.map((f) =>
+            h(
+              'article',
+              { className: 'filing-card' },
+              h(
+                'div',
+                { className: 'filing-header' },
+                renderGenericInlineMark(snapshot, 'filings', f.id, f._rowNo, f.title),
+                h('span', { className: 'tag tag-gray' }, f.scaleBadge),
+                urgencyBadge(f)
+              ),
+              h('h4', { className: 'filing-title' }, f.title),
+              h('div', { className: 'filing-meta' }, `관할/방식: ${f.authority} | 근거: ${f.legalBasis}`),
+              h(
+                'ul',
+                { className: 'step-list' },
+                f.actionSteps.map((step) => h('li', {}, step))
+              ),
+              h(
+                'div',
+                { className: 'filing-actions' },
+                f.docTemplateId
+                  ? h(
+                      'button',
+                      {
+                        type: 'button',
+                        className: 'btn btn-primary btn-sm',
+                        onClick: (e) => openDocumentPreview(f.docTemplateId, e.currentTarget),
+                      },
+                      '작성 보조 초안·신고서 열람'
+                    )
+                  : null,
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'btn btn-secondary btn-sm',
+                    onClick: async (e) => {
+                      try {
+                        const res = await apiPost('/api/toggle-task', { taskId: f.id }, e.currentTarget);
+                        updateSnapshot(res.snapshot);
+                      } catch (err) {
+                        showBanner(err.message, true);
+                      }
+                    },
+                  },
+                  f.isCompleted ? '이행 완료 취소' : '신고·제정 완료 체크'
+                )
+              )
+            )
+          );
+    filingsList.replaceChildren(toolbar, ...cards);
   }
 
   const qGrid = document.getElementById('quarterly-grid');
   if (qGrid) {
-    const qCards = compliance.quarterlySchedule.map((q) =>
+    const qCards = compliance.quarterlySchedule.map((q, qIdx) =>
       h(
         'div',
         { className: 'quarter-card' },
         h('h4', { className: 'quarter-title' }, q.quarter),
-        ...q.items.map((item) =>
+        ...q.items.map((item, iIdx) =>
           h(
             'div',
             { className: 'quarter-item' },
             h(
               'div',
               { className: 'flex-between-tight' },
+              renderGenericInlineMark(
+                snapshot,
+                'qsched',
+                `${qIdx + 1}-${iIdx + 1}`,
+                iIdx + 1,
+                item.title
+              ),
               h('span', { className: 'tag tag-blue' }, item.category),
               item.docTemplateId
                 ? h(
@@ -989,7 +1042,11 @@ function renderLifecycleTab(snapshot) {
       if (evtSubmitBtn) evtSubmitBtn.disabled = false;
       workerSelect.replaceChildren(
         ...regularWorkers.map((w) =>
-          h('option', { value: w.empCode }, `[${w.empCode}] ${w.displayName} (${w.deptName})`)
+          h(
+            'option',
+            { value: w.empCode },
+            `No.${w.rowNo ?? 1} [${w.empCode}] ${w.displayName} (${w.deptName})`
+          )
         )
       );
       if (regularWorkers.some((w) => w.empCode === prevVal)) {
@@ -1104,7 +1161,11 @@ function renderMasterSelectHeaderTh(allRows, tableLabel) {
           onChange: (e) => {
             e.stopPropagation();
             runOpsAction(
-              { actionType: 'TOGGLE_ALL_WORKER_CHECK', checked: e.currentTarget.checked },
+              {
+                actionType: 'TOGGLE_ALL_WORKER_CHECK',
+                empCodes: allRows.map((r) => r.empCode),
+                checked: e.currentTarget.checked,
+              },
               e.currentTarget
             );
           },
@@ -1169,6 +1230,521 @@ function renderMasterMarkTd(row) {
       h('span', { className: 'row-num-pill' }, String(rowNo))
     )
   );
+}
+
+function getGenericMark(snapshot, groupKey, itemId) {
+  const map = snapshot?.operationsSuite?.listItemMarks || {};
+  const rec = map[`${groupKey}:${itemId}`];
+  return {
+    checked: Boolean(rec?.checked),
+    starred: Boolean(rec?.starred),
+  };
+}
+
+function applyGenericStarFilter(snapshot, groupKey, items, getId) {
+  if (!appState.genericStarFilter?.[groupKey]) return items;
+  return items.filter((item) => getGenericMark(snapshot, groupKey, getId(item)).starred);
+}
+
+const GENERIC_GROUP_LABELS = Object.freeze({
+  filings: '관공서 신고 과제',
+  qsched: '분기별 감독 일정',
+  alumni: '퇴사자 통합 원장',
+  homeActions: '대시보드 확인할 업무',
+  applicants: '채용 후보자',
+  leaveRecords: '연차 신청·사용 이력',
+  maternity: '육아·모성보호 현황',
+  grievances: '고충 처리 대장',
+  lmcAgenda: '노사협의회 안건',
+  oshRoles: '산업안전 선임 현황',
+  risks: '공정별 위험성평가',
+  trainings: '법정의무교육',
+  stdForms: '표준 서식 목록',
+  signedDocs: '이름별 서명 서식',
+});
+
+function renderGenericSyncControls(
+  snapshot,
+  groupKey,
+  items,
+  getId,
+  rerenderCurrent,
+  unitLabel = '건',
+  options = {}
+) {
+  const checkedCount = items.filter((it) => getGenericMark(snapshot, groupKey, getId(it)).checked).length;
+  const starredCount = items.filter((it) => getGenericMark(snapshot, groupKey, getId(it)).starred).length;
+  const allChecked = items.length > 0 && checkedCount === items.length;
+  const filterOn = Boolean(appState.genericStarFilter?.[groupKey]);
+  const korLabel = GENERIC_GROUP_LABELS[groupKey] || '목록 항목';
+  const showGroupCheckbox = options?.showGroupCheckbox !== false;
+
+  return h(
+    'div',
+    { className: 'step-pill-group' },
+    showGroupCheckbox
+      ? h(
+          'label',
+          { className: 'row-check-label' },
+          h('input', {
+            type: 'checkbox',
+            className: 'row-check-input',
+            checked: allChecked,
+            disabled: items.length === 0,
+            'aria-label': `${korLabel} 전체 체크 선택`,
+            onChange: (e) => {
+              e.stopPropagation();
+              runOpsAction(
+                {
+                  actionType: 'TOGGLE_LIST_GROUP_CHECK',
+                  groupKey,
+                  itemIds: items.map((it) => String(getId(it))),
+                  checked: e.currentTarget.checked,
+                },
+                e.currentTarget
+              );
+            },
+          })
+        )
+      : null,
+    h(
+      'span',
+      { className: 'tag tag-gray' },
+      `총 ${items.length}${unitLabel} · 체크 ${checkedCount} · ★ ${starredCount}`
+    ),
+    h(
+      'button',
+      {
+        type: 'button',
+        className: filterOn ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm',
+        'aria-pressed': String(filterOn),
+        onClick: () => {
+          appState.genericStarFilter[groupKey] = !filterOn;
+          if (appState.snapshot && typeof rerenderCurrent === 'function') {
+            rerenderCurrent(appState.snapshot);
+          }
+        },
+      },
+      filterOn ? '★ 별표 필터 해제' : '★ 별표만 보기'
+    )
+  );
+}
+
+function renderGenericSelectHeaderTh(snapshot, groupKey, items, getId, tableLabel) {
+  const allChecked =
+    items.length > 0 &&
+    items.every((it) => getGenericMark(snapshot, groupKey, getId(it)).checked);
+  return h(
+    'th',
+    { scope: 'col' },
+    h(
+      'div',
+      { className: 'master-mark-wrap' },
+      h(
+        'label',
+        { className: 'row-check-label' },
+        h('input', {
+          type: 'checkbox',
+          className: 'row-check-input',
+          checked: allChecked,
+          disabled: items.length === 0,
+          'aria-label': `${tableLabel} 전체 체크 선택`,
+          onChange: (e) => {
+            e.stopPropagation();
+            runOpsAction(
+              {
+                actionType: 'TOGGLE_LIST_GROUP_CHECK',
+                groupKey,
+                itemIds: items.map((it) => String(getId(it))),
+                checked: e.currentTarget.checked,
+              },
+              e.currentTarget
+            );
+          },
+        })
+      ),
+      h('span', {}, '★ · No.')
+    )
+  );
+}
+
+function renderGenericMarkTd(snapshot, groupKey, itemId, rowNo, itemLabel) {
+  const mark = getGenericMark(snapshot, groupKey, itemId);
+  return h(
+    'td',
+    { 'data-label': '확인 · 별표 · 번호', onClick: (e) => e.stopPropagation() },
+    h(
+      'div',
+      { className: 'master-mark-wrap' },
+      h(
+        'label',
+        { className: 'row-check-label' },
+        h('input', {
+          type: 'checkbox',
+          className: 'row-check-input',
+          checked: mark.checked,
+          'aria-label': `No.${rowNo} ${itemLabel} 확인 체크`,
+          onChange: (e) => {
+            e.stopPropagation();
+            runOpsAction(
+              {
+                actionType: 'TOGGLE_LIST_ITEM_CHECK',
+                groupKey,
+                itemId: String(itemId),
+                checked: e.currentTarget.checked,
+              },
+              e.currentTarget
+            );
+          },
+        })
+      ),
+      h(
+        'button',
+        {
+          type: 'button',
+          className: 'star-toggle-btn',
+          'aria-pressed': String(mark.starred),
+          'aria-label': `No.${rowNo} ${itemLabel} 별표 표시`,
+          onClick: (e) => {
+            e.stopPropagation();
+            runOpsAction(
+              {
+                actionType: 'TOGGLE_LIST_ITEM_STAR',
+                groupKey,
+                itemId: String(itemId),
+                starred: !mark.starred,
+              },
+              e.currentTarget
+            );
+          },
+        },
+        mark.starred ? '★' : '☆'
+      ),
+      h('span', { className: 'row-num-pill' }, String(rowNo))
+    )
+  );
+}
+
+function renderGenericInlineMark(snapshot, groupKey, itemId, rowNo, itemLabel) {
+  const mark = getGenericMark(snapshot, groupKey, itemId);
+  return h(
+    'span',
+    { className: 'inline-mark-bar', onClick: (e) => e.stopPropagation() },
+    h(
+      'label',
+      { className: 'row-check-label' },
+      h('input', {
+        type: 'checkbox',
+        className: 'row-check-input',
+        checked: mark.checked,
+        'aria-label': `No.${rowNo} ${itemLabel} 확인 체크`,
+        onChange: (e) => {
+          e.stopPropagation();
+          runOpsAction(
+            {
+              actionType: 'TOGGLE_LIST_ITEM_CHECK',
+              groupKey,
+              itemId: String(itemId),
+              checked: e.currentTarget.checked,
+            },
+            e.currentTarget
+          );
+        },
+      })
+    ),
+    h(
+      'button',
+      {
+        type: 'button',
+        className: 'star-toggle-btn',
+        'aria-pressed': String(mark.starred),
+        'aria-label': `No.${rowNo} ${itemLabel} 별표 표시`,
+        onClick: (e) => {
+          e.stopPropagation();
+          runOpsAction(
+            {
+              actionType: 'TOGGLE_LIST_ITEM_STAR',
+              groupKey,
+              itemId: String(itemId),
+              starred: !mark.starred,
+            },
+            e.currentTarget
+          );
+        },
+      },
+      mark.starred ? '★' : '☆'
+    ),
+    h('span', { className: 'row-num-pill' }, `No.${rowNo}`)
+  );
+}
+
+function renderHighlightedDocPre(bodyText, tokens = []) {
+  const raw = String(bodyText || '');
+  const cleanTokens = Array.from(
+    new Set(
+      (tokens || [])
+        .map((t) => String(t || '').trim())
+        .filter((t) => t.length >= 2)
+    )
+  ).sort((a, b) => b.length - a.length);
+
+  if (cleanTokens.length === 0) {
+    return h('div', { className: 'doc-paper-box' }, raw);
+  }
+  const escaped = cleanTokens.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const re = new RegExp(`(${escaped.join('|')})`, 'g');
+  const tokenSet = new Set(cleanTokens);
+  const parts = raw.split(re);
+  const nodes = parts
+    .filter((p) => p.length > 0)
+    .map((p) => (tokenSet.has(p) ? h('mark', { className: 'doc-filled-mark' }, p) : p));
+  return h('div', { className: 'doc-paper-box' }, ...nodes);
+}
+
+async function fetchRenderedDocQuiet(payload) {
+  const res = await fetch('/api/document', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRF-Token': appState.csrfToken,
+    },
+    body: JSON.stringify(payload || {}),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || '서식 미리보기 조회 실패');
+  }
+  return data.document;
+}
+
+function createSignatureCanvasControl(initialSignerName = '', idPrefix = 'sig', persistState = null) {
+  const resolvedSigner =
+    persistState && persistState.signerName ? persistState.signerName : initialSignerName || '';
+  const canvas = h('canvas', {
+    className: 'sig-canvas',
+    width: '320',
+    height: '92',
+    tabindex: '0',
+    role: 'img',
+    'aria-label': '마우스 또는 터치로 자필 전자서명을 그리는 영역',
+  });
+  const signerInput = h('input', {
+    id: `${idPrefix}-signer-input`,
+    type: 'text',
+    value: resolvedSigner,
+    placeholder: '서명자 성명 입력',
+    onInput: (e) => {
+      if (persistState) persistState.signerName = e.currentTarget.value;
+    },
+  });
+  const consentInput = h('input', {
+    id: `${idPrefix}-consent-check`,
+    type: 'checkbox',
+    checked: Boolean(persistState?.consentConfirmed),
+    onChange: (e) => {
+      if (persistState) persistState.consentConfirmed = e.currentTarget.checked;
+    },
+  });
+  const statusTag = h('span', { className: 'tag tag-gray' }, '자필서명 대기 (성명 서명 가능)');
+
+  let isDrawing = false;
+  let hasInk = Boolean(persistState?.dataUrl);
+  const ctx = typeof canvas.getContext === 'function' ? canvas.getContext('2d') : null;
+  if (ctx) {
+    ctx.lineWidth = 2.4;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#0f172a';
+  }
+
+  if (ctx && persistState?.dataUrl && typeof Image === 'function') {
+    statusTag.className = 'tag tag-green';
+    statusTag.textContent = '자필서명 입력됨 ✓';
+    const restoredImg = new Image();
+    restoredImg.onload = () => {
+      try {
+        ctx.drawImage(restoredImg, 0, 0, canvas.width, canvas.height);
+      } catch {
+        // ignore
+      }
+    };
+    restoredImg.src = persistState.dataUrl;
+  }
+
+  const syncDataUrlToState = () => {
+    if (!persistState) return;
+    if (!hasInk || typeof canvas.toDataURL !== 'function') {
+      persistState.dataUrl = '';
+      return;
+    }
+    try {
+      const url = canvas.toDataURL('image/png');
+      persistState.dataUrl = url.length <= 36000 ? url : '';
+    } catch {
+      persistState.dataUrl = '';
+    }
+  };
+
+  const getPoint = (ev) => {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = rect.width > 0 ? canvas.width / rect.width : 1;
+    const scaleY = rect.height > 0 ? canvas.height / rect.height : 1;
+    return {
+      x: (ev.clientX - rect.left) * scaleX,
+      y: (ev.clientY - rect.top) * scaleY,
+    };
+  };
+
+  canvas.addEventListener('pointerdown', (ev) => {
+    if (!ctx) return;
+    isDrawing = true;
+    hasInk = true;
+    try {
+      canvas.setPointerCapture(ev.pointerId);
+    } catch {
+      // ignore
+    }
+    const pt = getPoint(ev);
+    ctx.beginPath();
+    ctx.moveTo(pt.x, pt.y);
+    statusTag.className = 'tag tag-green';
+    statusTag.textContent = '자필서명 입력됨 ✓';
+  });
+
+  canvas.addEventListener('pointermove', (ev) => {
+    if (!isDrawing || !ctx) return;
+    const pt = getPoint(ev);
+    ctx.lineTo(pt.x, pt.y);
+    ctx.stroke();
+  });
+
+  const stopDraw = () => {
+    if (isDrawing) {
+      isDrawing = false;
+      syncDataUrlToState();
+    }
+  };
+  canvas.addEventListener('pointerup', stopDraw);
+  canvas.addEventListener('pointercancel', stopDraw);
+
+  const clearCanvas = () => {
+    if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+    hasInk = false;
+    if (persistState) persistState.dataUrl = '';
+    statusTag.className = 'tag tag-gray';
+    statusTag.textContent = '자필서명 대기 (성명 서명 가능)';
+  };
+
+  const rootEl = h(
+    'div',
+    { className: 'sig-pad-card' },
+    h(
+      'div',
+      { className: 'flex-between-tight' },
+      h('strong', {}, '전자서명 패드 (마우스·터치 자필 서명 + 성명 확인)'),
+      statusTag
+    ),
+    canvas,
+    h(
+      'div',
+      { className: 'studio-mini-grid' },
+      h(
+        'div',
+        { className: 'field' },
+        h('label', { for: `${idPrefix}-signer-input` }, '서명자 성명'),
+        signerInput
+      ),
+      h(
+        'div',
+        { className: 'field' },
+        h('span', { className: 'field-label-text' }, '서명 패드 초기화'),
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'btn btn-secondary btn-sm full-width',
+            onClick: clearCanvas,
+          },
+          '자필 서명 지우기'
+        )
+      )
+    ),
+    h(
+      'label',
+      { className: 'check-label', for: `${idPrefix}-consent-check` },
+      consentInput,
+      h('span', {}, '기재된 근로조건·보안·개인정보 조항을 확인하였으며 전자서명에 동의합니다.')
+    )
+  );
+
+  return {
+    rootEl,
+    setSignerName(nextName) {
+      const s = String(nextName || '');
+      signerInput.value = s;
+      if (persistState) persistState.signerName = s;
+    },
+    getSignerName() {
+      return signerInput.value.trim();
+    },
+    isConsentConfirmed() {
+      return Boolean(consentInput.checked);
+    },
+    invalidateConsent() {
+      consentInput.checked = false;
+      if (persistState) persistState.consentConfirmed = false;
+    },
+    focusConsent() {
+      consentInput.focus();
+    },
+    getSignatureDataUrl() {
+      if (persistState?.dataUrl && !isDrawing) return persistState.dataUrl;
+      if (!hasInk || typeof canvas.toDataURL !== 'function') return '';
+      try {
+        const url = canvas.toDataURL('image/png');
+        const safeUrl = url.length <= 36000 ? url : '';
+        if (persistState) persistState.dataUrl = safeUrl;
+        return safeUrl;
+      } catch {
+        return '';
+      }
+    },
+    clearCanvas,
+  };
+}
+
+function buildDraftFromContractRow(c) {
+  if (!c) return null;
+  return {
+    empCode: c.empCode || '',
+    personName: c.displayName || '',
+    deptName: c.deptName || '일반부서',
+    jobTitle: c.jobTitle || '사원',
+    hireDate: c.hireDate || '2026-11-15',
+    maskedBirthOrId: c.maskedBirthOrId || '950101-*******',
+    maskedPhone: c.maskedPhone || '010-****-0000',
+    address: c.address || '',
+    weeklyHours: c.weeklyHours || 40,
+    baseMonthlyPay: c.baseMonthlyPay || 3200000,
+    mealAllowance: c.mealAllowance ?? 200000,
+  };
+}
+
+function openWorkerInOnboardingStudio(empCode, templateId = 'DOC_EMPLOYMENT_CONTRACT') {
+  const snapshot = appState.snapshot;
+  if (!snapshot?.operationsSuite) return;
+  const ledger = snapshot.operationsSuite.recruitAndOnboarding?.contractLedger || [];
+  const target = ledger.find((c) => c.empCode === empCode) || ledger[0];
+  if (target) {
+    appState.onboardingDocEmpCode = target.empCode;
+    appState.onboardingDraftPerson = buildDraftFromContractRow(target);
+  }
+  if (templateId) {
+    appState.onboardingActiveTpl = templateId;
+  }
+  switchTab('ops-recruit', false);
+  renderOpsRecruitTab(snapshot);
+  document.getElementById('onboarding-doc-studio')?.scrollIntoView({ block: 'start' });
 }
 
 function openPayslipByEmpCode(empCode, triggerBtn) {
@@ -1907,11 +2483,15 @@ function renderOnboardingStagePreview(staging) {
     h(
       'div',
       { className: 'alert-list-stack' },
-      ...staging.activeWorkers.slice(0, 6).map((w) =>
+      ...staging.activeWorkers.slice(0, 6).map((w, idx) =>
         h(
           'div',
           { className: 'reconcile-item flex-between-tight' },
-          h('span', { className: 'font-extrabold' }, `${w.displayName} (${w.empCode} · ${w.deptName})`),
+          h(
+            'span',
+            { className: 'font-extrabold' },
+            `No.${idx + 1} ${w.displayName} (${w.empCode} · ${w.deptName})`
+          ),
           h('span', {}, `주 ${w.weeklyHours}h · 기본급 ${fmtWon(w.baseMonthlyPay)} · 식대 ${fmtWon(w.mealAllowance)}`)
         )
       )
@@ -1927,14 +2507,18 @@ function renderOnboardingStagePreview(staging) {
       : h(
           'div',
           { className: 'alert-list-stack' },
-          ...staging.offboardedWorkers.map((al) =>
+          ...staging.offboardedWorkers.map((al, idx) =>
             h(
               'div',
               { className: 'reconcile-item' },
               h(
                 'div',
                 { className: 'flex-between-tight' },
-                h('span', { className: 'font-extrabold' }, `${al.displayName} (${al.empCode} · ${al.deptName})`),
+                h(
+                  'span',
+                  { className: 'font-extrabold' },
+                  `No.${idx + 1} ${al.displayName} (${al.empCode} · ${al.deptName})`
+                ),
                 h(
                   'span',
                   { className: al.subsidyClawbackRisk ? 'tag tag-red' : 'tag tag-amber' },
@@ -2063,7 +2647,7 @@ function renderAlumniTab(snapshot) {
           return h(
             'option',
             { value: w.empCode },
-            `${w.empCode} ${w.displayName} (${w.deptName}${catSuffix})`
+            `No.${w.rowNo ?? 1} ${w.empCode} ${w.displayName} (${w.deptName}${catSuffix})`
           );
         })
       );
@@ -2085,231 +2669,252 @@ function renderAlumniTab(snapshot) {
     return;
   }
 
+  const visibleAlumni = applyGenericStarFilter(
+    snapshot,
+    'alumni',
+    alumni,
+    (al) => al.empCode
+  );
+
   const tbody = h(
     'tbody',
     {},
-    ...alumni.map((al) => {
-      const isPurged = al.dataLifecycleStatus === 'ANONYMIZED_PURGED';
-      const isPurgeDue = al.dataLifecycleStatus === 'RETENTION_EXPIRED_PURGE_DUE';
+    ...(visibleAlumni.length === 0
+      ? [h('tr', {}, h('td', { colspan: '6' }, '표시할 별표(★) 퇴사자가 없습니다.'))]
+      : visibleAlumni.map((al, idx) => {
+          const isPurged = al.dataLifecycleStatus === 'ANONYMIZED_PURGED';
+          const isPurgeDue = al.dataLifecycleStatus === 'RETENTION_EXPIRED_PURGE_DUE';
+          const rowNo = al.rowNo || idx + 1;
 
-      const retentionBadge = isPurged
-        ? h('span', { className: 'tag tag-gray' }, `비식별 파기됨 (${al.anonymizedAt})`)
-        : isPurgeDue
-          ? h('span', { className: 'tag tag-red' }, `3년 만료 · 즉시 파기대상 (${al.retentionExpiresOn})`)
-          : h('span', { className: 'tag tag-blue' }, `3년 의무보존 중 (~${al.retentionExpiresOn})`);
+          const retentionBadge = isPurged
+            ? h('span', { className: 'tag tag-gray' }, `비식별 파기됨 (${al.anonymizedAt})`)
+            : isPurgeDue
+              ? h('span', { className: 'tag tag-red' }, `3년 만료 · 즉시 파기대상 (${al.retentionExpiresOn})`)
+              : h('span', { className: 'tag tag-blue' }, `3년 의무보존 중 (~${al.retentionExpiresOn})`);
 
-      const settleBadge = isPurged
-        ? h('span', { className: 'tag tag-gray' }, '개인정보 파기 완료')
-        : al.settlementStatus === 'PAID'
-          ? h('span', { className: 'tag tag-green' }, '14일 청산 완료')
-          : h(
-              'span',
-              { className: al.settlementDday < 0 ? 'tag tag-red' : 'tag tag-amber' },
-              al.settlementDday >= 0
-                ? `청산 D-${al.settlementDday} (${al.settlementDueDate})`
-                : `기한경과 (${al.settlementDueDate})`
+          const settleBadge = isPurged
+            ? h('span', { className: 'tag tag-gray' }, '개인정보 파기 완료')
+            : al.settlementStatus === 'PAID'
+              ? h('span', { className: 'tag tag-green' }, '14일 청산 완료')
+              : h(
+                  'span',
+                  { className: al.settlementDday < 0 ? 'tag tag-red' : 'tag tag-amber' },
+                  al.settlementDday >= 0
+                    ? `청산 D-${al.settlementDday} (${al.settlementDueDate})`
+                    : `기한경과 (${al.settlementDueDate})`
+                );
+
+          const actionButtons = h('div', { className: 'alumni-btn-cluster' });
+
+          if (!isPurged) {
+            actionButtons.appendChild(
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'btn btn-secondary btn-sm',
+                  onClick: async (e) => {
+                    try {
+                      const nextStatus = al.settlementStatus === 'PAID' ? 'PENDING' : 'PAID';
+                      const res = await apiPost(
+                        '/api/offboarded/update-status',
+                        { empCode: al.empCode, settlementStatus: nextStatus },
+                        e.currentTarget
+                      );
+                      updateSnapshot(res.snapshot);
+                      showBanner(
+                        `${al.displayName} 금품청산 상태가 ${nextStatus === 'PAID' ? '지급완료' : '대기'}로 변경되었습니다.`
+                      );
+                    } catch (err) {
+                      showBanner(err.message, true);
+                    }
+                  },
+                },
+                al.settlementStatus === 'PAID' ? '청산완료 취소' : '14일 금품청산 완료'
+              )
             );
 
-      const actionButtons = h('div', { className: 'alumni-btn-cluster' });
+            actionButtons.appendChild(
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'btn btn-secondary btn-sm',
+                  onClick: async (e) => {
+                    try {
+                      const allFiled =
+                        al.nhisLossFilingStatus === 'FILED' && al.eiLossAndCertStatus === 'FILED';
+                      const targetVal = allFiled ? 'PENDING' : 'FILED';
+                      const res = await apiPost(
+                        '/api/offboarded/update-status',
+                        {
+                          empCode: al.empCode,
+                          nhisLossFilingStatus: targetVal,
+                          eiLossAndCertStatus: targetVal,
+                        },
+                        e.currentTarget
+                      );
+                      updateSnapshot(res.snapshot);
+                      showBanner(`${al.displayName} 건보·고보 상실 및 이직확인서 상태가 갱신되었습니다.`);
+                    } catch (err) {
+                      showBanner(err.message, true);
+                    }
+                  },
+                },
+                al.nhisLossFilingStatus === 'FILED' && al.eiLossAndCertStatus === 'FILED'
+                  ? '상실신고 완료됨'
+                  : '건보·고보 상실 완료체크'
+              )
+            );
 
-      if (!isPurged) {
-        actionButtons.appendChild(
-          h(
-            'button',
-            {
-              type: 'button',
-              className: 'btn btn-secondary btn-sm',
-              onClick: async (e) => {
-                try {
-                  const nextStatus = al.settlementStatus === 'PAID' ? 'PENDING' : 'PAID';
-                  const res = await apiPost(
-                    '/api/offboarded/update-status',
-                    { empCode: al.empCode, settlementStatus: nextStatus },
-                    e.currentTarget
-                  );
-                  updateSnapshot(res.snapshot);
-                  showBanner(`${al.displayName} 금품청산 상태가 ${nextStatus === 'PAID' ? '지급완료' : '대기'}로 변경되었습니다.`);
-                } catch (err) {
-                  showBanner(err.message, true);
-                }
-              },
-            },
-            al.settlementStatus === 'PAID' ? '청산완료 취소' : '14일 금품청산 완료'
-          )
-        );
+            actionButtons.appendChild(
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'btn btn-secondary btn-sm',
+                  onClick: (e) =>
+                    openDocumentPreview('DOC_CAREER_CERTIFICATE', e.currentTarget, undefined, al.empCode),
+                },
+                '경력증명서(제39조)'
+              )
+            );
 
-        actionButtons.appendChild(
-          h(
-            'button',
-            {
-              type: 'button',
-              className: 'btn btn-secondary btn-sm',
-              onClick: async (e) => {
-                try {
-                  const allFiled =
-                    al.nhisLossFilingStatus === 'FILED' && al.eiLossAndCertStatus === 'FILED';
-                  const targetVal = allFiled ? 'PENDING' : 'FILED';
-                  const res = await apiPost(
-                    '/api/offboarded/update-status',
-                    {
-                      empCode: al.empCode,
-                      nhisLossFilingStatus: targetVal,
-                      eiLossAndCertStatus: targetVal,
-                    },
-                    e.currentTarget
-                  );
-                  updateSnapshot(res.snapshot);
-                  showBanner(`${al.displayName} 건보·고보 상실 및 이직확인서 상태가 갱신되었습니다.`);
-                } catch (err) {
-                  showBanner(err.message, true);
-                }
-              },
-            },
-            al.nhisLossFilingStatus === 'FILED' && al.eiLossAndCertStatus === 'FILED'
-              ? '상실신고 완료됨'
-              : '건보·고보 상실 완료체크'
-          )
-        );
+            actionButtons.appendChild(
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'btn btn-secondary btn-sm',
+                  onClick: (e) =>
+                    openDocumentPreview('DOC_EI_SEPARATION_CERT', e.currentTarget, undefined, al.empCode),
+                },
+                '상실·이직 대조표'
+              )
+            );
 
-        actionButtons.appendChild(
-          h(
-            'button',
-            {
-              type: 'button',
-              className: 'btn btn-secondary btn-sm',
-              onClick: (e) =>
-                openDocumentPreview('DOC_CAREER_CERTIFICATE', e.currentTarget, undefined, al.empCode),
-            },
-            '경력증명서(제39조)'
-          )
-        );
+            actionButtons.appendChild(
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'btn btn-secondary btn-sm',
+                  onClick: (e) =>
+                    openDocumentPreview(
+                      'DOC_EXIT_SECURITY_NONCOMPETE',
+                      e.currentTarget,
+                      undefined,
+                      al.empCode
+                    ),
+                },
+                '퇴사 보안·경업금지서약서'
+              )
+            );
 
-        actionButtons.appendChild(
-          h(
-            'button',
-            {
-              type: 'button',
-              className: 'btn btn-secondary btn-sm',
-              onClick: (e) =>
-                openDocumentPreview('DOC_EI_SEPARATION_CERT', e.currentTarget, undefined, al.empCode),
-            },
-            '상실·이직 대조표'
-          )
-        );
+            actionButtons.appendChild(
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'btn btn-danger-outline btn-sm',
+                  onClick: async (e) => {
+                    try {
+                      const res = await apiPost(
+                        '/api/offboarded/purge-pii',
+                        { empCode: al.empCode },
+                        e.currentTarget
+                      );
+                      updateSnapshot(res.snapshot);
+                      showBanner(`${al.empCode} 퇴사 3년 만료 개인정보 비식별 파기가 완료되었습니다.`);
+                    } catch (err) {
+                      showBanner(err.message, true);
+                    }
+                  },
+                },
+                isPurgeDue ? '3년만료 비식별 파기' : '파기 시도(3년보호 점검)'
+              )
+            );
+          }
 
-        actionButtons.appendChild(
-          h(
-            'button',
-            {
-              type: 'button',
-              className: 'btn btn-secondary btn-sm',
-              onClick: (e) =>
-                openDocumentPreview(
-                  'DOC_EXIT_SECURITY_NONCOMPETE',
-                  e.currentTarget,
-                  undefined,
-                  al.empCode
-                ),
-            },
-            '퇴사 보안·경업금지서약서'
-          )
-        );
-
-        actionButtons.appendChild(
-          h(
-            'button',
-            {
-              type: 'button',
-              className: 'btn btn-danger-outline btn-sm',
-              onClick: async (e) => {
-                try {
-                  const res = await apiPost(
-                    '/api/offboarded/purge-pii',
-                    { empCode: al.empCode },
-                    e.currentTarget
-                  );
-                  updateSnapshot(res.snapshot);
-                  showBanner(`${al.empCode} 퇴사 3년 만료 개인정보 비식별 파기가 완료되었습니다.`);
-                } catch (err) {
-                  showBanner(err.message, true);
-                }
-              },
-            },
-            isPurgeDue ? '3년만료 비식별 파기' : '파기 시도(3년보호 점검)'
-          )
-        );
-      }
-
-      return h(
-        'tr',
-        {},
-        h(
-          'td',
-          { 'data-label': '퇴사자 · 소속' },
-          h('div', { className: 'breakable-name' }, al.displayName),
-          h('div', { className: 'cell-emp-code' }, `${al.empCode} · ${al.maskedBirthOrId}`),
-          h(
-            'div',
-            { className: 'cell-dept-name' },
-            isPurged ? '개인정보보호법 제21조 비식별화' : `${al.deptName} · 근속 ${al.serviceDays}일`
-          )
-        ),
-        h(
-          'td',
-          { 'data-label': '입·퇴사일 및 상실사유' },
-          h('div', {}, isPurged ? '입·퇴사일 비식별 삭제됨' : `${al.hireDate} ~ ${al.lastWorkDate}`),
-          h(
-            'div',
-            { className: 'cell-emp-code' },
-            isPurged ? `파기일자: ${al.anonymizedAt}` : `공단상실일: ${al.lossDateReported}`
-          ),
-          h(
-            'span',
-            { className: al.subsidyClawbackRisk ? 'tag tag-red' : 'tag tag-gray' },
-            al.resignReasonLabel
-          )
-        ),
-        h(
-          'td',
-          { className: 'num', 'data-label': '퇴직·연차 총 청산액' },
-          h('div', { className: 'font-extrabold' }, isPurged ? '-' : fmtWon(al.totalSettlementGross)),
-          h(
-            'div',
-            { className: 'cell-emp-code' },
-            isPurged
-              ? '개인 급여·정산액 비식별 삭제됨'
-              : `퇴직금 ${fmtWon(al.severancePay)} + 연차 ${fmtWon(al.unusedLeavePayout)}`
-          ),
-          settleBadge
-        ),
-        h(
-          'td',
-          { 'data-label': '4대보험 상실 · 보존연한' },
-          isPurged
-            ? h('div', { className: 'mb-6' }, h('span', { className: 'tag tag-gray' }, '공단 신고기록 비식별 마감'))
-            : h(
+          return h(
+            'tr',
+            {},
+            renderGenericMarkTd(snapshot, 'alumni', al.empCode, rowNo, al.displayName),
+            h(
+              'td',
+              { 'data-label': '퇴사자 · 소속' },
+              h('div', { className: 'breakable-name' }, al.displayName),
+              h('div', { className: 'cell-emp-code' }, `${al.empCode} · ${al.maskedBirthOrId}`),
+              h(
                 'div',
-                { className: 'mb-6' },
-                h(
-                  'span',
-                  { className: al.nhisLossFilingStatus === 'FILED' ? 'tag tag-green' : 'tag tag-amber' },
-                  `건보상실: ${al.nhisLossFilingStatus === 'FILED' ? '완료' : `미신고(~${al.nhisLossDueDate})`}`
-                ),
-                ' ',
-                h(
-                  'span',
-                  { className: al.eiLossAndCertStatus === 'FILED' ? 'tag tag-green' : 'tag tag-amber' },
-                  `고보이직: ${al.eiLossAndCertStatus === 'FILED' ? '완료' : `미신고(~${al.eiLossDueDate})`}`
-                )
+                { className: 'cell-dept-name' },
+                isPurged ? '개인정보보호법 제21조 비식별화' : `${al.deptName} · 근속 ${al.serviceDays}일`
+              )
+            ),
+            h(
+              'td',
+              { 'data-label': '입·퇴사일 및 상실사유' },
+              h('div', {}, isPurged ? '입·퇴사일 비식별 삭제됨' : `${al.hireDate} ~ ${al.lastWorkDate}`),
+              h(
+                'div',
+                { className: 'cell-emp-code' },
+                isPurged ? `파기일자: ${al.anonymizedAt}` : `공단상실일: ${al.lossDateReported}`
               ),
-          retentionBadge
-        ),
-        h('td', { 'data-label': '사후관리 · 증명서 · 파기' }, actionButtons)
-      );
-    })
+              h(
+                'span',
+                { className: al.subsidyClawbackRisk ? 'tag tag-red' : 'tag tag-gray' },
+                al.resignReasonLabel
+              )
+            ),
+            h(
+              'td',
+              { className: 'num', 'data-label': '퇴직·연차 총 청산액' },
+              h('div', { className: 'font-extrabold' }, isPurged ? '-' : fmtWon(al.totalSettlementGross)),
+              h(
+                'div',
+                { className: 'cell-emp-code' },
+                isPurged
+                  ? '개인 급여·정산액 비식별 삭제됨'
+                  : `퇴직금 ${fmtWon(al.severancePay)} + 연차 ${fmtWon(al.unusedLeavePayout)}`
+              ),
+              settleBadge
+            ),
+            h(
+              'td',
+              { 'data-label': '4대보험 상실 · 보존연한' },
+              isPurged
+                ? h('div', { className: 'mb-6' }, h('span', { className: 'tag tag-gray' }, '공단 신고기록 비식별 마감'))
+                : h(
+                    'div',
+                    { className: 'mb-6' },
+                    h(
+                      'span',
+                      { className: al.nhisLossFilingStatus === 'FILED' ? 'tag tag-green' : 'tag tag-amber' },
+                      `건보상실: ${al.nhisLossFilingStatus === 'FILED' ? '완료' : `미신고(~${al.nhisLossDueDate})`}`
+                    ),
+                    ' ',
+                    h(
+                      'span',
+                      { className: al.eiLossAndCertStatus === 'FILED' ? 'tag tag-green' : 'tag tag-amber' },
+                      `고보이직: ${al.eiLossAndCertStatus === 'FILED' ? '완료' : `미신고(~${al.eiLossDueDate})`}`
+                    )
+                  ),
+              retentionBadge
+            ),
+            h('td', { 'data-label': '사후관리 · 증명서 · 파기' }, actionButtons)
+          );
+        }))
   );
 
   tableWrap.replaceChildren(
+    h(
+      'div',
+      { className: 'ops-section-head' },
+      h('h3', { className: 'ops-section-title' }, '퇴사(은퇴)자 통합관리 원장'),
+      renderGenericSyncControls(snapshot, 'alumni', alumni, (al) => al.empCode, renderAlumniTab, '명', {
+        showGroupCheckbox: false,
+      })
+    ),
     h(
       'div',
       { className: 'table-scroll-wrap' },
@@ -2325,6 +2930,13 @@ function renderAlumniTab(snapshot) {
           h(
             'tr',
             {},
+            renderGenericSelectHeaderTh(
+              snapshot,
+              'alumni',
+              alumni,
+              (al) => al.empCode,
+              '퇴사자 통합관리 원장'
+            ),
             h('th', { scope: 'col' }, '퇴사자 · 소속'),
             h('th', { scope: 'col' }, '입·퇴사일 및 상실사유'),
             h('th', { scope: 'col', className: 'num' }, '퇴직·연차 총 청산액'),
@@ -2345,12 +2957,26 @@ function renderAlumniTab(snapshot) {
 async function runOpsAction(payload, triggerBtn = null) {
   try {
     const data = await apiPost('/api/ops/action', payload, triggerBtn);
+    if (data.result?.autoOpenOnboardingDocs && data.result?.hiredEmpCode) {
+      const ledger = data.snapshot?.operationsSuite?.recruitAndOnboarding?.contractLedger || [];
+      const hiredRow = ledger.find((c) => c.empCode === data.result.hiredEmpCode);
+      appState.onboardingDocEmpCode = data.result.hiredEmpCode;
+      appState.onboardingActiveTpl = 'DOC_EMPLOYMENT_CONTRACT';
+      if (hiredRow) {
+        appState.onboardingDraftPerson = buildDraftFromContractRow(hiredRow);
+      }
+    }
     updateSnapshot(data.snapshot);
+    if (data.result?.autoOpenOnboardingDocs && data.result?.hiredEmpCode) {
+      document.getElementById('onboarding-doc-studio')?.scrollIntoView({ block: 'start' });
+    }
     if (data.result?.message) {
       showBanner(data.result.message);
     }
+    return data;
   } catch (err) {
     showBanner(err.message, true);
+    return null;
   }
 }
 
@@ -2492,6 +3118,18 @@ function renderOpsHomeTab(snapshot) {
     });
   }
 
+  const indexedActions = actionItems.map((it, idx) => ({
+    ...it,
+    itemId: `ACT-${it.tab}-${idx + 1}`,
+    rowNo: idx + 1,
+  }));
+  const visibleActions = applyGenericStarFilter(
+    snapshot,
+    'homeActions',
+    indexedActions,
+    (it) => it.itemId
+  );
+
   const actionCenterCard = h(
     'div',
     { className: 'ops-section-block' },
@@ -2499,32 +3137,42 @@ function renderOpsHomeTab(snapshot) {
       'div',
       { className: 'ops-section-head' },
       h('h3', { className: 'ops-section-title' }, '확인할 업무'),
-      h('span', { className: 'tag tag-gray' }, `${actionItems.length}건`)
+      renderGenericSyncControls(
+        snapshot,
+        'homeActions',
+        indexedActions,
+        (it) => it.itemId,
+        renderOpsHomeTab,
+        '건'
+      )
     ),
     h(
       'div',
       { className: 'action-feed-list' },
-      ...actionItems.map((item) =>
-        h(
-          'div',
-          { className: 'action-feed-row' },
-          h(
-            'div',
-            { className: 'action-feed-main' },
-            h('span', { className: item.tagClass }, item.tagText),
-            h('span', {}, item.text)
-          ),
-          h(
-            'button',
-            {
-              type: 'button',
-              className: 'btn btn-secondary btn-sm',
-              onClick: (e) => jumpTo(item.tab, e.currentTarget),
-            },
-            '확인'
-          )
-        )
-      )
+      ...(visibleActions.length === 0
+        ? [h('div', { className: 'empty-state' }, '표시할 별표(★) 업무가 없습니다.')]
+        : visibleActions.map((item) =>
+            h(
+              'div',
+              { className: 'action-feed-row' },
+              h(
+                'div',
+                { className: 'action-feed-main' },
+                renderGenericInlineMark(snapshot, 'homeActions', item.itemId, item.rowNo, item.text),
+                h('span', { className: item.tagClass }, item.tagText),
+                h('span', {}, item.text)
+              ),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'btn btn-secondary btn-sm',
+                  onClick: (e) => jumpTo(item.tab, e.currentTarget),
+                },
+                '확인'
+              )
+            )
+          ))
     )
   );
 
@@ -2535,6 +3183,7 @@ function renderOpsRecruitTab(snapshot) {
   const wrap = document.getElementById('ops-recruit-container');
   if (!wrap || !snapshot.operationsSuite) return;
   const rec = snapshot.operationsSuite.recruitAndOnboarding;
+  const signedArchive = snapshot.operationsSuite.signedDocumentsArchive || [];
 
   const addForm = h(
     'form',
@@ -2593,13 +3242,30 @@ function renderOpsRecruitTab(snapshot) {
     )
   );
 
+  const indexedApplicants = rec.applicants.map((a, idx) => ({ ...a, rowNo: idx + 1 }));
+  const visibleApplicants = applyGenericStarFilter(
+    snapshot,
+    'applicants',
+    indexedApplicants,
+    (a) => a.applicantId
+  );
+
   const applicantTable = h(
     'div',
     { className: 'ops-section-block' },
     h(
       'div',
       { className: 'ops-section-head' },
-      h('h3', { className: 'ops-section-title' }, '채용 후보자')
+      h('h3', { className: 'ops-section-title' }, '채용 후보자 (입사 발령 시 필수 3종 서식 자동 오픈)'),
+      renderGenericSyncControls(
+        snapshot,
+        'applicants',
+        indexedApplicants,
+        (a) => a.applicantId,
+        renderOpsRecruitTab,
+        '명',
+        { showGroupCheckbox: false }
+      )
     ),
     addForm,
     h(
@@ -2614,74 +3280,567 @@ function renderOpsRecruitTab(snapshot) {
           h(
             'tr',
             {},
+            renderGenericSelectHeaderTh(
+              snapshot,
+              'applicants',
+              indexedApplicants,
+              (a) => a.applicantId,
+              '채용 후보자'
+            ),
             h('th', { scope: 'col' }, '지원번호 · 성명'),
             h('th', { scope: 'col' }, '지원부서 · 직무'),
             h('th', { scope: 'col' }, '전형단계 · 블라인드'),
             h('th', { scope: 'col', className: 'num' }, '제시처우 (주시간)'),
             h('th', { scope: 'col' }, '채용서류 반환/파기기한'),
-            h('th', { scope: 'col' }, '입사 · 계약 연계')
+            h('th', { scope: 'col' }, '입사 · 3종 계약서 자동연계')
           )
         ),
         h(
           'tbody',
           {},
-          rec.applicants.map((a) =>
-            h(
-              'tr',
-              {},
-              h(
-                'td',
-                { 'data-label': '지원번호 · 성명' },
-                h('div', { className: 'cell-emp-code' }, a.applicantId),
-                h('div', { className: 'breakable-name' }, a.name),
-                h('div', { className: 'cell-dept-name' }, a.maskedBirth)
-              ),
-              h(
-                'td',
-                { 'data-label': '지원부서 · 직무' },
-                h('div', {}, a.targetDept),
-                h('div', { className: 'cell-dept-name' }, a.jobRole)
-              ),
-              h(
-                'td',
-                { 'data-label': '전형단계 · 블라인드' },
-                h('span', { className: a.hiredEmpCode ? 'tag tag-green' : 'tag tag-blue' }, a.stageLabel),
-                h('div', { className: 'cell-dept-name' }, '블라인드 필터 적합')
-              ),
-              h(
-                'td',
-                { className: 'num', 'data-label': '제시처우' },
-                fmtWon(a.offeredMonthlyPay),
-                h('div', { className: 'cell-dept-name' }, `주 ${a.weeklyHours}시간`)
-              ),
-              h('td', { 'data-label': '채용서류 반환/파기기한' }, `${a.docReturnDueOn} 까지 보관`),
-              h(
-                'td',
-                { 'data-label': '입사 · 계약 연계' },
-                a.hiredEmpCode
-                  ? h('span', { className: 'tag tag-green' }, `명부 편입됨 (${a.hiredEmpCode})`)
-                  : a.stage === 'DOC_RETENTION'
-                    ? h('span', { className: 'tag tag-gray' }, '서류반환 대기종료 후 파기')
-                    : h(
-                        'button',
-                        {
-                          type: 'button',
-                          className: 'btn btn-primary btn-sm',
-                          onClick: (e) =>
-                            runOpsAction(
-                              { actionType: 'HIRE_APPLICANT', applicantId: a.applicantId },
-                              e.currentTarget
-                            ),
-                        },
-                        '입사 발령 · 급여원장 편입'
-                      )
+          visibleApplicants.length === 0
+            ? [h('tr', {}, h('td', { colspan: '7' }, '표시할 별표(★) 채용 후보자가 없습니다.'))]
+            : visibleApplicants.map((a) =>
+                h(
+                  'tr',
+                  {},
+                  renderGenericMarkTd(snapshot, 'applicants', a.applicantId, a.rowNo, a.name),
+                  h(
+                    'td',
+                    { 'data-label': '지원번호 · 성명' },
+                    h('div', { className: 'cell-emp-code' }, a.applicantId),
+                    h('div', { className: 'breakable-name' }, a.name),
+                    h('div', { className: 'cell-dept-name' }, a.maskedBirth)
+                  ),
+                  h(
+                    'td',
+                    { 'data-label': '지원부서 · 직무' },
+                    h('div', {}, a.targetDept),
+                    h('div', { className: 'cell-dept-name' }, a.jobRole)
+                  ),
+                  h(
+                    'td',
+                    { 'data-label': '전형단계 · 블라인드' },
+                    h('span', { className: a.hiredEmpCode ? 'tag tag-green' : 'tag tag-blue' }, a.stageLabel),
+                    h('div', { className: 'cell-dept-name' }, '블라인드 필터 적합')
+                  ),
+                  h(
+                    'td',
+                    { className: 'num', 'data-label': '제시처우' },
+                    fmtWon(a.offeredMonthlyPay),
+                    h('div', { className: 'cell-dept-name' }, `주 ${a.weeklyHours}시간`)
+                  ),
+                  h('td', { 'data-label': '채용서류 반환/파기기한' }, `${a.docReturnDueOn} 까지 보관`),
+                  h(
+                    'td',
+                    { 'data-label': '입사 · 3종 계약서 자동연계' },
+                    a.hiredEmpCode
+                      ? h(
+                          'div',
+                          { className: 'step-pill-group' },
+                          h('span', { className: 'tag tag-green' }, `편입됨 (${a.hiredEmpCode})`),
+                          h(
+                            'button',
+                            {
+                              type: 'button',
+                              className: 'btn btn-secondary btn-sm',
+                              onClick: () => openWorkerInOnboardingStudio(a.hiredEmpCode),
+                            },
+                            '입사 3종 서식 열기'
+                          )
+                        )
+                      : a.stage === 'DOC_RETENTION'
+                        ? h('span', { className: 'tag tag-gray' }, '서류반환 대기종료 후 파기')
+                        : h(
+                            'button',
+                            {
+                              type: 'button',
+                              className: 'btn btn-primary btn-sm',
+                              onClick: (e) =>
+                                runOpsAction(
+                                  { actionType: 'HIRE_APPLICANT', applicantId: a.applicantId },
+                                  e.currentTarget
+                                ),
+                            },
+                            '입사 발령 · 3종서식 자동생성'
+                          )
+                  )
+                )
               )
-            )
-          )
         )
       )
     )
   );
+
+  // 입사 필수 3종(근로계약서 · 개인정보동의서 · 보안서약서) 자동연결 · 개인정보 실시간 기입 · 전자서명 스튜디오
+  const ledger = rec.contractLedger || [];
+  if (!appState.onboardingDocEmpCode || !ledger.some((c) => c.empCode === appState.onboardingDocEmpCode)) {
+    const firstUnsigned = ledger.find((c) => !c.allOnboardingSigned) || ledger[0];
+    appState.onboardingDocEmpCode = firstUnsigned ? firstUnsigned.empCode : '';
+  }
+  const activeContractRow =
+    ledger.find((c) => c.empCode === appState.onboardingDocEmpCode) || ledger[0] || null;
+
+  if (
+    !appState.onboardingDraftPerson ||
+    appState.onboardingDraftPerson._boundEmpCode !== (activeContractRow?.empCode || '')
+  ) {
+    appState.onboardingDraftPerson = activeContractRow
+      ? { ...buildDraftFromContractRow(activeContractRow), _boundEmpCode: activeContractRow.empCode }
+      : {
+          empCode: '',
+          personName: '신규입사자',
+          deptName: '생산기술1팀',
+          jobTitle: '사원',
+          hireDate: '2026-11-15',
+          maskedBirthOrId: '950101-*******',
+          maskedPhone: '010-****-0000',
+          address: '경기도 화성시 동탄첨단산업1로 45',
+          weeklyHours: 40,
+          baseMonthlyPay: 3200000,
+          mealAllowance: 200000,
+          _boundEmpCode: '',
+        };
+  }
+  const draft = appState.onboardingDraftPerson;
+  const currentBoundKey = draft.empCode || 'NEW';
+  if (appState.onboardingSigState.boundKey !== currentBoundKey) {
+    appState.onboardingSigState = {
+      boundKey: currentBoundKey,
+      signerName: draft.personName,
+      dataUrl: '',
+      consentConfirmed: false,
+    };
+  }
+  const sigPad = createSignatureCanvasControl(
+    draft.personName,
+    'onboard-sig',
+    appState.onboardingSigState
+  );
+
+  const onboardingTplSpecs = [
+    {
+      id: 'DOC_EMPLOYMENT_CONTRACT',
+      shortTitle: '1. 표준 근로계약서',
+      signedFlag: Boolean(activeContractRow?.employmentContractSigned),
+    },
+    {
+      id: 'DOC_PRIVACY_CONSENT',
+      shortTitle: '2. 개인정보 수집·이용 동의서',
+      signedFlag: Boolean(activeContractRow?.privacyConsentSigned),
+    },
+    {
+      id: 'DOC_NDA_SECURITY_PLEDGE',
+      shortTitle: '3. 비밀유지·정보보안 서약서',
+      signedFlag: Boolean(activeContractRow?.ndaPledgeSigned),
+    },
+    {
+      id: 'DOC_EXIT_SECURITY_NONCOMPETE',
+      shortTitle: '4. 퇴사 보안·경업금지 약정',
+      signedFlag: false,
+    },
+  ];
+
+  const viewerBodyWrap = h(
+    'div',
+    { id: 'onboarding-doc-viewer-pane', 'aria-live': 'polite' },
+    h('div', { className: 'doc-paper-box' }, '서식 양식을 불러오는 중입니다...')
+  );
+
+  const renderOnboardingDocIntoPane = async () => {
+    const reqId = ++appState.onboardingReqSeq;
+    try {
+      const doc = await fetchRenderedDocQuiet({
+        previewOnly: true,
+        templateId: appState.onboardingActiveTpl,
+        empCode: draft.empCode || undefined,
+        personInfo: {
+          empCode: draft.empCode,
+          personName: draft.personName,
+          deptName: draft.deptName,
+          jobTitle: draft.jobTitle,
+          hireDate: draft.hireDate,
+          maskedBirthOrId: draft.maskedBirthOrId,
+          maskedPhone: draft.maskedPhone,
+          address: draft.address,
+          weeklyHours: Number(draft.weeklyHours) || 40,
+          baseMonthlyPay: Number(draft.baseMonthlyPay) || 0,
+          mealAllowance: Number(draft.mealAllowance) || 0,
+        },
+      });
+      if (reqId !== appState.onboardingReqSeq) return;
+
+      const verifiedSigned = doc.signedRecord || null;
+      const hadPriorSignedRecord = signedArchive.some(
+        (d) => d.templateId === appState.onboardingActiveTpl && draft.empCode && d.empCode === draft.empCode && d.signed
+      );
+
+      const sigStampBlock = verifiedSigned
+        ? h(
+            'div',
+            { className: 'person-doc-history-card' },
+            h(
+              'div',
+              { className: 'flex-between-tight' },
+              h(
+                'span',
+                { className: 'tag tag-green' },
+                `전자서명 완료 ✓ (${verifiedSigned.signerName} · ${verifiedSigned.signedAt} · ${verifiedSigned.signatureCode})`
+              ),
+              h('span', { className: 'cell-dept-name' }, doc.title)
+            ),
+            verifiedSigned.signatureDataUrl
+              ? h('img', {
+                  className: 'sig-saved-preview',
+                  src: verifiedSigned.signatureDataUrl,
+                  alt: `${verifiedSigned.signerName} 자필 전자서명 이미지`,
+                })
+              : null
+          )
+        : hadPriorSignedRecord
+          ? h(
+              'div',
+              { className: 'person-doc-history-card' },
+              h(
+                'span',
+                { className: 'tag tag-amber' },
+                '기재 내용이 수정되어 기존 서명 증명이 해제되었습니다 — 변경된 내용으로 재서명 후 저장해 주세요.'
+              )
+            )
+          : null;
+
+      if (appState.onboardingCompareMode) {
+        viewerBodyWrap.replaceChildren(
+          h(
+            'div',
+            { className: 'doc-compare-grid' },
+            h(
+              'div',
+              {},
+              h('div', { className: 'mb-6' }, h('span', { className: 'tag tag-gray' }, '기본 양식 (미기입 표준원본)')),
+              h('div', { className: 'doc-paper-box' }, doc.blankTemplateBody || doc.body)
+            ),
+            h(
+              'div',
+              {},
+              h(
+                'div',
+                { className: 'mb-6' },
+                h('span', { className: 'tag tag-amber' }, '변경된 양식 (좌측 개인정보·처우 자동기입)')
+              ),
+              renderHighlightedDocPre(doc.body, doc.autoFilledTokens)
+            )
+          ),
+          sigStampBlock
+        );
+      } else {
+        viewerBodyWrap.replaceChildren(
+          h(
+            'div',
+            { className: 'flex-between-tight mb-6' },
+            h('strong', {}, doc.title),
+            h('span', { className: 'tag tag-blue' }, '노란 하이라이트 = 좌측 입력 개인정보 실시간 반영 항목')
+          ),
+          renderHighlightedDocPre(doc.body, doc.autoFilledTokens),
+          sigStampBlock
+        );
+      }
+    } catch (err) {
+      if (reqId !== appState.onboardingReqSeq) return;
+      viewerBodyWrap.replaceChildren(h('div', { className: 'tag tag-red' }, err.message));
+    }
+  };
+
+  const scheduleOnboardingDocRefresh = () => {
+    if (appState.onboardingDocTimer) clearTimeout(appState.onboardingDocTimer);
+    appState.onboardingDocTimer = setTimeout(() => {
+      renderOnboardingDocIntoPane();
+    }, 90);
+  };
+
+  const submitOnboardingSign = async (templateIds, triggerBtn) => {
+    if (!sigPad.isConsentConfirmed()) {
+      showBanner('전자서명을 진행하려면 조항 확인 및 전자서명 동의 체크박스를 선택해 주세요.', true);
+      sigPad.focusConsent();
+      return;
+    }
+    const signerNameVal = sigPad.getSignerName() || draft.personName;
+    const sigUrl = sigPad.getSignatureDataUrl();
+    const prevBound = draft.empCode;
+    appState.onboardingDraftPerson = null;
+    await runOpsAction(
+      {
+        actionType: 'SAVE_PERSON_DOC_AND_SIGN',
+        empCode: prevBound || undefined,
+        personName: draft.personName,
+        deptName: draft.deptName,
+        jobTitle: draft.jobTitle,
+        hireDate: draft.hireDate,
+        maskedBirthOrId: draft.maskedBirthOrId,
+        maskedPhone: draft.maskedPhone,
+        address: draft.address,
+        weeklyHours: Number(draft.weeklyHours) || 40,
+        baseMonthlyPay: Number(draft.baseMonthlyPay) || 0,
+        mealAllowance: Number(draft.mealAllowance) || 0,
+        templateIds,
+        signNow: true,
+        consentConfirmed: true,
+        signerName: signerNameVal,
+        signatureDataUrl: sigUrl,
+      },
+      triggerBtn
+    );
+  };
+
+  const onboardingStudioSection = h(
+    'div',
+    { className: 'ops-section-block code-diff-box', id: 'onboarding-doc-studio' },
+    h(
+      'div',
+      { className: 'ops-section-head' },
+      h(
+        'div',
+        { className: 'step-pill-group' },
+        h('h3', { className: 'ops-section-title' }, '입사 필수 3종 서식 자동연결 · 개인정보 자동기입 · 전자서명'),
+        h('span', { className: 'code-diff-pill' }, '변경됨 · 좌측 개인정보 입력 즉시 우측 계약서·서약서·동의서 자동 반영 + 서명')
+      ),
+      activeContractRow
+        ? h(
+            'span',
+            { className: activeContractRow.allOnboardingSigned ? 'tag tag-green' : 'tag tag-amber' },
+            activeContractRow.allOnboardingSigned
+              ? `No.${activeContractRow.rowNo} ${activeContractRow.displayName} — 입사 3종 서명 완료 ✓`
+              : `No.${activeContractRow.rowNo} ${activeContractRow.displayName} — 미서명 서식 확인 필요`
+          )
+        : null
+    ),
+    h(
+      'div',
+      { className: 'forms-studio-layout' },
+      // 좌측: 대상 직원 선택 + 개인정보 입력 + 자필 전자서명 패드
+      h(
+        'div',
+        { className: 'forms-studio-sidebar' },
+        h(
+          'div',
+          {
+            className: 'studio-person-box',
+            onInput: (e) => {
+              const target = e.target;
+              if (!target || !target.name) return;
+              draft[target.name] = target.value;
+              if (target.name === 'personName') {
+                sigPad.setSignerName(target.value);
+              }
+              sigPad.invalidateConsent();
+              scheduleOnboardingDocRefresh();
+            },
+          },
+          h(
+            'div',
+            { className: 'field' },
+            h('label', { for: 'onboard-emp-select' }, '대상 직원 선택 (입사 발령 시 자동 선택됨)'),
+            h(
+              'select',
+              {
+                id: 'onboard-emp-select',
+                disabled: ledger.length === 0,
+                onChange: (e) => {
+                  const nextCode = e.currentTarget.value;
+                  appState.onboardingDocEmpCode = nextCode;
+                  const row = ledger.find((x) => x.empCode === nextCode);
+                  appState.onboardingDraftPerson = row
+                    ? { ...buildDraftFromContractRow(row), _boundEmpCode: row.empCode }
+                    : null;
+                  renderOpsRecruitTab(snapshot);
+                },
+              },
+              ...(ledger.length === 0
+                ? [h('option', { value: '' }, '등록된 직원이 없습니다')]
+                : ledger.map((c) =>
+                    h(
+                      'option',
+                      { value: c.empCode, selected: c.empCode === activeContractRow?.empCode },
+                      `No.${c.rowNo} ${c.displayName} (${c.empCode}) — ${c.allOnboardingSigned ? '3종 서명완료' : '서명필요'}`
+                    )
+                  ))
+            )
+          ),
+          h(
+            'div',
+            { className: 'studio-mini-grid' },
+            h(
+              'div',
+              { className: 'field' },
+              h('label', { for: 'ob-person-name' }, '성명 (우측 서식 자동기입)'),
+              h('input', { id: 'ob-person-name', name: 'personName', type: 'text', value: draft.personName })
+            ),
+            h(
+              'div',
+              { className: 'field' },
+              h('label', { for: 'ob-dept-name' }, '소속 부서'),
+              h('input', { id: 'ob-dept-name', name: 'deptName', type: 'text', value: draft.deptName })
+            ),
+            h(
+              'div',
+              { className: 'field' },
+              h('label', { for: 'ob-job-title' }, '직위 · 담당업무'),
+              h('input', { id: 'ob-job-title', name: 'jobTitle', type: 'text', value: draft.jobTitle })
+            ),
+            h(
+              'div',
+              { className: 'field' },
+              h('label', { for: 'ob-hire-date' }, '입사일(계약시작일)'),
+              h('input', { id: 'ob-hire-date', name: 'hireDate', type: 'date', value: draft.hireDate })
+            ),
+            h(
+              'div',
+              { className: 'field' },
+              h('label', { for: 'ob-birth' }, '생년월일(마스킹)'),
+              h('input', {
+                id: 'ob-birth',
+                name: 'maskedBirthOrId',
+                type: 'text',
+                value: draft.maskedBirthOrId,
+              })
+            ),
+            h(
+              'div',
+              { className: 'field' },
+              h('label', { for: 'ob-phone' }, '연락처(자동마스킹)'),
+              h('input', { id: 'ob-phone', name: 'maskedPhone', type: 'text', value: draft.maskedPhone })
+            ),
+            h(
+              'div',
+              { className: 'field' },
+              h('label', { for: 'ob-base-pay' }, '월 기본급(원)'),
+              h('input', {
+                id: 'ob-base-pay',
+                name: 'baseMonthlyPay',
+                type: 'number',
+                step: '50000',
+                value: String(draft.baseMonthlyPay),
+              })
+            ),
+            h(
+              'div',
+              { className: 'field' },
+              h('label', { for: 'ob-weekly-hours' }, '주 소정근로시간(h)'),
+              h('input', {
+                id: 'ob-weekly-hours',
+                name: 'weeklyHours',
+                type: 'number',
+                min: '1',
+                max: '52',
+                value: String(draft.weeklyHours),
+              })
+            )
+          ),
+          h(
+            'div',
+            { className: 'field' },
+            h('label', { for: 'ob-address' }, '거주지 주소 (계약서 · 서약서 · 동의서 동시 반영)'),
+            h('input', { id: 'ob-address', name: 'address', type: 'text', value: draft.address })
+          )
+        ),
+        sigPad.rootEl,
+        h(
+          'div',
+          { className: 'step-pill-group' },
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'btn btn-primary full-width',
+              onClick: (e) =>
+                submitOnboardingSign(
+                  ['DOC_EMPLOYMENT_CONTRACT', 'DOC_PRIVACY_CONSENT', 'DOC_NDA_SECURITY_PLEDGE'],
+                  e.currentTarget
+                ),
+            },
+            '입사 필수 3종(근로계약·개인정보동의·보안서약) 일괄 서명 · 저장'
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'btn btn-secondary full-width',
+              onClick: (e) => submitOnboardingSign([appState.onboardingActiveTpl], e.currentTarget),
+            },
+            '현재 열람 중인 서식만 서명 · 저장'
+          )
+        )
+      ),
+      // 우측: 입사 연결 서식 탭 + 기본양식↔변경양식 비교 + 실시간 하이라이트 문서
+      h(
+        'div',
+        { className: 'forms-studio-viewer' },
+        h(
+          'div',
+          { className: 'ops-section-head' },
+          h(
+            'div',
+            { className: 'step-pill-group' },
+            ...onboardingTplSpecs.map((sp) =>
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className:
+                    appState.onboardingActiveTpl === sp.id
+                      ? 'btn btn-primary btn-sm'
+                      : 'btn btn-secondary btn-sm',
+                  'aria-pressed': String(appState.onboardingActiveTpl === sp.id),
+                  onClick: () => {
+                    appState.onboardingActiveTpl = sp.id;
+                    renderOpsRecruitTab(snapshot);
+                  },
+                },
+                `${sp.shortTitle}${sp.signedFlag ? ' ✓' : ''}`
+              )
+            )
+          ),
+          h(
+            'div',
+            { className: 'step-pill-group' },
+            h(
+              'button',
+              {
+                type: 'button',
+                className: !appState.onboardingCompareMode
+                  ? 'btn btn-primary btn-sm'
+                  : 'btn btn-secondary btn-sm',
+                'aria-pressed': String(!appState.onboardingCompareMode),
+                onClick: () => {
+                  appState.onboardingCompareMode = false;
+                  renderOpsRecruitTab(snapshot);
+                },
+              },
+              '반영된 양식 보기'
+            ),
+            h(
+              'button',
+              {
+                type: 'button',
+                className: appState.onboardingCompareMode
+                  ? 'btn btn-primary btn-sm'
+                  : 'btn btn-secondary btn-sm',
+                'aria-pressed': String(appState.onboardingCompareMode),
+                onClick: () => {
+                  appState.onboardingCompareMode = true;
+                  renderOpsRecruitTab(snapshot);
+                },
+              },
+              '기본양식 ↔ 변경양식 비교'
+            )
+          )
+        ),
+        viewerBodyWrap
+      )
+    )
+  );
+
+  renderOnboardingDocIntoPane();
 
   const visibleContracts = applyStarFilter(rec.contractLedger);
   const contractSection = h(
@@ -2690,38 +3849,11 @@ function renderOpsRecruitTab(snapshot) {
     h(
       'div',
       { className: 'ops-section-head' },
-      h('h3', { className: 'ops-section-title' }, '근로계약 현황'),
+      h('h3', { className: 'ops-section-title' }, '근로계약 · 보안서약 · 개인정보동의 현황'),
       h(
         'div',
         { className: 'step-pill-group' },
-        renderRosterSyncControls(rec.contractLedger, renderOpsRecruitTab),
-        h(
-          'button',
-          {
-            type: 'button',
-            className: 'btn btn-secondary btn-sm',
-            onClick: (e) => openDocumentPreview('DOC_EMPLOYMENT_CONTRACT', e.currentTarget),
-          },
-          '표준 근로계약서'
-        ),
-        h(
-          'button',
-          {
-            type: 'button',
-            className: 'btn btn-secondary btn-sm',
-            onClick: (e) => openDocumentPreview('DOC_PRIVACY_CONSENT', e.currentTarget),
-          },
-          '개인정보 동의서'
-        ),
-        h(
-          'button',
-          {
-            type: 'button',
-            className: 'btn btn-secondary btn-sm',
-            onClick: (e) => openDocumentPreview('DOC_NDA_SECURITY_PLEDGE', e.currentTarget),
-          },
-          '비밀유지 서약서'
-        )
+        renderRosterSyncControls(rec.contractLedger, renderOpsRecruitTab)
       )
     ),
     h(
@@ -2740,9 +3872,9 @@ function renderOpsRecruitTab(snapshot) {
             h('th', { scope: 'col' }, '사번 · 이름 · 부서'),
             h('th', { scope: 'col' }, '입사일 · 수습만료'),
             h('th', { scope: 'col', className: 'num' }, '계약 기준액'),
-            h('th', { scope: 'col' }, '계약 상태'),
+            h('th', { scope: 'col' }, '입사 필수 3종 서명 상태'),
             h('th', { scope: 'col' }, '4대보험'),
-            h('th', { scope: 'col' }, '관리')
+            h('th', { scope: 'col' }, '서식 · 전자서명 연결')
           )
         ),
         h(
@@ -2792,10 +3924,26 @@ function renderOpsRecruitTab(snapshot) {
                   ),
                   h(
                     'td',
-                    { 'data-label': '계약 상태' },
-                    c.contractSigned
-                      ? h('span', { className: 'tag tag-green' }, `체결 (${c.contractSignedAt})`)
-                      : h('span', { className: 'tag tag-red' }, '미체결')
+                    { 'data-label': '입사 필수 3종 서명 상태' },
+                    h(
+                      'div',
+                      { className: 'step-pill-group' },
+                      h(
+                        'span',
+                        { className: c.employmentContractSigned ? 'tag tag-green' : 'tag tag-red' },
+                        c.employmentContractSigned ? '근로계약 ✓' : '근로계약 미서명'
+                      ),
+                      h(
+                        'span',
+                        { className: c.privacyConsentSigned ? 'tag tag-green' : 'tag tag-amber' },
+                        c.privacyConsentSigned ? '개인정보동의 ✓' : '동의서 미서명'
+                      ),
+                      h(
+                        'span',
+                        { className: c.ndaPledgeSigned ? 'tag tag-green' : 'tag tag-amber' },
+                        c.ndaPledgeSigned ? '보안서약 ✓' : '보안서약 미서명'
+                      )
+                    )
                   ),
                   h(
                     'td',
@@ -2811,52 +3959,21 @@ function renderOpsRecruitTab(snapshot) {
                   ),
                   h(
                     'td',
-                    { 'data-label': '관리' },
+                    { 'data-label': '서식 · 전자서명 연결' },
                     h(
                       'div',
                       { className: 'step-pill-group' },
-                      c.contractSigned
-                        ? h(
-                            'button',
-                            {
-                              type: 'button',
-                              className: 'btn btn-secondary btn-sm',
-                              onClick: (e) => openDocumentPreview('DOC_EMPLOYMENT_CONTRACT', e.currentTarget),
-                            },
-                            '계약서'
-                          )
-                        : h(
-                            'button',
-                            {
-                              type: 'button',
-                              className: 'btn btn-primary btn-sm',
-                              onClick: (e) =>
-                                runOpsAction(
-                                  { actionType: 'SIGN_CONTRACT', empCode: c.empCode },
-                                  e.currentTarget
-                                ),
-                            },
-                            '서명 처리'
-                          ),
                       h(
                         'button',
                         {
                           type: 'button',
-                          className: 'btn btn-secondary btn-sm',
-                          onClick: (e) =>
-                            openDocumentPreview('DOC_PRIVACY_CONSENT', e.currentTarget, undefined, c.empCode),
+                          className: c.allOnboardingSigned
+                            ? 'btn btn-secondary btn-sm'
+                            : 'btn btn-primary btn-sm',
+                          onClick: () =>
+                            openWorkerInOnboardingStudio(c.empCode, 'DOC_EMPLOYMENT_CONTRACT'),
                         },
-                        '동의서'
-                      ),
-                      h(
-                        'button',
-                        {
-                          type: 'button',
-                          className: 'btn btn-secondary btn-sm',
-                          onClick: (e) =>
-                            openDocumentPreview('DOC_NDA_SECURITY_PLEDGE', e.currentTarget, undefined, c.empCode),
-                        },
-                        '보안서약서'
+                        c.allOnboardingSigned ? '입사 3종 열람·재서명' : '입사 3종 자동기입·서명'
                       )
                     )
                   )
@@ -2867,7 +3984,7 @@ function renderOpsRecruitTab(snapshot) {
     )
   );
 
-  wrap.replaceChildren(contractSection, applicantTable);
+  wrap.replaceChildren(onboardingStudioSection, contractSection, applicantTable);
 }
 
 function renderOpsOrgTab(snapshot) {
@@ -3033,6 +4150,15 @@ function renderOpsOrgTab(snapshot) {
                     h(
                       'div',
                       { className: 'step-pill-group' },
+                      h(
+                        'button',
+                        {
+                          type: 'button',
+                          className: 'btn btn-primary btn-sm',
+                          onClick: () => openWorkerInOnboardingStudio(w.empCode),
+                        },
+                        '입사 3종 서식 · 서명'
+                      ),
                       w.workerCategory !== 'BIZ_33'
                         ? h(
                             'button',
@@ -3045,16 +4171,6 @@ function renderOpsOrgTab(snapshot) {
                             '재직증명서'
                           )
                         : null,
-                      h(
-                        'button',
-                        {
-                          type: 'button',
-                          className: 'btn btn-secondary btn-sm',
-                          onClick: (e) =>
-                            openDocumentPreview('DOC_PRIVACY_CONSENT', e.currentTarget, undefined, w.empCode),
-                        },
-                        '동의서'
-                      ),
                       h(
                         'button',
                         {
@@ -4347,6 +5463,17 @@ function renderOpsLeaveTab(snapshot) {
             )
           );
 
+      const indexedLeaveRecords = (selectedLv.records || []).map((recItem, idx) => ({
+        ...recItem,
+        rowNo: idx + 1,
+      }));
+      const visibleLeaveRecords = applyGenericStarFilter(
+        snapshot,
+        'leaveRecords',
+        indexedLeaveRecords,
+        (r) => r.recordId
+      );
+
       const recordsTable = selectedLv.leaveEligible
         ? h(
             'div',
@@ -4360,6 +5487,13 @@ function renderOpsLeaveTab(snapshot) {
                 h(
                   'tr',
                   {},
+                  renderGenericSelectHeaderTh(
+                    snapshot,
+                    'leaveRecords',
+                    indexedLeaveRecords,
+                    (r) => r.recordId,
+                    '연차 신청 및 사용 이력'
+                  ),
                   h('th', { scope: 'col' }, '회차'),
                   h('th', { scope: 'col' }, '신청일자'),
                   h('th', { scope: 'col' }, '사용일자'),
@@ -4371,13 +5505,36 @@ function renderOpsLeaveTab(snapshot) {
               h(
                 'tbody',
                 {},
-                selectedLv.records.length === 0
-                  ? [h('tr', {}, h('td', { colspan: '6' }, '등록된 연차 신청·사용 이력이 없습니다.'))]
-                  : selectedLv.records.map((recItem, idx) =>
+                visibleLeaveRecords.length === 0
+                  ? [
                       h(
                         'tr',
                         {},
-                        h('td', { 'data-label': '회차' }, `${selectedLv.records.length - idx}회`),
+                        h(
+                          'td',
+                          { colspan: '7' },
+                          indexedLeaveRecords.length === 0
+                            ? '등록된 연차 신청·사용 이력이 없습니다.'
+                            : '표시할 별표(★) 연차 기록이 없습니다.'
+                        )
+                      ),
+                    ]
+                  : visibleLeaveRecords.map((recItem) =>
+                      h(
+                        'tr',
+                        {},
+                        renderGenericMarkTd(
+                          snapshot,
+                          'leaveRecords',
+                          recItem.recordId,
+                          recItem.rowNo,
+                          `${selectedLv.displayName} ${recItem.useDate}`
+                        ),
+                        h(
+                          'td',
+                          { 'data-label': '회차' },
+                          `${indexedLeaveRecords.length - recItem.rowNo + 1}회`
+                        ),
                         h('td', { 'data-label': '신청일자' }, recItem.appliedAt),
                         h('td', { 'data-label': '사용일자', className: 'font-extrabold' }, recItem.useDate),
                         h(
@@ -4437,13 +5594,28 @@ function renderOpsLeaveTab(snapshot) {
               : null
           ),
           h(
-            'button',
-            {
-              type: 'button',
-              className: 'btn btn-secondary btn-sm',
-              onClick: (e) => openPayslipByEmpCode(selectedLv.empCode, e.currentTarget),
-            },
-            '급여 명세서에서 연차 내역 확인'
+            'div',
+            { className: 'step-pill-group' },
+            selectedLv.leaveEligible
+              ? renderGenericSyncControls(
+                  snapshot,
+                  'leaveRecords',
+                  indexedLeaveRecords,
+                  (r) => r.recordId,
+                  renderOpsLeaveTab,
+                  '건',
+                  { showGroupCheckbox: false }
+                )
+              : null,
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'btn btn-secondary btn-sm',
+                onClick: (e) => openPayslipByEmpCode(selectedLv.empCode, e.currentTarget),
+              },
+              '급여 명세서에서 연차 내역 확인'
+            )
           )
         ),
         addLeaveForm,
@@ -4456,13 +5628,15 @@ function renderOpsLeaveTab(snapshot) {
 
   if (promoWrap) {
     const eligibleLedger = lv.ledger.filter((r) => r.leaveEligible !== false);
+    const visibleEligible = applyStarFilter(eligibleLedger);
     const promoSection = h(
       'div',
       { className: 'ops-section-block' },
       h(
         'div',
         { className: 'ops-section-head' },
-        h('h3', { className: 'ops-section-title' }, '연차 사용촉진 관리')
+        h('h3', { className: 'ops-section-title' }, '연차 사용촉진 관리'),
+        renderRosterSyncControls(eligibleLedger, renderOpsLeaveTab)
       ),
       h(
         'div',
@@ -4476,7 +5650,8 @@ function renderOpsLeaveTab(snapshot) {
             h(
               'tr',
               {},
-              h('th', { scope: 'col' }, 'No. · 사번 · 이름'),
+              renderMasterSelectHeaderTh(eligibleLedger, '연차 사용촉진 관리'),
+              h('th', { scope: 'col' }, '사번 · 이름'),
               h('th', { scope: 'col', className: 'num' }, '잔여 연차'),
               h('th', { scope: 'col' }, '촉진 기한'),
               h('th', { scope: 'col' }, '단계'),
@@ -4486,17 +5661,31 @@ function renderOpsLeaveTab(snapshot) {
           h(
             'tbody',
             {},
-            eligibleLedger.length === 0
-              ? [h('tr', {}, h('td', { colspan: '5' }, '대상 직원이 없습니다.'))]
-              : eligibleLedger.map((r) =>
+            visibleEligible.length === 0
+              ? [
                   h(
                     'tr',
                     {},
                     h(
                       'td',
-                      { 'data-label': 'No. · 사번 · 이름' },
-                      h('div', { className: 'cell-emp-code' }, `No.${r.rowNo} · ${r.empCode}`),
-                      h('div', { className: 'breakable-name' }, r.displayName)
+                      { colspan: '6' },
+                      eligibleLedger.length === 0
+                        ? '대상 직원이 없습니다.'
+                        : '표시할 별표(★) 직원이 없습니다.'
+                    )
+                  ),
+                ]
+              : visibleEligible.map((r) =>
+                  h(
+                    'tr',
+                    {},
+                    renderMasterMarkTd(r),
+                    h(
+                      'td',
+                      { 'data-label': '사번 · 이름' },
+                      h('div', { className: 'cell-emp-code' }, r.empCode),
+                      h('div', { className: 'breakable-name' }, r.displayName),
+                      h('div', { className: 'cell-dept-name' }, r.deptName)
                     ),
                     h(
                       'td',
@@ -4554,26 +5743,54 @@ function renderOpsLeaveTab(snapshot) {
       )
     );
 
+    const indexedMaternity = lv.maternityProtections.map((m, idx) => ({ ...m, rowNo: idx + 1 }));
+    const visibleMaternity = applyGenericStarFilter(
+      snapshot,
+      'maternity',
+      indexedMaternity,
+      (m) => m.caseId
+    );
     const matSection = h(
       'div',
       { className: 'ops-section-block' },
       h(
         'div',
         { className: 'ops-section-head' },
-        h('h3', { className: 'ops-section-title' }, '육아 · 모성보호 현황')
+        h('h3', { className: 'ops-section-title' }, '육아 · 모성보호 현황'),
+        renderGenericSyncControls(
+          snapshot,
+          'maternity',
+          indexedMaternity,
+          (m) => m.caseId,
+          renderOpsLeaveTab,
+          '건'
+        )
       ),
       h(
         'div',
         { className: 'ops-two-col' },
-        lv.maternityProtections.map((m) =>
-          h(
-            'div',
-            { className: 'dept-stat-card' },
-            h('span', { className: 'tag tag-blue' }, m.programType),
-            h('div', { className: 'ops-module-title' }, `${m.deptName} · ${m.beneficiaryLabel}`),
-            h('div', { className: 'dept-stat-meta' }, `${m.periodLabel} (${m.govSubsidyStatus})`)
-          )
-        )
+        visibleMaternity.length === 0
+          ? [h('div', { className: 'empty-state' }, '표시할 별표(★) 육아·모성보호 건이 없습니다.')]
+          : visibleMaternity.map((m) =>
+              h(
+                'div',
+                { className: 'dept-stat-card' },
+                h(
+                  'div',
+                  { className: 'flex-between-tight mb-6' },
+                  renderGenericInlineMark(
+                    snapshot,
+                    'maternity',
+                    m.caseId,
+                    m.rowNo,
+                    m.beneficiaryLabel
+                  ),
+                  h('span', { className: 'tag tag-blue' }, m.programType)
+                ),
+                h('div', { className: 'ops-module-title' }, `${m.deptName} · ${m.beneficiaryLabel}`),
+                h('div', { className: 'dept-stat-meta' }, `${m.periodLabel} (${m.govSubsidyStatus})`)
+              )
+            )
       )
     );
 
@@ -4743,13 +5960,15 @@ function renderOpsDisciplineTab(snapshot) {
       `${active ? '✓ ' : ''}${label}`
     );
 
+  const visibleDisc = applyStarFilter(dg.disciplineBoard);
   const discSection = h(
     'div',
     { className: 'ops-section-block' },
     h(
       'div',
       { className: 'ops-section-head' },
-      h('h3', { className: 'ops-section-title' }, '징계 절차 확인')
+      h('h3', { className: 'ops-section-title' }, '징계 절차 확인'),
+      renderRosterSyncControls(dg.disciplineBoard, renderOpsDisciplineTab)
     ),
     h(
       'div',
@@ -4763,6 +5982,7 @@ function renderOpsDisciplineTab(snapshot) {
           h(
             'tr',
             {},
+            renderMasterSelectHeaderTh(dg.disciplineBoard, '징계 절차 확인'),
             h('th', { scope: 'col' }, '사번 · 성명 · 부서'),
             h('th', { scope: 'col', className: 'num' }, '감봉 요청액 → 적법 반영액 (차단액)'),
             h('th', { scope: 'col' }, '부당징계 예방 4대 필수 절차 (클릭 토글)'),
@@ -4772,67 +5992,80 @@ function renderOpsDisciplineTab(snapshot) {
         h(
           'tbody',
           {},
-          dg.disciplineBoard.length === 0
-            ? [h('tr', {}, h('td', { colspan: '4' }, '현재 징계 절차·감봉 한도 점검 대상 재직자가 없습니다 (0명).'))]
-            : dg.disciplineBoard.map((d) =>
-            h(
-              'tr',
-              {},
-              h(
-                'td',
-                { 'data-label': '사번 · 성명 · 부서' },
-                h('div', { className: 'cell-emp-code' }, d.empCode),
-                h('div', { className: 'breakable-name' }, d.displayName),
-                h('div', { className: 'cell-dept-name' }, d.deptName)
-              ),
-              h(
-                'td',
-                { className: 'num', 'data-label': '감봉 요청 → 적법 반영' },
-                h('div', {}, `요청 ${fmtWon(d.requestedCut)} → 공제 ${fmtWon(d.appliedCut)}`),
-                d.blockedCut > 0
-                  ? h('div', { className: 'cut-blocked-note' }, `제95조 한도초과 ${fmtWon(d.blockedCut)} 자동 방어됨`)
-                  : h('div', { className: 'cell-dept-name' }, '감봉 요청 없음 또는 한도 이내')
-              ),
-              h(
-                'td',
-                { 'data-label': '4대 필수 절차' },
+          visibleDisc.length === 0
+            ? [
                 h(
-                  'div',
-                  { className: 'step-pill-group' },
-                  stepBtn(d.empCode, 'attendanceNoticeSent', '1.출석통지', d.attendanceNoticeSent),
-                  stepBtn(d.empCode, 'defenseOpportunityGiven', '2.소명기회', d.defenseOpportunityGiven),
-                  stepBtn(d.empCode, 'committeeResolved', '3.징계위의결', d.committeeResolved),
-                  stepBtn(d.empCode, 'writtenNoticeDelivered', '4.서면통지', d.writtenNoticeDelivered)
-                )
-              ),
-              h(
-                'td',
-                { 'data-label': '절차 적법성 · 서면양식' },
-                h(
-                  'div',
-                  { className: 'step-pill-group' },
-                  d.procedureValid
-                    ? h('span', { className: 'tag tag-green' }, '4대 절차 완비')
-                    : h('span', { className: 'tag tag-red' }, '절차 미비 경고!'),
+                  'tr',
+                  {},
                   h(
-                    'button',
-                    {
-                      type: 'button',
-                      className: 'btn btn-secondary btn-sm',
-                      onClick: (e) =>
-                        openDocumentPreview(
-                          'DOC_DISCIPLINE_WRITTEN_NOTICE',
-                          e.currentTarget,
-                          undefined,
-                          d.empCode
-                        ),
-                    },
-                    '서면통지·검토서 열람'
+                    'td',
+                    { colspan: '5' },
+                    dg.disciplineBoard.length === 0
+                      ? '현재 징계 절차·감봉 한도 점검 대상 재직자가 없습니다 (0명).'
+                      : '표시할 별표(★) 직원이 없습니다.'
+                  )
+                ),
+              ]
+            : visibleDisc.map((d) =>
+                h(
+                  'tr',
+                  {},
+                  renderMasterMarkTd(d),
+                  h(
+                    'td',
+                    { 'data-label': '사번 · 성명 · 부서' },
+                    h('div', { className: 'cell-emp-code' }, d.empCode),
+                    h('div', { className: 'breakable-name' }, d.displayName),
+                    h('div', { className: 'cell-dept-name' }, d.deptName)
+                  ),
+                  h(
+                    'td',
+                    { className: 'num', 'data-label': '감봉 요청 → 적법 반영' },
+                    h('div', {}, `요청 ${fmtWon(d.requestedCut)} → 공제 ${fmtWon(d.appliedCut)}`),
+                    d.blockedCut > 0
+                      ? h('div', { className: 'cut-blocked-note' }, `제95조 한도초과 ${fmtWon(d.blockedCut)} 자동 방어됨`)
+                      : h('div', { className: 'cell-dept-name' }, '감봉 요청 없음 또는 한도 이내')
+                  ),
+                  h(
+                    'td',
+                    { 'data-label': '4대 필수 절차' },
+                    h(
+                      'div',
+                      { className: 'step-pill-group' },
+                      stepBtn(d.empCode, 'attendanceNoticeSent', '1.출석통지', d.attendanceNoticeSent),
+                      stepBtn(d.empCode, 'defenseOpportunityGiven', '2.소명기회', d.defenseOpportunityGiven),
+                      stepBtn(d.empCode, 'committeeResolved', '3.징계위의결', d.committeeResolved),
+                      stepBtn(d.empCode, 'writtenNoticeDelivered', '4.서면통지', d.writtenNoticeDelivered)
+                    )
+                  ),
+                  h(
+                    'td',
+                    { 'data-label': '절차 적법성 · 서면양식' },
+                    h(
+                      'div',
+                      { className: 'step-pill-group' },
+                      d.procedureValid
+                        ? h('span', { className: 'tag tag-green' }, '4대 절차 완비')
+                        : h('span', { className: 'tag tag-red' }, '절차 미비 경고!'),
+                      h(
+                        'button',
+                        {
+                          type: 'button',
+                          className: 'btn btn-secondary btn-sm',
+                          onClick: (e) =>
+                            openDocumentPreview(
+                              'DOC_DISCIPLINE_WRITTEN_NOTICE',
+                              e.currentTarget,
+                              undefined,
+                              d.empCode
+                            ),
+                        },
+                        '서면통지·검토서 열람'
+                      )
+                    )
                   )
                 )
               )
-            )
-          )
         )
       )
     )
@@ -4874,13 +6107,33 @@ function renderOpsDisciplineTab(snapshot) {
     )
   );
 
+  const indexedGrievances = dg.grievances.map((g, idx) => ({
+    ...g,
+    rowNo: g.rowNo || idx + 1,
+  }));
+  const visibleGrievances = applyGenericStarFilter(
+    snapshot,
+    'grievances',
+    indexedGrievances,
+    (g) => g.grievanceId
+  );
+
   const grvSection = h(
     'div',
     { className: 'ops-section-block' },
     h(
       'div',
       { className: 'ops-section-head' },
-      h('h3', { className: 'ops-section-title' }, '고충 처리')
+      h('h3', { className: 'ops-section-title' }, '고충 처리'),
+      renderGenericSyncControls(
+        snapshot,
+        'grievances',
+        indexedGrievances,
+        (g) => g.grievanceId,
+        renderOpsDisciplineTab,
+        '건',
+        { showGroupCheckbox: false }
+      )
     ),
     grvForm,
     h(
@@ -4895,6 +6148,13 @@ function renderOpsDisciplineTab(snapshot) {
           h(
             'tr',
             {},
+            renderGenericSelectHeaderTh(
+              snapshot,
+              'grievances',
+              indexedGrievances,
+              (g) => g.grievanceId,
+              '고충 처리'
+            ),
             h('th', { scope: 'col' }, '접수번호 · 경로'),
             h('th', { scope: 'col' }, '접수일 · 10일 법정통보기한'),
             h('th', { scope: 'col' }, '고충 요지 및 조치 경과'),
@@ -4904,49 +6164,52 @@ function renderOpsDisciplineTab(snapshot) {
         h(
           'tbody',
           {},
-          dg.grievances.map((g) =>
-            h(
-              'tr',
-              {},
-              h(
-                'td',
-                { 'data-label': '접수번호 · 경로' },
-                h('div', { className: 'cell-emp-code' }, g.grievanceId),
-                h('div', { className: 'cell-dept-name' }, `${g.category} (${g.channel})`)
-              ),
-              h(
-                'td',
-                { 'data-label': '접수일 · 10일 기한' },
-                h('div', {}, `접수: ${g.receivedAt}`),
-                h('div', { className: 'font-extrabold' }, `통보기한: ${g.dueDate}`)
-              ),
-              h(
-                'td',
-                { 'data-label': '고충 요지 및 조치' },
-                h('div', { className: 'font-extrabold' }, g.summary),
-                h('div', { className: 'cell-dept-name' }, g.resolutionNote)
-              ),
-              h(
-                'td',
-                { 'data-label': '처리 상태' },
-                g.status === 'RESOLVED_NOTIFIED'
-                  ? h('span', { className: 'tag tag-green' }, '10일 내 결과통보 완료')
-                  : h(
-                      'button',
-                      {
-                        type: 'button',
-                        className: 'btn btn-primary btn-sm',
-                        onClick: (e) =>
-                          runOpsAction(
-                            { actionType: 'RESOLVE_GRIEVANCE', grievanceId: g.grievanceId },
-                            e.currentTarget
-                          ),
-                      },
-                      `조치·결과통보 완료 (D-${Math.max(0, g.daysLeft)})`
-                    )
+          visibleGrievances.length === 0
+            ? [h('tr', {}, h('td', { colspan: '5' }, '표시할 별표(★) 고충 처리 건이 없습니다.'))]
+            : visibleGrievances.map((g) =>
+                h(
+                  'tr',
+                  {},
+                  renderGenericMarkTd(snapshot, 'grievances', g.grievanceId, g.rowNo, g.summary),
+                  h(
+                    'td',
+                    { 'data-label': '접수번호 · 경로' },
+                    h('div', { className: 'cell-emp-code' }, g.grievanceId),
+                    h('div', { className: 'cell-dept-name' }, `${g.category} (${g.channel})`)
+                  ),
+                  h(
+                    'td',
+                    { 'data-label': '접수일 · 10일 기한' },
+                    h('div', {}, `접수: ${g.receivedAt}`),
+                    h('div', { className: 'font-extrabold' }, `통보기한: ${g.dueDate}`)
+                  ),
+                  h(
+                    'td',
+                    { 'data-label': '고충 요지 및 조치' },
+                    h('div', { className: 'font-extrabold' }, g.summary),
+                    h('div', { className: 'cell-dept-name' }, g.resolutionNote)
+                  ),
+                  h(
+                    'td',
+                    { 'data-label': '처리 상태' },
+                    g.status === 'RESOLVED_NOTIFIED'
+                      ? h('span', { className: 'tag tag-green' }, '10일 내 결과통보 완료')
+                      : h(
+                          'button',
+                          {
+                            type: 'button',
+                            className: 'btn btn-primary btn-sm',
+                            onClick: (e) =>
+                              runOpsAction(
+                                { actionType: 'RESOLVE_GRIEVANCE', grievanceId: g.grievanceId },
+                                e.currentTarget
+                              ),
+                          },
+                          `조치·결과통보 완료 (D-${Math.max(0, g.daysLeft)})`
+                        )
+                  )
+                )
               )
-            )
-          )
         )
       )
     )
@@ -4960,6 +6223,9 @@ function renderOpsStatutoryTab(snapshot) {
   if (!wrap || !snapshot.operationsSuite) return;
   const st = snapshot.operationsSuite.statutoryOpsCenter;
 
+  const indexedLmc = st.lmcAgendaItems.map((ag, idx) => ({ ...ag, rowNo: idx + 1 }));
+  const visibleLmc = applyGenericStarFilter(snapshot, 'lmcAgenda', indexedLmc, (ag) => ag.agendaId);
+
   const lmcSection = h(
     'div',
     { className: 'ops-section-block' },
@@ -4970,6 +6236,14 @@ function renderOpsStatutoryTab(snapshot) {
       h(
         'div',
         { className: 'step-pill-group' },
+        renderGenericSyncControls(
+          snapshot,
+          'lmcAgenda',
+          indexedLmc,
+          (ag) => ag.agendaId,
+          renderOpsStatutoryTab,
+          '건'
+        ),
         h(
           'button',
           {
@@ -4993,21 +6267,31 @@ function renderOpsStatutoryTab(snapshot) {
     h(
       'div',
       { className: 'dept-card-grid' },
-      st.lmcAgendaItems.map((ag) =>
-        h(
-          'div',
-          { className: 'dept-stat-card' },
-          h('span', { className: 'tag tag-blue' }, `${ag.quarterLabel} · ${ag.agendaType}`),
-          h('div', { className: 'ops-module-title' }, ag.title),
-          h(
-            'div',
-            { className: 'dept-stat-meta' },
-            ag.status === 'RESOLVED' ? '상태: 의결 완료 · 3년 보존 회의록 편철' : '상태: 개최 7일 전 소집통지 반영됨'
+      visibleLmc.length === 0
+        ? [h('div', { className: 'empty-state' }, '표시할 별표(★) 안건이 없습니다.')]
+        : visibleLmc.map((ag) =>
+            h(
+              'div',
+              { className: 'dept-stat-card' },
+              h(
+                'div',
+                { className: 'flex-between-tight mb-6' },
+                renderGenericInlineMark(snapshot, 'lmcAgenda', ag.agendaId, ag.rowNo, ag.title),
+                h('span', { className: 'tag tag-blue' }, `${ag.quarterLabel} · ${ag.agendaType}`)
+              ),
+              h('div', { className: 'ops-module-title' }, ag.title),
+              h(
+                'div',
+                { className: 'dept-stat-meta' },
+                ag.status === 'RESOLVED' ? '상태: 의결 완료 · 3년 보존 회의록 편철' : '상태: 개최 7일 전 소집통지 반영됨'
+              )
+            )
           )
-        )
-      )
     )
   );
+
+  const indexedRisks = st.riskAssessments.map((rk, idx) => ({ ...rk, rowNo: idx + 1 }));
+  const visibleRisks = applyGenericStarFilter(snapshot, 'risks', indexedRisks, (rk) => rk.riskId);
 
   const oshSection = h(
     'div',
@@ -5019,6 +6303,15 @@ function renderOpsStatutoryTab(snapshot) {
       h(
         'div',
         { className: 'step-pill-group' },
+        renderGenericSyncControls(
+          snapshot,
+          'risks',
+          indexedRisks,
+          (rk) => rk.riskId,
+          renderOpsStatutoryTab,
+          '건',
+          { showGroupCheckbox: false }
+        ),
         h(
           'button',
           {
@@ -5042,11 +6335,22 @@ function renderOpsStatutoryTab(snapshot) {
     h(
       'div',
       { className: 'dept-card-grid' },
-      st.oshRoles.map((role) =>
+      st.oshRoles.map((role, idx) =>
         h(
           'div',
           { className: 'dept-stat-card' },
-          h('span', { className: 'tag tag-amber' }, role.statusLabel),
+          h(
+            'div',
+            { className: 'flex-between-tight mb-6' },
+            renderGenericInlineMark(
+              snapshot,
+              'oshRoles',
+              role.roleId || `OSH-${idx + 1}`,
+              idx + 1,
+              role.roleTitle
+            ),
+            h('span', { className: 'tag tag-amber' }, role.statusLabel)
+          ),
           h('div', { className: 'ops-module-title' }, role.roleTitle),
           h('div', { className: 'dept-stat-meta' }, `선임/위탁 기준: ${role.assignee}`),
           h('div', { className: 'dept-stat-meta' }, `자격 요건: ${role.qualification}`)
@@ -5065,6 +6369,13 @@ function renderOpsStatutoryTab(snapshot) {
           h(
             'tr',
             {},
+            renderGenericSelectHeaderTh(
+              snapshot,
+              'risks',
+              indexedRisks,
+              (rk) => rk.riskId,
+              '공정별 위험성평가'
+            ),
             h('th', { scope: 'col' }, '평가코드 · 대상 공정'),
             h('th', { scope: 'col' }, '유해·위험요인 파악'),
             h('th', { scope: 'col' }, '위험성 감소대책'),
@@ -5074,40 +6385,51 @@ function renderOpsStatutoryTab(snapshot) {
         h(
           'tbody',
           {},
-          st.riskAssessments.map((rk) =>
-            h(
-              'tr',
-              {},
-              h(
-                'td',
-                { 'data-label': '대상 공정' },
-                h('div', { className: 'cell-emp-code' }, `${rk.riskId} (${rk.riskLevel})`),
-                h('div', { className: 'font-extrabold' }, rk.processName)
-              ),
-              h('td', { 'data-label': '유해·위험요인' }, rk.hazardFactor),
-              h('td', { 'data-label': '감소대책' }, rk.measurePlan),
-              h(
-                'td',
-                { 'data-label': '개선 조치 상태' },
+          visibleRisks.length === 0
+            ? [h('tr', {}, h('td', { colspan: '5' }, '표시할 별표(★) 위험성평가 항목이 없습니다.'))]
+            : visibleRisks.map((rk) =>
                 h(
-                  'button',
-                  {
-                    type: 'button',
-                    className: rk.completed ? 'btn btn-secondary btn-sm' : 'btn btn-primary btn-sm',
-                    onClick: (e) =>
-                      runOpsAction(
-                        { actionType: 'TOGGLE_RISK_ASSESSMENT', riskId: rk.riskId },
-                        e.currentTarget
-                      ),
-                  },
-                  rk.completed ? '✓ 개선 완료됨 (재점검 전환)' : '개선 조치 완료 체크'
+                  'tr',
+                  {},
+                  renderGenericMarkTd(snapshot, 'risks', rk.riskId, rk.rowNo, rk.processName),
+                  h(
+                    'td',
+                    { 'data-label': '대상 공정' },
+                    h('div', { className: 'cell-emp-code' }, `${rk.riskId} (${rk.riskLevel})`),
+                    h('div', { className: 'font-extrabold' }, rk.processName)
+                  ),
+                  h('td', { 'data-label': '유해·위험요인' }, rk.hazardFactor),
+                  h('td', { 'data-label': '감소대책' }, rk.measurePlan),
+                  h(
+                    'td',
+                    { 'data-label': '개선 조치 상태' },
+                    h(
+                      'button',
+                      {
+                        type: 'button',
+                        className: rk.completed ? 'btn btn-secondary btn-sm' : 'btn btn-primary btn-sm',
+                        onClick: (e) =>
+                          runOpsAction(
+                            { actionType: 'TOGGLE_RISK_ASSESSMENT', riskId: rk.riskId },
+                            e.currentTarget
+                          ),
+                      },
+                      rk.completed ? '✓ 개선 완료됨 (재점검 전환)' : '개선 조치 완료 체크'
+                    )
+                  )
                 )
               )
-            )
-          )
         )
       )
     )
+  );
+
+  const indexedTrainings = st.statutoryTrainings.map((edu, idx) => ({ ...edu, rowNo: idx + 1 }));
+  const visibleTrainings = applyGenericStarFilter(
+    snapshot,
+    'trainings',
+    indexedTrainings,
+    (edu) => edu.trainingId
   );
 
   const eduSection = h(
@@ -5118,13 +6440,26 @@ function renderOpsStatutoryTab(snapshot) {
       { className: 'ops-section-head' },
       h('h3', { className: 'ops-section-title' }, '법정의무교육'),
       h(
-        'button',
-        {
-          type: 'button',
-          className: 'btn btn-secondary btn-sm',
-          onClick: (e) => openDocumentPreview('DOC_WORK_RULES_REPORT', e.currentTarget),
-        },
-        '취업규칙 신고서'
+        'div',
+        { className: 'step-pill-group' },
+        renderGenericSyncControls(
+          snapshot,
+          'trainings',
+          indexedTrainings,
+          (edu) => edu.trainingId,
+          renderOpsStatutoryTab,
+          '과정',
+          { showGroupCheckbox: false }
+        ),
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'btn btn-secondary btn-sm',
+            onClick: (e) => openDocumentPreview('DOC_WORK_RULES_REPORT', e.currentTarget),
+          },
+          '취업규칙 신고서'
+        )
       )
     ),
     h(
@@ -5139,6 +6474,13 @@ function renderOpsStatutoryTab(snapshot) {
           h(
             'tr',
             {},
+            renderGenericSelectHeaderTh(
+              snapshot,
+              'trainings',
+              indexedTrainings,
+              (edu) => edu.trainingId,
+              '5대 법정의무교육'
+            ),
             h('th', { scope: 'col' }, '법정의무교육 과정명'),
             h('th', { scope: 'col' }, '근거 법령 · 필수 기준'),
             h('th', { scope: 'col' }, '실시 주기'),
@@ -5149,49 +6491,55 @@ function renderOpsStatutoryTab(snapshot) {
         h(
           'tbody',
           {},
-          st.statutoryTrainings.map((edu) =>
-            h(
-              'tr',
-              {},
-              h('td', { 'data-label': '과정명', className: 'font-extrabold' }, edu.title),
-              h('td', { 'data-label': '근거 법령' }, edu.legalBasis),
-              h('td', { 'data-label': '실시 주기' }, edu.cycleLabel),
-              h(
-                'td',
-                { 'data-label': '전사 이수율' },
+          visibleTrainings.length === 0
+            ? [h('tr', {}, h('td', { colspan: '6' }, '표시할 별표(★) 교육 과정이 없습니다.'))]
+            : visibleTrainings.map((edu) =>
                 h(
-                  'div',
-                  { className: 'meter-wrap' },
-                  h('progress', {
-                    className: edu.completionRatePct >= 100 ? 'meter-progress' : 'meter-progress meter-progress-warn',
-                    'aria-label': `${edu.title} 전사 이수율 게이지`,
-                    max: '100',
-                    value: String(edu.completionRatePct),
-                  }),
-                  h('span', { className: 'cell-dept-name' }, `${edu.completionRatePct}% 이수 완료`)
-                )
-              ),
-              h(
-                'td',
-                { 'data-label': '독촉 · 수료증빙' },
-                edu.completionRatePct >= 100
-                  ? h('span', { className: 'tag tag-green' }, '전원 수료·증빙 편철됨')
-                  : h(
-                      'button',
-                      {
-                        type: 'button',
-                        className: 'btn btn-primary btn-sm',
-                        onClick: (e) =>
-                          runOpsAction(
-                            { actionType: 'COMPLETE_STATUTORY_EDU', trainingId: edu.trainingId },
-                            e.currentTarget
-                          ),
-                      },
-                      '미이수자 독촉 · 100% 이수 반영'
+                  'tr',
+                  {},
+                  renderGenericMarkTd(snapshot, 'trainings', edu.trainingId, edu.rowNo, edu.title),
+                  h('td', { 'data-label': '과정명', className: 'font-extrabold' }, edu.title),
+                  h('td', { 'data-label': '근거 법령' }, edu.legalBasis),
+                  h('td', { 'data-label': '실시 주기' }, edu.cycleLabel),
+                  h(
+                    'td',
+                    { 'data-label': '전사 이수율' },
+                    h(
+                      'div',
+                      { className: 'meter-wrap' },
+                      h('progress', {
+                        className:
+                          edu.completionRatePct >= 100
+                            ? 'meter-progress'
+                            : 'meter-progress meter-progress-warn',
+                        'aria-label': `${edu.title} 전사 이수율 게이지`,
+                        max: '100',
+                        value: String(edu.completionRatePct),
+                      }),
+                      h('span', { className: 'cell-dept-name' }, `${edu.completionRatePct}% 이수 완료`)
                     )
+                  ),
+                  h(
+                    'td',
+                    { 'data-label': '독촉 · 수료증빙' },
+                    edu.completionRatePct >= 100
+                      ? h('span', { className: 'tag tag-green' }, '전원 수료·증빙 편철됨')
+                      : h(
+                          'button',
+                          {
+                            type: 'button',
+                            className: 'btn btn-primary btn-sm',
+                            onClick: (e) =>
+                              runOpsAction(
+                                { actionType: 'COMPLETE_STATUTORY_EDU', trainingId: edu.trainingId },
+                                e.currentTarget
+                              ),
+                          },
+                          '미이수자 독촉 · 100% 이수 반영'
+                        )
+                  )
+                )
               )
-            )
-          )
         )
       )
     )
@@ -5204,105 +6552,906 @@ function renderFormsCenterTab(snapshot) {
   const wrap = document.getElementById('forms-center-container');
   if (!wrap) return;
 
-  const firstWorker = (snapshot.workers || [])[0] || null;
-  const firstAlumni =
-    (snapshot.offboardedWorkers || []).find((a) => a.dataLifecycleStatus !== 'ANONYMIZED_PURGED') ||
-    null;
+  const contractLedger = snapshot.operationsSuite?.recruitAndOnboarding?.contractLedger || [];
+  const alumniList = (snapshot.offboardedWorkers || []).filter(
+    (a) => a.dataLifecycleStatus !== 'ANONYMIZED_PURGED'
+  );
+  const signedArchive = snapshot.operationsSuite?.signedDocumentsArchive || [];
 
-  const openSmartTemplate = (tplId, mode, triggerBtn) => {
-    if (mode === 'worker') {
-      if (!firstWorker) {
-        showBanner('현재 재직자 명부가 비어 있습니다(0명). 급여 관리에서 기본 명부를 복원해 주세요.', true);
-        return;
-      }
-      openDocumentPreview(tplId, triggerBtn, undefined, firstWorker.empCode);
-      return;
-    }
-    if (mode === 'alumni') {
-      if (!firstAlumni) {
-        showBanner('발급 가능한 퇴사자 레코드가 없습니다.', true);
-        return;
-      }
-      openDocumentPreview(tplId, triggerBtn, undefined, firstAlumni.empCode);
-      return;
-    }
-    if (mode === 'q4') {
-      openDocumentPreview(tplId, triggerBtn, 4);
-      return;
-    }
-    openDocumentPreview(tplId, triggerBtn);
-  };
+  if (!appState.formsDraftPerson) {
+    const seedRow = contractLedger[0] || null;
+    appState.formsDraftPerson = seedRow
+      ? {
+          ...buildDraftFromContractRow(seedRow),
+          sourceKey: `W:${seedRow.empCode}`,
+          personKey: `EMP:${seedRow.empCode}`,
+        }
+      : {
+          sourceKey: 'CUSTOM',
+          personKey: '',
+          empCode: '',
+          personName: '김하늘',
+          deptName: '생산기술1팀',
+          jobTitle: '선임기사',
+          hireDate: '2023-03-02',
+          maskedBirthOrId: '900412-*******',
+          maskedPhone: '010-****-2011',
+          address: '경기도 화성시 동탄첨단산업1로 45',
+          weeklyHours: 40,
+          baseMonthlyPay: 3600000,
+          mealAllowance: 200000,
+        };
+    appState.formsSigState.signerName = appState.formsDraftPerson.personName;
+  }
+  const fDraft = appState.formsDraftPerson;
 
-  const categories = [
-    {
-      title: '입사 · 계약',
-      items: [
-        { id: 'DOC_EMPLOYMENT_CONTRACT', title: '표준 근로계약서', mode: 'company' },
-        { id: 'DOC_PRIVACY_CONSENT', title: '개인정보 수집·이용 동의서', mode: 'company' },
-        { id: 'DOC_NDA_SECURITY_PLEDGE', title: '비밀유지 및 정보보안 서약서', mode: 'company' },
-      ],
-    },
-    {
-      title: '퇴사 · 증명서',
-      items: [
-        { id: 'DOC_EXIT_SECURITY_NONCOMPETE', title: '퇴사 시 보안·경업금지 서약서', mode: 'company' },
-        { id: 'DOC_EMPLOYMENT_CERT', title: '재직증명서', mode: 'worker' },
-        { id: 'DOC_CAREER_CERTIFICATE', title: '사용(경력)증명서', mode: 'alumni' },
-        { id: 'DOC_EI_SEPARATION_CERT', title: '고용보험 상실·이직확인서', mode: 'alumni' },
-      ],
-    },
-    {
-      title: '취업규칙 · 연차 · 징계',
-      items: [
-        { id: 'DOC_WORK_RULES_REPORT', title: '취업규칙 제정·변경 신고서', mode: 'company' },
-        { id: 'DOC_ANNUAL_LEAVE_PROMOTION', title: '미사용 연차 사용촉진 통지서', mode: 'worker' },
-        { id: 'DOC_DISCIPLINE_WRITTEN_NOTICE', title: '징계 출석 · 서면통지서', mode: 'worker' },
-      ],
-    },
-    {
-      title: '노사협의회 · 산업안전',
-      items: [
-        { id: 'DOC_LMC_REGULATION_AND_FILING', title: '노사협의회 규정 및 신고서', mode: 'company' },
-        { id: 'DOC_LMC_MINUTES', title: '노사협의회 정기회의록', mode: 'q4' },
-        { id: 'DOC_OSH_OFFICER_APPOINTMENT', title: '안전·보건관리자 선임보고서', mode: 'company' },
-        { id: 'DOC_OSH_MINUTES', title: '산업안전보건위원회 회의록', mode: 'q4' },
-      ],
-    },
+  const allFormItems = [
+    { no: 1, id: 'DOC_EMPLOYMENT_CONTRACT', cat: '입사·계약', title: '표준 근로계약서', mode: 'worker' },
+    { no: 2, id: 'DOC_PRIVACY_CONSENT', cat: '입사·계약', title: '개인정보 수집·이용 동의서', mode: 'worker' },
+    { no: 3, id: 'DOC_NDA_SECURITY_PLEDGE', cat: '입사·계약', title: '비밀유지 및 정보보안 서약서', mode: 'worker' },
+    { no: 4, id: 'DOC_EXIT_SECURITY_NONCOMPETE', cat: '퇴사·증명', title: '퇴사 시 보안·경업금지 서약서', mode: 'worker' },
+    { no: 5, id: 'DOC_EMPLOYMENT_CERT', cat: '퇴사·증명', title: '재직증명서', mode: 'worker' },
+    { no: 6, id: 'DOC_CAREER_CERTIFICATE', cat: '퇴사·증명', title: '사용(경력)증명서', mode: 'alumni' },
+    { no: 7, id: 'DOC_EI_SEPARATION_CERT', cat: '퇴사·증명', title: '고용보험 상실·이직확인서', mode: 'alumni' },
+    { no: 8, id: 'DOC_WORK_RULES_REPORT', cat: '규칙·연차', title: '취업규칙 제정·변경 신고서', mode: 'company' },
+    { no: 9, id: 'DOC_ANNUAL_LEAVE_PROMOTION', cat: '규칙·연차', title: '미사용 연차 사용촉진 통지서', mode: 'worker' },
+    { no: 10, id: 'DOC_DISCIPLINE_WRITTEN_NOTICE', cat: '규칙·징계', title: '징계 출석 · 서면통지서', mode: 'worker' },
+    { no: 11, id: 'DOC_LMC_REGULATION_AND_FILING', cat: '노사·안전', title: '노사협의회 규정 및 신고서', mode: 'company' },
+    { no: 12, id: 'DOC_LMC_MINUTES', cat: '노사·안전', title: '노사협의회 정기회의록', mode: 'q4' },
+    { no: 13, id: 'DOC_OSH_OFFICER_APPOINTMENT', cat: '노사·안전', title: '안전·보건관리자 선임보고서', mode: 'company' },
+    { no: 14, id: 'DOC_OSH_MINUTES', cat: '노사·안전', title: '산업안전보건위원회 회의록', mode: 'q4' },
   ];
 
-  const grid = h(
+  const visibleForms = applyGenericStarFilter(
+    snapshot,
+    'stdForms',
+    allFormItems,
+    (it) => it.id
+  );
+  const selectedSpec =
+    allFormItems.find((it) => it.id === appState.formsSelectedTpl) || allFormItems[0];
+
+  const sigPad = createSignatureCanvasControl(
+    fDraft.personName,
+    'forms-sig',
+    appState.formsSigState
+  );
+  const nameMatchSummaryBox = h('div', { className: 'flex-between-tight' });
+  const viewerMainPane = h(
     'div',
-    { className: 'forms-category-grid' },
-    categories.map((cat) =>
+    { id: 'forms-studio-right-body', 'aria-live': 'polite' },
+    h('div', { className: 'doc-paper-box' }, '양식을 불러오는 중입니다...')
+  );
+  let latestRenderedBody = '';
+
+  const buildAlumniDraft = (al) => ({
+    sourceKey: `A:${al.empCode}`,
+    personKey: `EMP:${al.empCode}`,
+    empCode: al.empCode,
+    personName: al.displayName,
+    deptName: al.deptName,
+    jobTitle: '퇴사자',
+    hireDate: al.hireDate,
+    maskedBirthOrId: al.maskedBirthOrId || '900101-*******',
+    maskedPhone: '010-****-0000',
+    address: `${snapshot.company.companyName} 등록 주소지`,
+    weeklyHours: 40,
+    baseMonthlyPay: Math.round((al.ordinaryDailyWage || 115000) * 26),
+    mealAllowance: 200000,
+  });
+
+  const getMatchedRecordsByName = (rawName) => {
+    const q = String(rawName || '').trim().toLowerCase();
+    const matchedDocs = q
+      ? signedArchive.filter(
+          (d) =>
+            String(d.personName || '').toLowerCase().includes(q) ||
+            String(d.empCode || '').toLowerCase().includes(q)
+        )
+      : signedArchive;
+    const matchedWorkers = q
+      ? contractLedger.filter(
+          (w) =>
+            String(w.displayName || '').toLowerCase().includes(q) ||
+            String(w.empCode || '').toLowerCase().includes(q)
+        )
+      : [];
+    const matchedAlumni = q
+      ? alumniList.filter(
+          (a) =>
+            String(a.displayName || '').toLowerCase().includes(q) ||
+            String(a.empCode || '').toLowerCase().includes(q)
+        )
+      : [];
+    return { q, matchedDocs, matchedWorkers, matchedAlumni };
+  };
+
+  const updateNameMatchBadge = () => {
+    const { matchedDocs, matchedWorkers, matchedAlumni } = getMatchedRecordsByName(fDraft.personName);
+    const totalLinked = matchedDocs.length + matchedWorkers.length + matchedAlumni.length;
+    nameMatchSummaryBox.replaceChildren(
       h(
-        'article',
-        { className: 'forms-category-card' },
-        h('h3', { className: 'ops-module-title' }, cat.title),
-        h(
-          'div',
-          { className: 'forms-item-list' },
-          cat.items.map((it) =>
+        'span',
+        { className: totalLinked > 0 ? 'tag tag-green' : 'tag tag-gray' },
+        fDraft.personName
+          ? `"${fDraft.personName}" 이름 반영 기록: 저장서식 ${matchedDocs.length}건 · 인원원장 ${matchedWorkers.length + matchedAlumni.length}명`
+          : `전체 저장·서명 서식 ${matchedDocs.length}건`
+      ),
+      h(
+        'button',
+        {
+          type: 'button',
+          className:
+            appState.formsViewMode === 'PERSON_HISTORY'
+              ? 'btn btn-primary btn-sm'
+              : 'btn btn-secondary btn-sm',
+          onClick: () => {
+            appState.formsViewMode = 'PERSON_HISTORY';
+            renderFormsCenterTab(snapshot);
+          },
+        },
+        '이름 들어간 내용 확인'
+      )
+    );
+  };
+
+  const renderRightViewer = async () => {
+    updateNameMatchBadge();
+    if (appState.formsViewMode === 'PERSON_HISTORY') {
+      const { matchedDocs, matchedWorkers, matchedAlumni } = getMatchedRecordsByName(fDraft.personName);
+      const cards = [];
+
+      matchedDocs.forEach((docRec, idx) => {
+        const loadedDetail = appState.expandedArchivedDocs[docRec.docRecordId] || null;
+        cards.push(
+          h(
+            'div',
+            { className: 'person-doc-history-card' },
             h(
               'div',
-              { className: 'forms-item-row' },
-              h('div', { className: 'forms-item-title' }, it.title),
+              { className: 'flex-between-tight' },
+              h(
+                'div',
+                { className: 'step-pill-group' },
+                renderGenericInlineMark(
+                  snapshot,
+                  'signedDocs',
+                  docRec.docRecordId,
+                  idx + 1,
+                  `${docRec.personName} ${docRec.templateLabel}`
+                ),
+                h(
+                  'strong',
+                  {},
+                  `${docRec.personName} (${docRec.empCode || docRec.personKey || '직접기입'}) — ${docRec.templateLabel} (v${docRec.version || 1})`
+                ),
+                docRec.signed
+                  ? h(
+                      'span',
+                      { className: 'tag tag-green' },
+                      `전자서명 완료 ✓ (${docRec.signedAt} · ${docRec.signatureCode})`
+                    )
+                  : h('span', { className: 'tag tag-amber' }, '작성 저장됨')
+              ),
+              h(
+                'div',
+                { className: 'step-pill-group' },
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'btn btn-secondary btn-sm',
+                    onClick: async (e) => {
+                      if (loadedDetail) {
+                        delete appState.expandedArchivedDocs[docRec.docRecordId];
+                        renderFormsCenterTab(snapshot);
+                        return;
+                      }
+                      try {
+                        const res = await apiPost(
+                          '/api/document',
+                          { docRecordId: docRec.docRecordId },
+                          e.currentTarget
+                        );
+                        if (res.archivedDocument) {
+                          appState.expandedArchivedDocs[docRec.docRecordId] = res.archivedDocument;
+                          renderFormsCenterTab(snapshot);
+                        }
+                      } catch (err) {
+                        showBanner(err.message, true);
+                      }
+                    },
+                  },
+                  loadedDetail ? '서식 전문 접기' : '저장된 서식 전문 · 서명 열람'
+                ),
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'btn btn-primary btn-sm',
+                    onClick: async (e) => {
+                      let fullRec = loadedDetail;
+                      if (!fullRec) {
+                        try {
+                          const res = await apiPost(
+                            '/api/document',
+                            { docRecordId: docRec.docRecordId },
+                            e.currentTarget
+                          );
+                          fullRec = res.archivedDocument || docRec;
+                        } catch {
+                          fullRec = docRec;
+                        }
+                      }
+                      appState.formsSelectedTpl = docRec.templateId;
+                      appState.formsViewMode = 'COMPARE';
+                      Object.assign(fDraft, {
+                        sourceKey: docRec.empCode ? `W:${docRec.empCode}` : 'CUSTOM',
+                        personKey: docRec.personKey || '',
+                        empCode: docRec.empCode || '',
+                        personName: fullRec.personName || fDraft.personName,
+                        deptName: fullRec.deptName || fDraft.deptName,
+                        jobTitle: fullRec.jobTitle || fDraft.jobTitle,
+                        hireDate: fullRec.hireDate || fDraft.hireDate,
+                        maskedBirthOrId: fullRec.maskedBirthOrId || fDraft.maskedBirthOrId,
+                        maskedPhone: fullRec.maskedPhone || fDraft.maskedPhone,
+                        address: fullRec.address || fDraft.address,
+                        weeklyHours: fullRec.weeklyHours || 40,
+                        baseMonthlyPay: fullRec.baseMonthlyPay || 0,
+                        mealAllowance: fullRec.mealAllowance ?? 200000,
+                      });
+                      appState.formsSigState = {
+                        signerName: fDraft.personName,
+                        dataUrl: '',
+                        consentConfirmed: false,
+                      };
+                      renderFormsCenterTab(snapshot);
+                    },
+                  },
+                  '기본↔변경 양식 비교로 열기'
+                )
+              )
+            ),
+            h(
+              'div',
+              { className: 'cell-dept-name' },
+              `반영된 정보: 소속 ${docRec.deptName} · 직위 ${docRec.jobTitle} · 입사일 ${docRec.hireDate} · 연락처 ${docRec.maskedPhone} · 월 기본급 ${fmtWon(docRec.baseMonthlyPay)}`
+            ),
+            loadedDetail?.signatureDataUrl
+              ? h('img', {
+                  className: 'sig-saved-preview',
+                  src: loadedDetail.signatureDataUrl,
+                  alt: `${loadedDetail.signerName} 자필 전자서명 이미지`,
+                })
+              : null,
+            loadedDetail?.savedBody
+              ? renderHighlightedDocPre(loadedDetail.savedBody, [
+                  loadedDetail.personName,
+                  loadedDetail.deptName,
+                  loadedDetail.jobTitle,
+                  loadedDetail.maskedPhone,
+                  loadedDetail.address,
+                  loadedDetail.signatureCode,
+                ])
+              : null
+          )
+        );
+      });
+
+      matchedWorkers.forEach((w) => {
+        cards.push(
+          h(
+            'div',
+            { className: 'person-doc-history-card' },
+            h(
+              'div',
+              { className: 'flex-between-tight' },
+              h(
+                'strong',
+                {},
+                `[재직 명부 연동] No.${w.rowNo} ${w.displayName} (${w.empCode} · ${w.deptName})`
+              ),
+              h(
+                'span',
+                { className: w.allOnboardingSigned ? 'tag tag-green' : 'tag tag-amber' },
+                w.allOnboardingSigned ? '입사 3종 체결됨' : '미체결 서식 있음'
+              )
+            ),
+            h(
+              'div',
+              { className: 'cell-dept-name' },
+              `입사일 ${w.hireDate} · 주 ${w.weeklyHours}h · 기준급여 ${fmtWon(w.baseMonthlyPay)} · 주소 ${w.address}`
+            ),
+            h(
+              'div',
+              { className: 'step-pill-group' },
+              ...[
+                ['DOC_EMPLOYMENT_CONTRACT', '표준 근로계약서 보기'],
+                ['DOC_PRIVACY_CONSENT', '개인정보 동의서 보기'],
+                ['DOC_NDA_SECURITY_PLEDGE', '비밀유지 서약서 보기'],
+                ['DOC_EMPLOYMENT_CERT', '재직증명서 보기'],
+              ].map(([tid, btnTxt]) =>
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'btn btn-secondary btn-sm',
+                    onClick: () => {
+                      Object.assign(fDraft, buildDraftFromContractRow(w), {
+                        sourceKey: `W:${w.empCode}`,
+                        personKey: `EMP:${w.empCode}`,
+                      });
+                      appState.formsSigState = {
+                        signerName: w.displayName,
+                        dataUrl: '',
+                        consentConfirmed: false,
+                      };
+                      appState.formsSelectedTpl = tid;
+                      appState.formsViewMode = 'COMPARE';
+                      renderFormsCenterTab(snapshot);
+                    },
+                  },
+                  btnTxt
+                )
+              )
+            )
+          )
+        );
+      });
+
+      matchedAlumni.forEach((al) => {
+        cards.push(
+          h(
+            'div',
+            { className: 'person-doc-history-card' },
+            h(
+              'div',
+              { className: 'flex-between-tight' },
+              h('strong', {}, `[퇴사 원장 연동] ${al.displayName} (${al.empCode} · ${al.deptName})`),
+              h('span', { className: 'tag tag-blue' }, `${al.hireDate} ~ ${al.lastWorkDate}`)
+            ),
+            h(
+              'div',
+              { className: 'step-pill-group' },
+              ...[
+                ['DOC_CAREER_CERTIFICATE', '경력증명서 보기'],
+                ['DOC_EI_SEPARATION_CERT', '상실·이직확인서 보기'],
+                ['DOC_EXIT_SECURITY_NONCOMPETE', '퇴사 보안서약서 보기'],
+              ].map(([tid, btnTxt]) =>
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'btn btn-secondary btn-sm',
+                    onClick: () => {
+                      Object.assign(fDraft, buildAlumniDraft(al));
+                      appState.formsSigState = {
+                        signerName: al.displayName,
+                        dataUrl: '',
+                        consentConfirmed: false,
+                      };
+                      appState.formsSelectedTpl = tid;
+                      appState.formsViewMode = 'COMPARE';
+                      renderFormsCenterTab(snapshot);
+                    },
+                  },
+                  btnTxt
+                )
+              )
+            )
+          )
+        );
+      });
+
+      if (cards.length === 0) {
+        cards.push(
+          h(
+            'div',
+            { className: 'empty-state' },
+            h('h3', {}, `"${fDraft.personName}" 이름이 저장된 서식 내역이 아직 없습니다.`),
+            h(
+              'p',
+              {},
+              '하단 [현재 서식에 개인정보·전자서명 저장] 버튼을 누르면 해당 이름으로 작성된 서식이 즉시 보관·조회됩니다.'
+            ),
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'btn btn-primary btn-sm',
+                onClick: () => {
+                  appState.formsViewMode = 'COMPARE';
+                  renderFormsCenterTab(snapshot);
+                },
+              },
+              `"${fDraft.personName}" 이름 자동반영 양식 미리보기로 이동`
+            )
+          )
+        );
+      }
+
+      viewerMainPane.replaceChildren(...cards);
+      return;
+    }
+
+    const reqId = ++appState.formsReqSeq;
+    try {
+      const doc = await fetchRenderedDocQuiet({
+        previewOnly: true,
+        templateId: selectedSpec.id,
+        quarterNumber: selectedSpec.mode === 'q4' ? 4 : undefined,
+        empCode: fDraft.empCode || undefined,
+        personKey: fDraft.personKey || undefined,
+        personInfo: {
+          personKey: fDraft.personKey || '',
+          empCode: fDraft.empCode || '신규·직접기입',
+          personName: fDraft.personName,
+          deptName: fDraft.deptName,
+          jobTitle: fDraft.jobTitle,
+          hireDate: fDraft.hireDate,
+          maskedBirthOrId: fDraft.maskedBirthOrId,
+          maskedPhone: fDraft.maskedPhone,
+          address: fDraft.address,
+          weeklyHours: Number(fDraft.weeklyHours) || 40,
+          baseMonthlyPay: Number(fDraft.baseMonthlyPay) || 0,
+          mealAllowance: Number(fDraft.mealAllowance) || 0,
+        },
+      });
+      if (reqId !== appState.formsReqSeq) return;
+      latestRenderedBody = doc.body || '';
+
+      const verifiedSigned = doc.signedRecord || null;
+      const sigBanner = verifiedSigned
+        ? h(
+            'div',
+            { className: 'person-doc-history-card' },
+            h(
+              'div',
+              { className: 'flex-between-tight' },
+              h(
+                'span',
+                { className: 'tag tag-green' },
+                `전자서명 완료 ✓ (${verifiedSigned.signerName} · ${verifiedSigned.signedAt} · ${verifiedSigned.signatureCode})`
+              ),
+              h('span', { className: 'cell-dept-name' }, '서명본 무결성 일치')
+            ),
+            verifiedSigned.signatureDataUrl
+              ? h('img', {
+                  className: 'sig-saved-preview',
+                  src: verifiedSigned.signatureDataUrl,
+                  alt: `${verifiedSigned.signerName} 자필 전자서명 이미지`,
+                })
+              : null
+          )
+        : null;
+
+      if (appState.formsViewMode === 'COMPARE') {
+        viewerMainPane.replaceChildren(
+          h(
+            'div',
+            { className: 'flex-between-tight mb-6' },
+            h('strong', {}, `No.${selectedSpec.no} ${doc.title}`),
+            h(
+              'span',
+              { className: 'tag tag-amber' },
+              `대상자 "${fDraft.personName || '미입력'}" 개인정보·처우 실시간 비교 중`
+            )
+          ),
+          h(
+            'div',
+            { className: 'doc-compare-grid' },
+            h(
+              'div',
+              {},
+              h('div', { className: 'mb-6' }, h('span', { className: 'tag tag-gray' }, '기본 양식 (미기입 표준원본)')),
+              h('div', { className: 'doc-paper-box' }, doc.blankTemplateBody || doc.body)
+            ),
+            h(
+              'div',
+              {},
+              h(
+                'div',
+                { className: 'mb-6' },
+                h('span', { className: 'tag tag-blue' }, '변경된 양식 (사람 이름 · 개인정보 자동반영)')
+              ),
+              renderHighlightedDocPre(doc.body, doc.autoFilledTokens)
+            )
+          ),
+          sigBanner
+        );
+      } else {
+        viewerMainPane.replaceChildren(
+          h(
+            'div',
+            { className: 'flex-between-tight mb-6' },
+            h('strong', {}, `No.${selectedSpec.no} ${doc.title}`),
+            h('span', { className: 'tag tag-blue' }, doc.subtitle)
+          ),
+          renderHighlightedDocPre(doc.body, doc.autoFilledTokens),
+          sigBanner
+        );
+      }
+    } catch (err) {
+      if (reqId !== appState.formsReqSeq) return;
+      viewerMainPane.replaceChildren(h('div', { className: 'tag tag-red' }, err.message));
+    }
+  };
+
+  const scheduleFormsDocRefresh = () => {
+    updateNameMatchBadge();
+    if (appState.formsDocTimer) clearTimeout(appState.formsDocTimer);
+    appState.formsDocTimer = setTimeout(() => {
+      renderRightViewer();
+    }, 90);
+  };
+
+  const splitStudio = h(
+    'div',
+    { className: 'ops-section-block code-diff-box' },
+    h(
+      'div',
+      { className: 'ops-section-head' },
+      h(
+        'div',
+        { className: 'step-pill-group' },
+        h('h3', { className: 'ops-section-title' }, '표준 서식함 (좌측 서식·이름 선택 → 우측 기본양식 & 변경양식 실시간 확인)'),
+        h('span', { className: 'code-diff-pill' }, '변경됨 · 나열식 제거 → 좌우 분할 + 기본↔변경 비교 + 이름별 반영내역 조회')
+      ),
+      renderGenericSyncControls(
+        snapshot,
+        'stdForms',
+        allFormItems,
+        (it) => it.id,
+        renderFormsCenterTab,
+        '종'
+      )
+    ),
+    h(
+      'div',
+      { className: 'forms-studio-layout' },
+      // 좌측: 사람 이름·개인정보 입력 & 표준 서식 클릭 목록 (No. · ☐ · ★)
+      h(
+        'div',
+        { className: 'forms-studio-sidebar' },
+        h(
+          'div',
+          {
+            className: 'studio-person-box',
+            onInput: (e) => {
+              const target = e.target;
+              if (!target || !target.name) return;
+              if (target.name === 'personName' && fDraft.sourceKey !== 'CUSTOM') {
+                const trimmed = target.value.trim();
+                const currentCode = fDraft.empCode;
+                const stillSameWorker = contractLedger.some(
+                  (w) => w.empCode === currentCode && w.displayName === trimmed
+                );
+                const stillSameAlumni = alumniList.some(
+                  (a) => a.empCode === currentCode && a.displayName === trimmed
+                );
+                if (!stillSameWorker && !stillSameAlumni) {
+                  fDraft.empCode = '';
+                  fDraft.personKey = '';
+                  fDraft.sourceKey = 'CUSTOM';
+                  sigPad.clearCanvas();
+                }
+              }
+              fDraft[target.name] = target.value;
+              if (target.name === 'personName') {
+                sigPad.setSignerName(target.value);
+              }
+              sigPad.invalidateConsent();
+              scheduleFormsDocRefresh();
+            },
+          },
+          h(
+            'div',
+            { className: 'field' },
+            h('label', { for: 'forms-person-preset' }, '재직자 · 퇴사자 불러오기 / 직접 입력'),
+            h(
+              'select',
+              {
+                id: 'forms-person-preset',
+                onChange: (e) => {
+                  const val = e.currentTarget.value;
+                  if (val === 'CUSTOM') {
+                    Object.assign(fDraft, {
+                      sourceKey: 'CUSTOM',
+                      personKey: '',
+                      empCode: '',
+                      personName: '',
+                      deptName: '일반부서',
+                      jobTitle: '사원',
+                      hireDate: snapshot.company.referenceDate || '2026-11-15',
+                      maskedBirthOrId: '950101-*******',
+                      maskedPhone: '010-****-0000',
+                      address: `${snapshot.company.companyName} 관할 거주지`,
+                      weeklyHours: 40,
+                      baseMonthlyPay: 3000000,
+                      mealAllowance: 200000,
+                    });
+                    appState.formsSigState = { signerName: '', dataUrl: '', consentConfirmed: false };
+                  } else if (val.startsWith('W:')) {
+                    const code = val.slice(2);
+                    const row = contractLedger.find((w) => w.empCode === code);
+                    if (row) {
+                      Object.assign(fDraft, buildDraftFromContractRow(row), {
+                        sourceKey: val,
+                        personKey: `EMP:${row.empCode}`,
+                      });
+                      appState.formsSigState = {
+                        signerName: row.displayName,
+                        dataUrl: '',
+                        consentConfirmed: false,
+                      };
+                    }
+                  } else if (val.startsWith('A:')) {
+                    const code = val.slice(2);
+                    const al = alumniList.find((a) => a.empCode === code);
+                    if (al) {
+                      Object.assign(fDraft, buildAlumniDraft(al));
+                      appState.formsSigState = {
+                        signerName: al.displayName,
+                        dataUrl: '',
+                        consentConfirmed: false,
+                      };
+                    }
+                  }
+                  renderFormsCenterTab(snapshot);
+                },
+              },
+              ...contractLedger.map((w) =>
+                h(
+                  'option',
+                  { value: `W:${w.empCode}`, selected: fDraft.sourceKey === `W:${w.empCode}` },
+                  `[재직 No.${w.rowNo}] ${w.displayName} (${w.empCode} · ${w.deptName})`
+                )
+              ),
+              ...alumniList.map((al, idx) =>
+                h(
+                  'option',
+                  { value: `A:${al.empCode}`, selected: fDraft.sourceKey === `A:${al.empCode}` },
+                  `[퇴사 No.${al.rowNo || idx + 1}] ${al.displayName} (${al.empCode})`
+                )
+              ),
+              h('option', { value: 'CUSTOM', selected: fDraft.sourceKey === 'CUSTOM' }, '직접 이름 입력 (신규·외부 조회)')
+            )
+          ),
+          h(
+            'div',
+            { className: 'studio-mini-grid' },
+            h(
+              'div',
+              { className: 'field' },
+              h('label', { for: 'forms-person-name-input' }, '사람 이름 (입력 시 우측 반영·내역 확인)'),
+              h('input', {
+                id: 'forms-person-name-input',
+                name: 'personName',
+                type: 'text',
+                value: fDraft.personName,
+                placeholder: '예: 김하늘, 이준호 등',
+              })
+            ),
+            h(
+              'div',
+              { className: 'field' },
+              h('label', { for: 'forms-dept-input' }, '소속 부서'),
+              h('input', { id: 'forms-dept-input', name: 'deptName', type: 'text', value: fDraft.deptName })
+            ),
+            h(
+              'div',
+              { className: 'field' },
+              h('label', { for: 'forms-job-input' }, '직위 · 담당업무'),
+              h('input', { id: 'forms-job-input', name: 'jobTitle', type: 'text', value: fDraft.jobTitle })
+            ),
+            h(
+              'div',
+              { className: 'field' },
+              h('label', { for: 'forms-phone-input' }, '연락처(자동마스킹)'),
+              h('input', {
+                id: 'forms-phone-input',
+                name: 'maskedPhone',
+                type: 'text',
+                value: fDraft.maskedPhone,
+              })
+            ),
+            h(
+              'div',
+              { className: 'field' },
+              h('label', { for: 'forms-pay-input' }, '월 기본급(원)'),
+              h('input', {
+                id: 'forms-pay-input',
+                name: 'baseMonthlyPay',
+                type: 'number',
+                step: '50000',
+                value: String(fDraft.baseMonthlyPay || 0),
+              })
+            ),
+            h(
+              'div',
+              { className: 'field' },
+              h('label', { for: 'forms-hire-input' }, '입사일'),
+              h('input', { id: 'forms-hire-input', name: 'hireDate', type: 'date', value: fDraft.hireDate })
+            )
+          ),
+          h(
+            'div',
+            { className: 'field' },
+            h('label', { for: 'forms-addr-input' }, '거주지 주소'),
+            h('input', { id: 'forms-addr-input', name: 'address', type: 'text', value: fDraft.address })
+          ),
+          nameMatchSummaryBox
+        ),
+        h(
+          'div',
+          { className: 'studio-form-list', role: 'list', 'aria-label': '표준 서식 목록' },
+          ...(visibleForms.length === 0
+            ? [h('div', { className: 'empty-state' }, '표시할 별표(★) 서식이 없습니다.')]
+            : visibleForms.map((item) => {
+                const isActive =
+                  appState.formsViewMode !== 'PERSON_HISTORY' &&
+                  appState.formsSelectedTpl === item.id;
+                return h(
+                  'div',
+                  {
+                    role: 'listitem',
+                    className: isActive ? 'studio-form-row is-active' : 'studio-form-row',
+                  },
+                  renderGenericInlineMark(snapshot, 'stdForms', item.id, item.no, item.title),
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: isActive ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm',
+                      'aria-pressed': String(isActive),
+                      onClick: () => {
+                        appState.formsSelectedTpl = item.id;
+                        if (appState.formsViewMode === 'PERSON_HISTORY') {
+                          appState.formsViewMode = 'COMPARE';
+                        }
+                        renderFormsCenterTab(snapshot);
+                      },
+                    },
+                    `[${item.cat}] ${item.title}`
+                  )
+                );
+              }))
+        )
+      ),
+      // 우측: 기본 양식 ↔ 변경된 양식 비교 / 변경 양식 단독 / 사람 이름별 작성·서명 내역 확인 + 서명 저장
+      h(
+        'div',
+        { className: 'forms-studio-viewer' },
+        h(
+          'div',
+          { className: 'ops-section-head' },
+          h(
+            'div',
+            { className: 'step-pill-group' },
+            h(
+              'button',
+              {
+                type: 'button',
+                className:
+                  appState.formsViewMode === 'COMPARE'
+                    ? 'btn btn-primary btn-sm'
+                    : 'btn btn-secondary btn-sm',
+                'aria-pressed': String(appState.formsViewMode === 'COMPARE'),
+                onClick: () => {
+                  appState.formsViewMode = 'COMPARE';
+                  renderFormsCenterTab(snapshot);
+                },
+              },
+              '기본 양식 ↔ 변경된 양식 비교'
+            ),
+            h(
+              'button',
+              {
+                type: 'button',
+                className:
+                  appState.formsViewMode === 'FILLED'
+                    ? 'btn btn-primary btn-sm'
+                    : 'btn btn-secondary btn-sm',
+                'aria-pressed': String(appState.formsViewMode === 'FILLED'),
+                onClick: () => {
+                  appState.formsViewMode = 'FILLED';
+                  renderFormsCenterTab(snapshot);
+                },
+              },
+              '변경·개인정보 반영 양식만 보기'
+            ),
+            h(
+              'button',
+              {
+                type: 'button',
+                className:
+                  appState.formsViewMode === 'PERSON_HISTORY'
+                    ? 'btn btn-primary btn-sm'
+                    : 'btn btn-secondary btn-sm',
+                'aria-pressed': String(appState.formsViewMode === 'PERSON_HISTORY'),
+                onClick: () => {
+                  appState.formsViewMode = 'PERSON_HISTORY';
+                  renderFormsCenterTab(snapshot);
+                },
+              },
+              '사람 이름별 반영·서명 내역 확인'
+            )
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'btn btn-secondary btn-sm',
+              onClick: async () => {
+                if (!latestRenderedBody) return;
+                try {
+                  await navigator.clipboard.writeText(latestRenderedBody);
+                  showBanner('현재 변경·반영된 서식 전문이 클립보드에 복사되었습니다.');
+                } catch {
+                  showBanner('우측 서식 본문을 선택해 복사(Ctrl+C)하실 수 있습니다.');
+                }
+              },
+            },
+            '변경된 양식 전문 복사'
+          )
+        ),
+        viewerMainPane,
+        appState.formsViewMode !== 'PERSON_HISTORY'
+          ? h(
+              'div',
+              { className: 'ops-section-block' },
+              sigPad.rootEl,
               h(
                 'button',
                 {
                   type: 'button',
-                  className: 'btn btn-secondary btn-sm',
-                  onClick: (e) => openSmartTemplate(it.id, it.mode, e.currentTarget),
+                  className: 'btn btn-primary full-width',
+                  onClick: async (e) => {
+                    if (!sigPad.isConsentConfirmed()) {
+                      showBanner('전자서명을 진행하려면 조항 확인 및 전자서명 동의 체크박스를 선택해 주세요.', true);
+                      sigPad.focusConsent();
+                      return;
+                    }
+                    const signerVal = sigPad.getSignerName() || fDraft.personName;
+                    const sigUrl = sigPad.getSignatureDataUrl();
+                    const res = await runOpsAction(
+                      {
+                        actionType: 'SAVE_PERSON_DOC_AND_SIGN',
+                        personKey: fDraft.personKey || undefined,
+                        empCode: fDraft.empCode || undefined,
+                        personName: fDraft.personName,
+                        deptName: fDraft.deptName,
+                        jobTitle: fDraft.jobTitle,
+                        hireDate: fDraft.hireDate,
+                        maskedBirthOrId: fDraft.maskedBirthOrId,
+                        maskedPhone: fDraft.maskedPhone,
+                        address: fDraft.address,
+                        weeklyHours: Number(fDraft.weeklyHours) || 40,
+                        baseMonthlyPay: Number(fDraft.baseMonthlyPay) || 0,
+                        mealAllowance: Number(fDraft.mealAllowance) || 0,
+                        templateIds: [selectedSpec.id],
+                        signNow: true,
+                        consentConfirmed: true,
+                        signerName: signerVal,
+                        signatureDataUrl: sigUrl,
+                      },
+                      e.currentTarget
+                    );
+                    if (res?.result?.personKey) {
+                      fDraft.personKey = res.result.personKey;
+                    }
+                  },
                 },
-                '열기'
+                `현재 서식(${selectedSpec.title})에 개인정보·전자서명 저장 (이름별 내역에 보관)`
               )
             )
-          )
-        )
+          : null
       )
     )
   );
 
-  wrap.replaceChildren(grid);
+  renderRightViewer();
+  wrap.replaceChildren(splitStudio);
 }
 
 /* ==========================================================================

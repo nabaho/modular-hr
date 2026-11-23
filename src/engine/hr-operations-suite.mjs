@@ -14,6 +14,19 @@ import crypto from 'node:crypto';
 import { addDaysISO, diffDaysISO, isValidIsoDate } from './compliance-provisioner.mjs';
 import { computeMonthlyRefHours } from './lifecycle-payroll.mjs';
 import { LAW_BASELINE } from './labor-rules.mjs';
+import {
+  VALID_DOC_TEMPLATES,
+  canonicalizePersonDocFields,
+  generateStatutoryDocument,
+  maskInlinePiiText,
+} from './document-generator.mjs';
+
+function computeDocPayloadDigest(templateId, info) {
+  return crypto
+    .createHash('sha256')
+    .update(canonicalizePersonDocFields(templateId, info))
+    .digest('hex');
+}
 
 function badRequest(message) {
   const err = new Error(message);
@@ -465,11 +478,185 @@ export function createOperationsSuiteManager() {
 
   // 근로자별 전자계약 체결 · 연차사용일 · 연차촉진 단계 · 평가등급 오버라이드 맵
   const contractSignedMap = new Map([
-    ['EMP-201', { signed: true, signedAt: '2026-03-02', nhisAcquired: true, eiAcquired: true }],
-    ['EMP-202', { signed: true, signedAt: '2026-03-02', nhisAcquired: true, eiAcquired: true }],
-    ['EMP-203', { signed: false, signedAt: null, nhisAcquired: true, eiAcquired: true }],
-    ['EMP-204', { signed: true, signedAt: '2026-04-01', nhisAcquired: true, eiAcquired: true }],
+    [
+      'EMP-201',
+      {
+        signed: true,
+        signedAt: '2026-03-02',
+        employmentContractSigned: true,
+        privacyConsentSigned: true,
+        ndaPledgeSigned: true,
+        nhisAcquired: true,
+        eiAcquired: true,
+      },
+    ],
+    [
+      'EMP-202',
+      {
+        signed: true,
+        signedAt: '2026-03-02',
+        employmentContractSigned: true,
+        privacyConsentSigned: true,
+        ndaPledgeSigned: true,
+        nhisAcquired: true,
+        eiAcquired: true,
+      },
+    ],
+    [
+      'EMP-203',
+      {
+        signed: false,
+        signedAt: null,
+        employmentContractSigned: false,
+        privacyConsentSigned: false,
+        ndaPledgeSigned: false,
+        nhisAcquired: true,
+        eiAcquired: true,
+      },
+    ],
+    [
+      'EMP-204',
+      {
+        signed: true,
+        signedAt: '2026-04-01',
+        employmentContractSigned: true,
+        privacyConsentSigned: true,
+        ndaPledgeSigned: true,
+        nhisAcquired: true,
+        eiAcquired: true,
+      },
+    ],
   ]);
+
+  // 전 영역 범용 리스트 항목 체크박스(☐) · 별표(★) 저장소 (`${groupKey}:${itemId}` -> { checked, starred })
+  const listItemMarks = new Map();
+
+  // 직원별 추가 인적·근무 조건 프로필 (`empCode` -> { maskedPhone, address, workplaceLocation, workStartEnd })
+  const workerProfileExtrasMap = new Map([
+    [
+      'EMP-201',
+      {
+        maskedPhone: '010-****-2011',
+        address: '경기도 화성시 동탄첨단산업1로 45',
+        workplaceLocation: '본사 제1공장 생산기술동',
+        workStartEnd: '업무시작 09:00 ~ 종료 18:00, 휴게시간 12:00 ~ 13:00',
+      },
+    ],
+    [
+      'EMP-202',
+      {
+        maskedPhone: '010-****-2022',
+        address: '경기도 수원시 영통구 광교중앙로 120',
+        workplaceLocation: '본사 품질보증센터',
+        workStartEnd: '업무시작 09:00 ~ 종료 18:00, 휴게시간 12:00 ~ 13:00',
+      },
+    ],
+    [
+      'EMP-203',
+      {
+        maskedPhone: '010-****-2033',
+        address: '서울특별시 금천구 가산디지털1로 168',
+        workplaceLocation: '본사 기업부설연구소',
+        workStartEnd: '업무시작 09:00 ~ 종료 18:00, 휴게시간 12:00 ~ 13:00',
+      },
+    ],
+  ]);
+
+  let signedDocSeq = 110;
+  let customPersonSeq = 500;
+  const seedEmp201Payload = {
+    empCode: 'EMP-201',
+    displayName: '김하늘',
+    personName: '김하늘',
+    deptName: '생산기술1팀',
+    jobTitle: '사원',
+    hireDate: '2022-03-02',
+    maskedBirthOrId: '940315-*******',
+    maskedPhone: '010-****-2011',
+    address: '경기도 화성시 동탄첨단산업1로 45',
+    workplaceLocation: '본사 제1공장 생산기술동',
+    workStartEnd: '업무시작 09:00 ~ 종료 18:00, 휴게시간 12:00 ~ 13:00',
+    weeklyHours: 40,
+    dailyHours: 8,
+    baseMonthlyPay: 3400000,
+    fixedOrdinaryAllowance: 200000,
+    mealAllowance: 200000,
+  };
+  const computeSeedUnsignedSha = (tplId) => {
+    const gen = generateStatutoryDocument(tplId, {
+      companyName: '(주)대한정밀기계공업',
+      bizRegNo: '214-86-00941',
+      ceoName: '대표이사',
+      ksicMajor: 'C',
+      lsaRegularCount: 60,
+      oshRegularCount: 64,
+      triggerDate: '2026-11-11',
+      referenceDate: '2026-11-15',
+      dueDate: '2026-11-15',
+      hasMajorityUnion: false,
+      policySettings: DEFAULT_POLICY_SETTINGS,
+      workerRecord: seedEmp201Payload,
+      signatureInfo: null,
+    });
+    return crypto.createHash('sha256').update(gen.body).digest('hex');
+  };
+  // 사업장(bizRegNo) · 고유 personId/personKey별 작성 및 전자서명 완료 서식 불변 보관함
+  const signedDocumentsArchive = [
+    {
+      docRecordId: 'SDOC-101',
+      version: 1,
+      superseded: false,
+      bizRegNo: '214-86-00941',
+      personKey: 'EMP:EMP-201',
+      personId: 'PER-INIT-EMP-201',
+      templateId: 'DOC_EMPLOYMENT_CONTRACT',
+      templateLabel: '표준 근로계약서',
+      ...seedEmp201Payload,
+      payloadDigest: computeDocPayloadDigest('DOC_EMPLOYMENT_CONTRACT', seedEmp201Payload),
+      unsignedBodySha256: computeSeedUnsignedSha('DOC_EMPLOYMENT_CONTRACT'),
+      signed: true,
+      signerName: '김하늘',
+      signedAt: '2026-11-15',
+      signatureCode: 'SIG-EMP201-CNT',
+      signatureDataUrl: '',
+    },
+    {
+      docRecordId: 'SDOC-102',
+      version: 1,
+      superseded: false,
+      bizRegNo: '214-86-00941',
+      personKey: 'EMP:EMP-201',
+      personId: 'PER-INIT-EMP-201',
+      templateId: 'DOC_PRIVACY_CONSENT',
+      templateLabel: '개인정보 수집·이용 동의서',
+      ...seedEmp201Payload,
+      payloadDigest: computeDocPayloadDigest('DOC_PRIVACY_CONSENT', seedEmp201Payload),
+      unsignedBodySha256: computeSeedUnsignedSha('DOC_PRIVACY_CONSENT'),
+      signed: true,
+      signerName: '김하늘',
+      signedAt: '2026-11-15',
+      signatureCode: 'SIG-EMP201-PRV',
+      signatureDataUrl: '',
+    },
+    {
+      docRecordId: 'SDOC-103',
+      version: 1,
+      superseded: false,
+      bizRegNo: '214-86-00941',
+      personKey: 'EMP:EMP-201',
+      personId: 'PER-INIT-EMP-201',
+      templateId: 'DOC_NDA_SECURITY_PLEDGE',
+      templateLabel: '비밀유지 및 정보보안 서약서',
+      ...seedEmp201Payload,
+      payloadDigest: computeDocPayloadDigest('DOC_NDA_SECURITY_PLEDGE', seedEmp201Payload),
+      unsignedBodySha256: computeSeedUnsignedSha('DOC_NDA_SECURITY_PLEDGE'),
+      signed: true,
+      signerName: '김하늘',
+      signedAt: '2026-11-15',
+      signatureCode: 'SIG-EMP201-NDA',
+      signatureDataUrl: '',
+    },
+  ];
 
   const leaveUsageMap = new Map([
     ['EMP-201', { usedDays: 6.5, promoStage: 'STAGE_1_SENT' }],
@@ -573,6 +760,7 @@ export function createOperationsSuiteManager() {
     leaveUsageMap.clear();
     contractSignedMap.clear();
     evalGradeMap.clear();
+    workerProfileExtrasMap.clear();
   }
 
   function exportPersistenceState() {
@@ -588,11 +776,27 @@ export function createOperationsSuiteManager() {
     for (const [recId, bk] of leavePrevCalendarBackup.entries()) {
       leaveBackups[recId] = structuredClone(bk);
     }
+    const itemMarksObj = {};
+    for (const [k, v] of listItemMarks.entries()) {
+      itemMarksObj[k] = { checked: Boolean(v?.checked), starred: Boolean(v?.starred) };
+    }
+    const profileExtrasObj = {};
+    for (const [k, v] of workerProfileExtrasMap.entries()) {
+      profileExtrasObj[k] = structuredClone(v);
+    }
+    const contractMapObj = {};
+    for (const [k, v] of contractSignedMap.entries()) {
+      contractMapObj[k] = structuredClone(v);
+    }
     return {
       selectedYearMonth,
       calendars,
       leaveRecords,
       leaveBackups,
+      itemMarks: itemMarksObj,
+      profileExtras: profileExtrasObj,
+      contractSigned: contractMapObj,
+      signedDocumentsArchive: structuredClone(signedDocumentsArchive),
     };
   }
 
@@ -625,6 +829,97 @@ export function createOperationsSuiteManager() {
         }
       }
     }
+    if (saved.itemMarks && typeof saved.itemMarks === 'object') {
+      listItemMarks.clear();
+      for (const [k, v] of Object.entries(saved.itemMarks)) {
+        listItemMarks.set(k, { checked: Boolean(v?.checked), starred: Boolean(v?.starred) });
+      }
+    }
+    if (saved.profileExtras && typeof saved.profileExtras === 'object') {
+      workerProfileExtrasMap.clear();
+      for (const [k, v] of Object.entries(saved.profileExtras)) {
+        if (v && typeof v === 'object') workerProfileExtrasMap.set(k, structuredClone(v));
+      }
+    }
+    if (saved.contractSigned && typeof saved.contractSigned === 'object') {
+      contractSignedMap.clear();
+      for (const [k, v] of Object.entries(saved.contractSigned)) {
+        if (v && typeof v === 'object') contractSignedMap.set(k, structuredClone(v));
+      }
+    }
+    if (Array.isArray(saved.signedDocumentsArchive)) {
+      signedDocumentsArchive.length = 0;
+      signedDocumentsArchive.push(...structuredClone(saved.signedDocumentsArchive));
+      for (const rec of signedDocumentsArchive) {
+        const mDoc = String(rec.docRecordId || '').match(/^SDOC-(\d+)$/);
+        if (mDoc) signedDocSeq = Math.max(signedDocSeq, Number(mDoc[1]));
+        const mExt = String(rec.personKey || '').match(/^EXT-(\d+)$/);
+        if (mExt) customPersonSeq = Math.max(customPersonSeq, Number(mExt[1]));
+      }
+    }
+  }
+
+  function isRecordValidForRoster(d, bizRegNo, workers = [], offboardedWorkers = []) {
+    if (bizRegNo && d.bizRegNo && d.bizRegNo !== bizRegNo) return false;
+    if (d.empCode && d.personId) {
+      const w = workers.find((x) => x.empCode === d.empCode);
+      if (w && w.personId && w.personId !== d.personId) return false;
+      const al = offboardedWorkers.find((x) => x.empCode === d.empCode);
+      if (al && al.personId && al.personId !== d.personId) return false;
+    }
+    return true;
+  }
+
+  function getArchivedDocById(docRecordId, scope = {}) {
+    const id = String(docRecordId || '').trim();
+    if (!id) return null;
+    const found = signedDocumentsArchive.find(
+      (d) =>
+        d.docRecordId === id &&
+        isRecordValidForRoster(
+          d,
+          scope.bizRegNo || '',
+          scope.workers || [],
+          scope.offboardedWorkers || []
+        )
+    );
+    return found ? structuredClone(found) : null;
+  }
+
+  function findMatchingSignedDoc({
+    bizRegNo = '',
+    templateId,
+    empCode = '',
+    personId = null,
+    personKey = '',
+    renderUnsignedAtSignedDate = null,
+  }) {
+    const tid = String(templateId || '').trim();
+    const code = String(empCode || '').trim().toUpperCase();
+    // 사번(empCode)이 지정된 경우 클라이언트가 보낸 임의 personKey를 무시하고 항상 서버 사번·personId로 귀속 확정
+    const resolvedPersonKey = code ? `EMP:${code}` : String(personKey || '').trim();
+    if (!tid || !resolvedPersonKey) return null;
+    const rec = signedDocumentsArchive.find(
+      (d) =>
+        d.templateId === tid &&
+        d.personKey === resolvedPersonKey &&
+        d.signed === true &&
+        !d.superseded &&
+        (!bizRegNo || !d.bizRegNo || d.bizRegNo === bizRegNo) &&
+        (!personId || !d.personId || d.personId === personId)
+    );
+    if (!rec) return null;
+    if (typeof renderUnsignedAtSignedDate === 'function' && rec.unsignedBodySha256) {
+      const renderedUnsignedBody = renderUnsignedAtSignedDate(rec.signedAt || null);
+      const currentSha = crypto
+        .createHash('sha256')
+        .update(String(renderedUnsignedBody || ''))
+        .digest('hex');
+      if (currentSha !== rec.unsignedBodySha256) {
+        return null;
+      }
+    }
+    return structuredClone(rec);
   }
 
   function getWorkerLeaveRecords(w) {
@@ -1218,6 +1513,7 @@ export function createOperationsSuiteManager() {
     const cleanName = String(origDisplayName || '').trim();
     if (cleanCode) {
       contractSignedMap.delete(cleanCode);
+      workerProfileExtrasMap.delete(cleanCode);
       leaveUsageMap.delete(cleanCode);
       leaveRecordsMap.delete(cleanCode);
       evalGradeMap.delete(cleanCode);
@@ -1225,6 +1521,20 @@ export function createOperationsSuiteManager() {
         if (key.toUpperCase().startsWith(`${cleanCode}|`)) {
           dailyAttendanceMap.delete(key);
         }
+      }
+      for (const key of Array.from(listItemMarks.keys())) {
+        if (key.toUpperCase().endsWith(`:${cleanCode}`)) {
+          listItemMarks.delete(key);
+        }
+      }
+    }
+    for (let i = signedDocumentsArchive.length - 1; i >= 0; i--) {
+      const sd = signedDocumentsArchive[i];
+      if (
+        (cleanCode && String(sd.empCode || '').toUpperCase() === cleanCode) ||
+        (origPersonId && sd.personId && sd.personId === origPersonId)
+      ) {
+        signedDocumentsArchive.splice(i, 1);
       }
     }
     assignmentLogs = assignmentLogs.filter((item) => {
@@ -1260,16 +1570,23 @@ export function createOperationsSuiteManager() {
         w.workerCategory === 'PART_TIME'
     );
 
-    // 1) M1·M2 계약·취득 테이블 (전 직원 No. 1..N · 사번 · 성명 · 체크 · 별표 100% 일치)
+    // 1) M1·M2 계약·취득 테이블 (전 직원 No. 1..N · 사번 · 성명 · 체크 · 별표 · 입사 3종 서식 100% 일치)
     const contractLedger = workers.map((w, idx) => {
       const meta = contractSignedMap.get(w.empCode) || {
         signed: true,
         signedAt: w.hireDate || '2026-01-02',
+        employmentContractSigned: true,
+        privacyConsentSigned: true,
+        ndaPledgeSigned: true,
         nhisAcquired: w.workerCategory !== 'DAILY' && w.workerCategory !== 'BIZ_33' && (w.weeklyHours ?? 40) >= 15,
         eiAcquired: w.workerCategory !== 'BIZ_33',
       };
+      const extras = workerProfileExtrasMap.get(w.empCode) || {};
       const hireDate = w.hireDate || '2024-03-02';
       const probationEndsOn = addDaysISO(hireDate, 90);
+      const empContractSigned = meta.employmentContractSigned ?? Boolean(meta.signed);
+      const privacySigned = meta.privacyConsentSigned ?? Boolean(meta.signed);
+      const ndaSigned = meta.ndaPledgeSigned ?? Boolean(meta.signed);
       return {
         rowNo: idx + 1,
         checked: Boolean(w.checked),
@@ -1281,11 +1598,21 @@ export function createOperationsSuiteManager() {
         workerCategory: w.workerCategory,
         hireDate,
         probationEndsOn,
+        maskedBirthOrId: w.maskedBirthOrId || '900101-*******',
+        maskedPhone: extras.maskedPhone || '010-****-0000',
+        address: extras.address || `${company.companyName} 등록 주소지`,
+        workplaceLocation: extras.workplaceLocation || `${company.companyName} 본사 사업장`,
+        workStartEnd: extras.workStartEnd || '업무시작 09:00 ~ 종료 18:00, 휴게시간 12:00 ~ 13:00',
         weeklyHours: w.weeklyHours || (w.workerCategory === 'DAILY' ? 18 : 0),
         baseMonthlyPay:
           w.baseMonthlyPay || w.contractFee || (w.dailyWage || 0) * (w.dailyWorkDays || 0),
-        contractSigned: meta.signed,
+        mealAllowance: w.mealAllowance ?? 200000,
+        contractSigned: Boolean(meta.signed),
         contractSignedAt: meta.signedAt,
+        employmentContractSigned: empContractSigned,
+        privacyConsentSigned: privacySigned,
+        ndaPledgeSigned: ndaSigned,
+        allOnboardingSigned: empContractSigned && privacySigned && ndaSigned,
         nhisAcquired: meta.nhisAcquired,
         eiAcquired: meta.eiAcquired,
       };
@@ -1505,10 +1832,11 @@ export function createOperationsSuiteManager() {
       };
     });
 
-    // 6) M7 징계 적법절차 & 제95조 감봉 상한 보드 + 고충처리 D-Day
+    // 6) M7 징계 적법절차 & 제95조 감봉 상한 보드 + 고충처리 D-Day (마스터 번호 · 체크 · 별표 동기화)
     const disciplineBoard = regularRoster
       .filter((w, idx) => (w.requestedDisciplinaryCut || 0) > 0 || idx < 2)
       .map((w) => {
+        const masterIdx = workers.findIndex((item) => item.empCode === w.empCode);
         const payLine = payrollLines.find((p) => p.empCode === w.empCode);
         const allStepsDone =
           Boolean(w.attendanceNoticeSent) &&
@@ -1516,6 +1844,9 @@ export function createOperationsSuiteManager() {
           Boolean(w.committeeResolved) &&
           Boolean(w.writtenNoticeDelivered);
         return {
+          rowNo: masterIdx >= 0 ? masterIdx + 1 : 1,
+          checked: Boolean(w.checked),
+          starred: Boolean(w.starred),
           empCode: w.empCode,
           displayName: w.displayName,
           deptName: w.deptName,
@@ -1530,8 +1861,9 @@ export function createOperationsSuiteManager() {
         };
       });
 
-    const grievanceBoard = grievances.map((g) => ({
+    const grievanceBoard = grievances.map((g, idx) => ({
       ...g,
+      rowNo: idx + 1,
       daysLeft: diffDaysISO(refDate, g.dueDate),
     }));
 
@@ -1627,6 +1959,33 @@ export function createOperationsSuiteManager() {
         riskAssessments: structuredClone(riskAssessments),
         statutoryTrainings: structuredClone(statutoryTrainings),
       },
+      listItemMarks: Object.fromEntries(listItemMarks.entries()),
+      signedDocumentsArchive: signedDocumentsArchive
+        .filter((d) => !d.superseded && isRecordValidForRoster(d, company.bizRegNo, workers, []))
+        .map((d) => ({
+          docRecordId: d.docRecordId,
+          version: d.version || 1,
+          personKey: d.personKey || (d.empCode ? `EMP:${d.empCode}` : ''),
+          templateId: d.templateId,
+          templateLabel: d.templateLabel,
+          empCode: d.empCode || '',
+          personName: d.personName,
+          deptName: d.deptName,
+          jobTitle: d.jobTitle,
+          hireDate: d.hireDate,
+          maskedBirthOrId: d.maskedBirthOrId,
+          maskedPhone: d.maskedPhone,
+          weeklyHours: d.weeklyHours,
+          baseMonthlyPay: d.baseMonthlyPay,
+          mealAllowance: d.mealAllowance,
+          signed: Boolean(d.signed),
+          signerName: d.signerName || '',
+          signedAt: d.signedAt || null,
+          signatureCode: d.signatureCode || '',
+          payloadDigest: d.payloadDigest || '',
+          hasSignatureImage: Boolean(d.signatureDataUrl),
+          hasSavedBody: Boolean(d.savedBody),
+        })),
     };
   }
 
@@ -1635,7 +1994,15 @@ export function createOperationsSuiteManager() {
    */
   function applyAction(
     actionPayload = {},
-    { state, payrollLocked = false, appendAudit, tombstoneStore = null, lsaRegularCount = 60 }
+    {
+      state,
+      payrollLocked = false,
+      appendAudit,
+      tombstoneStore = null,
+      lsaRegularCount = 60,
+      docLsaCount = undefined,
+      docOshCount = undefined,
+    }
   ) {
     const actionType = String(actionPayload.actionType || '').trim();
     if (!actionType) throw badRequest('actionType이 필요합니다.');
@@ -1747,15 +2114,29 @@ export function createOperationsSuiteManager() {
         contractSignedMap.set(newEmpCode, {
           signed: false,
           signedAt: null,
+          employmentContractSigned: false,
+          privacyConsentSigned: false,
+          ndaPledgeSigned: false,
           nhisAcquired: app.weeklyHours >= 15,
           eiAcquired: true,
+        });
+        workerProfileExtrasMap.set(newEmpCode, {
+          maskedPhone: '010-****-0000',
+          address: `${state.company.companyName} 관할 거주지`,
+          workplaceLocation: `${state.company.companyName} ${app.targetDept}`,
+          workStartEnd: '업무시작 09:00 ~ 종료 18:00, 휴게시간 12:00 ~ 13:00',
         });
         leaveUsageMap.set(newEmpCode, { usedDays: 0, promoStage: 'NONE' });
         appendAudit(
           'M1채용→M2입사',
-          `[${app.name} → ${newEmpCode}] 합격자 인사명부·전자계약 초안·4대보험 취득·M8 급여원장 자동 편입 완료`
+          `[${app.name} → ${newEmpCode}] 합격자 인사명부·입사 3종 서식(근로계약·개인정보동의·보안서약) 자동생성·M8 급여원장 편입 완료`
         );
-        return { message: `${app.name}님이 ${newEmpCode} 사번으로 입사 발령되어 전자근로계약 대기 및 급여대장에 자동 편입되었습니다.` };
+        return {
+          message: `${app.name}님이 ${newEmpCode} 사번으로 입사 발령되어 입사 3종 필수 서식(근로계약서·개인정보동의서·보안서약서)이 자동 생성되었습니다.`,
+          hiredEmpCode: newEmpCode,
+          hiredName: app.name,
+          autoOpenOnboardingDocs: true,
+        };
       }
 
       case 'ADD_APPLICANT': {
@@ -1806,6 +2187,9 @@ export function createOperationsSuiteManager() {
         contractSignedMap.set(empCode, {
           signed: true,
           signedAt,
+          employmentContractSigned: true,
+          privacyConsentSigned: true,
+          ndaPledgeSigned: true,
           nhisAcquired: (w.weeklyHours || 40) >= 15,
           eiAcquired: true,
         });
@@ -1814,6 +2198,447 @@ export function createOperationsSuiteManager() {
           `[${empCode} ${w.displayName}] 근로기준법 제17조 전자근로계약 체결·즉시교부 및 4대보험 취득 연동 완료`
         );
         return { message: `[${empCode} ${w.displayName}] 전자근로계약 서명·즉시교부가 완료되었습니다.` };
+      }
+
+      case 'SAVE_PERSON_DOC_AND_SIGN': {
+        const rawCode = String(actionPayload.empCode || '').trim().slice(0, 30);
+        const matchedWorker = rawCode ? state.workers.find((item) => item.empCode === rawCode) : null;
+        const matchedAlumni =
+          !matchedWorker && rawCode
+            ? (state.offboardedWorkers || []).find((item) => item.empCode === rawCode)
+            : null;
+        if (
+          rawCode &&
+          tombstoneStore &&
+          tombstoneStore.isEmpCodePurged(state.company.bizRegNo, rawCode)
+        ) {
+          throw conflictError('비식별 파기 완료된 사번의 서식은 생성·서명할 수 없습니다.');
+        }
+
+        const personName = maskInlinePiiText(
+          String(
+            actionPayload.personName ||
+              matchedWorker?.displayName ||
+              matchedAlumni?.displayName ||
+              ''
+          )
+            .trim()
+            .slice(0, 40)
+        );
+        if (!personName) {
+          throw badRequest('서식에 기입할 대상자 성명(personName)을 입력해 주세요.');
+        }
+        if (actionPayload.signNow !== undefined && typeof actionPayload.signNow !== 'boolean') {
+          throw badRequest('signNow 값은 boolean이어야 합니다.');
+        }
+        const signNow = actionPayload.signNow === true;
+        if (
+          actionPayload.consentConfirmed !== undefined &&
+          typeof actionPayload.consentConfirmed !== 'boolean'
+        ) {
+          throw badRequest('consentConfirmed 값은 boolean이어야 합니다.');
+        }
+        if (signNow && actionPayload.consentConfirmed !== true) {
+          throw badRequest('전자서명 진행을 위해 내용 확인 및 명시적 동의(consentConfirmed: true)가 필수입니다.');
+        }
+
+        const rawTemplateIds = Array.isArray(actionPayload.templateIds)
+          ? actionPayload.templateIds
+          : actionPayload.templateId
+            ? [actionPayload.templateId]
+            : ['DOC_EMPLOYMENT_CONTRACT', 'DOC_PRIVACY_CONSENT', 'DOC_NDA_SECURITY_PLEDGE'];
+        if (rawTemplateIds.length === 0 || rawTemplateIds.length > 6) {
+          throw badRequest('저장·서명할 서식 목록(templateIds)은 1~6개여야 합니다.');
+        }
+        const templateIds = rawTemplateIds.map((id) => String(id || '').trim());
+        for (const tid of templateIds) {
+          if (!VALID_DOC_TEMPLATES.includes(tid)) {
+            throw badRequest(`지원하지 않는 서식 ID입니다 (${tid}).`);
+          }
+        }
+
+        const sigDataUrl = String(actionPayload.signatureDataUrl || '').trim();
+        if (
+          sigDataUrl &&
+          (!sigDataUrl.startsWith('data:image/png;base64,') || sigDataUrl.length > 36000)
+        ) {
+          throw badRequest('자필 서명 이미지는 PNG 데이터(36KB 이하) 형식이어야 합니다.');
+        }
+
+        const deptName = maskInlinePiiText(
+          String(actionPayload.deptName || matchedWorker?.deptName || matchedAlumni?.deptName || '일반부서')
+            .trim()
+            .slice(0, 40)
+        );
+        const jobTitle = maskInlinePiiText(
+          String(actionPayload.jobTitle || matchedWorker?.jobTitle || matchedAlumni?.jobTitle || '사원')
+            .trim()
+            .slice(0, 40)
+        );
+        const hireDateRaw = String(
+          actionPayload.hireDate ||
+            matchedWorker?.hireDate ||
+            matchedAlumni?.hireDate ||
+            state.company.referenceDate ||
+            '2026-11-15'
+        ).trim();
+        if (!isValidIsoDate(hireDateRaw)) {
+          throw badRequest('입사일(hireDate)은 YYYY-MM-DD 형식의 유효한 날짜여야 합니다.');
+        }
+        const maskedBirthOrId = maskInlinePiiText(
+          String(
+            actionPayload.maskedBirthOrId ||
+              matchedWorker?.maskedBirthOrId ||
+              matchedAlumni?.maskedBirthOrId ||
+              '950101-*******'
+          )
+            .trim()
+            .slice(0, 30)
+        );
+        const maskedPhone = maskInlinePiiText(
+          String(actionPayload.maskedPhone || '010-****-0000').trim().slice(0, 30)
+        );
+        const address = maskInlinePiiText(
+          String(actionPayload.address || `${state.company.companyName} 관할 거주지`)
+            .trim()
+            .slice(0, 120)
+        );
+        const workplaceLocation = maskInlinePiiText(
+          String(actionPayload.workplaceLocation || `${state.company.companyName} 본사 사업장`)
+            .trim()
+            .slice(0, 80)
+        );
+        const workStartEnd = maskInlinePiiText(
+          String(
+            actionPayload.workStartEnd ||
+              '업무시작 09:00 ~ 종료 18:00, 휴게시간 12:00 ~ 13:00'
+          )
+            .trim()
+            .slice(0, 100)
+        );
+
+        const weeklyHours =
+          actionPayload.weeklyHours === undefined
+            ? matchedWorker?.weeklyHours ?? 40
+            : assertBoundedFiniteNumber(Number(actionPayload.weeklyHours), 'weeklyHours', 1, 52);
+        const baseMonthlyPay =
+          actionPayload.baseMonthlyPay === undefined
+            ? matchedWorker?.baseMonthlyPay ?? 3200000
+            : Math.round(
+                assertBoundedFiniteNumber(
+                  Number(actionPayload.baseMonthlyPay),
+                  'baseMonthlyPay',
+                  0,
+                  100_000_000
+                )
+              );
+        const mealAllowance =
+          actionPayload.mealAllowance === undefined
+            ? matchedWorker?.mealAllowance ?? 200000
+            : Math.round(
+                assertBoundedFiniteNumber(
+                  Number(actionPayload.mealAllowance),
+                  'mealAllowance',
+                  0,
+                  5_000_000
+                )
+              );
+
+        if (matchedWorker) {
+          const isSalariedWorker =
+            matchedWorker.workerCategory === 'REGULAR' ||
+            matchedWorker.workerCategory === 'FIXED_TERM' ||
+            matchedWorker.workerCategory === 'PART_TIME';
+          const currentRefPay = isSalariedWorker
+            ? matchedWorker.baseMonthlyPay ?? 0
+            : matchedWorker.contractFee ||
+              (matchedWorker.dailyWage || 0) * (matchedWorker.dailyWorkDays || 0);
+          const payMutated =
+            (actionPayload.baseMonthlyPay !== undefined && baseMonthlyPay !== currentRefPay) ||
+            (isSalariedWorker &&
+              actionPayload.mealAllowance !== undefined &&
+              mealAllowance !== (matchedWorker.mealAllowance ?? 0)) ||
+            (isSalariedWorker &&
+              actionPayload.weeklyHours !== undefined &&
+              weeklyHours !== (matchedWorker.weeklyHours ?? 40));
+          if (payrollLocked && payMutated) {
+            throw conflictError(
+              '당월 급여대장이 잠금 확정(APPROVED_LOCKED) 상태여서 급여·소정근로시간 항목 변경은 수행할 수 없습니다.'
+            );
+          }
+          matchedWorker.displayName = personName;
+          matchedWorker.deptName = deptName;
+          matchedWorker.jobTitle = jobTitle;
+          matchedWorker.hireDate = hireDateRaw;
+          matchedWorker.maskedBirthOrId = maskedBirthOrId;
+          if (!payrollLocked && isSalariedWorker) {
+            matchedWorker.weeklyHours = weeklyHours;
+            matchedWorker.baseMonthlyPay = baseMonthlyPay;
+            matchedWorker.mealAllowance = mealAllowance;
+          }
+          workerProfileExtrasMap.set(matchedWorker.empCode, {
+            maskedPhone,
+            address,
+            workplaceLocation,
+            workStartEnd,
+          });
+        }
+
+        const signedAt = state.company.referenceDate || '2026-11-15';
+        const signerName = maskInlinePiiText(
+          String(actionPayload.signerName || personName).trim().slice(0, 40)
+        );
+
+        const templateLabels = {
+          DOC_EMPLOYMENT_CONTRACT: '표준 근로계약서',
+          DOC_PRIVACY_CONSENT: '개인정보 수집·이용 동의서',
+          DOC_NDA_SECURITY_PLEDGE: '비밀유지 및 정보보안 서약서',
+          DOC_EXIT_SECURITY_NONCOMPETE: '퇴사 시 보안·경업금지 서약서',
+          DOC_EMPLOYMENT_CERT: '재직증명서',
+          DOC_CAREER_CERTIFICATE: '사용(경력)증명서',
+          DOC_EI_SEPARATION_CERT: '고용보험 상실·이직확인서',
+          DOC_WORK_RULES_REPORT: '취업규칙 제정·변경 신고서',
+          DOC_ANNUAL_LEAVE_PROMOTION: '미사용 연차 사용촉진 통지서',
+          DOC_DISCIPLINE_WRITTEN_NOTICE: '징계 출석 · 서면통지서',
+          DOC_LMC_REGULATION_AND_FILING: '노사협의회 규정 및 신고서',
+          DOC_LMC_MINUTES: '노사협의회 정기회의록',
+          DOC_OSH_OFFICER_APPOINTMENT: '안전·보건관리자 선임보고서',
+          DOC_OSH_MINUTES: '산업안전보건위원회 회의록',
+        };
+
+        const currentBizRegNo = state.company.bizRegNo || '';
+        const requestedPersonKey = String(actionPayload.personKey || '').trim();
+        const isKnownExtKey =
+          !rawCode &&
+          /^EXT-\d+$/.test(requestedPersonKey) &&
+          signedDocumentsArchive.some(
+            (d) => d.personKey === requestedPersonKey && (!d.bizRegNo || d.bizRegNo === currentBizRegNo)
+          );
+        const personKey = rawCode
+          ? `EMP:${rawCode}`
+          : isKnownExtKey
+            ? requestedPersonKey
+            : `EXT-${++customPersonSeq}`;
+        const boundPersonId = matchedWorker?.personId || matchedAlumni?.personId || null;
+
+        const savedDocIds = [];
+        for (const tid of templateIds) {
+          const personPayload = {
+            empCode: rawCode || '',
+            displayName: personName,
+            personName,
+            deptName,
+            jobTitle,
+            hireDate: hireDateRaw,
+            maskedBirthOrId,
+            maskedPhone,
+            address,
+            workplaceLocation,
+            workStartEnd,
+            weeklyHours,
+            baseMonthlyPay,
+            mealAllowance,
+          };
+          const payloadDigest = computeDocPayloadDigest(tid, personPayload);
+
+          const baseDocContext = {
+            companyName: state.company.companyName,
+            bizRegNo: currentBizRegNo,
+            ceoName: state.company.ceoName,
+            ksicMajor: state.company.ksicMajor,
+            lsaRegularCount: docLsaCount ?? Math.round(lsaRegularCount),
+            oshRegularCount: docOshCount ?? docLsaCount ?? Math.round(lsaRegularCount),
+            triggerDate: state.company.triggerDate,
+            referenceDate: signedAt,
+            dueDate: signedAt,
+            hasMajorityUnion: state.company.hasMajorityUnion,
+            policySettings: state.company.policySettings,
+            workerRecord: matchedWorker || undefined,
+            alumniRecord: matchedAlumni || undefined,
+            personInfo: { ...personPayload, empCode: rawCode || '외부·신규' },
+          };
+
+          const unsignedDoc = generateStatutoryDocument(tid, {
+            ...baseDocContext,
+            signatureInfo: null,
+          });
+          const unsignedBodySha256 = crypto
+            .createHash('sha256')
+            .update(unsignedDoc.body)
+            .digest('hex');
+          const fullDocHashHex = crypto
+            .createHash('sha256')
+            .update(`${unsignedDoc.body}|${signerName}|${signedAt}|${sigDataUrl}`)
+            .digest('hex')
+            .toUpperCase();
+          const signatureCode = `SIG-${fullDocHashHex.slice(0, 12)}`;
+
+          const genDoc = signNow
+            ? generateStatutoryDocument(tid, {
+                ...baseDocContext,
+                signatureInfo: { signed: true, signerName, signedAt, signatureCode },
+              })
+            : unsignedDoc;
+
+          // 동일 (사업장, 서식, personKey)의 기존 기록 처리:
+          // - signNow=true(서명 확정): 기존 활성 서명본·초안을 모두 superseded=true로 전환해 단일 활성 서명본만 남기고 구 서명본은 불변 보존
+          // - signNow=false(초안 저장): 기존 미서명 초안만 갱신하고 기 서명본(signed=true)은 절대 건드리지 않음
+          const matchingIndices = [];
+          let maxPriorVersion = 0;
+          for (let idx = 0; idx < signedDocumentsArchive.length; idx++) {
+            const d = signedDocumentsArchive[idx];
+            if (
+              d.templateId === tid &&
+              d.personKey === personKey &&
+              (!d.bizRegNo || d.bizRegNo === currentBizRegNo)
+            ) {
+              maxPriorVersion = Math.max(maxPriorVersion, d.version || 1);
+              if (!d.superseded) matchingIndices.push(idx);
+            }
+          }
+
+          let nextVersion = maxPriorVersion > 0 ? maxPriorVersion + 1 : 1;
+          let replaceDraftIdx = -1;
+          if (signNow) {
+            for (const mIdx of matchingIndices) {
+              signedDocumentsArchive[mIdx].superseded = true;
+            }
+          } else {
+            const draftIdx = matchingIndices.find((mIdx) => !signedDocumentsArchive[mIdx].signed);
+            if (draftIdx !== undefined) {
+              replaceDraftIdx = draftIdx;
+              nextVersion = signedDocumentsArchive[draftIdx].version || 1;
+            }
+          }
+
+          const nextRec = {
+            docRecordId:
+              replaceDraftIdx >= 0
+                ? signedDocumentsArchive[replaceDraftIdx].docRecordId
+                : `SDOC-${++signedDocSeq}`,
+            version: nextVersion,
+            superseded: false,
+            bizRegNo: currentBizRegNo,
+            personKey,
+            personId: boundPersonId,
+            templateId: tid,
+            templateLabel: templateLabels[tid] || genDoc.title,
+            empCode: rawCode || '',
+            personName,
+            deptName,
+            jobTitle,
+            hireDate: hireDateRaw,
+            maskedBirthOrId,
+            maskedPhone,
+            address,
+            workplaceLocation,
+            workStartEnd,
+            weeklyHours,
+            baseMonthlyPay,
+            mealAllowance,
+            payloadDigest,
+            unsignedBodySha256,
+            docBodySha256: fullDocHashHex,
+            signed: signNow,
+            signerName: signNow ? signerName : '',
+            signedAt: signNow ? signedAt : null,
+            signatureCode: signNow ? signatureCode : '',
+            signatureDataUrl: signNow ? sigDataUrl : '',
+            savedBody: genDoc.body,
+          };
+          if (replaceDraftIdx >= 0) {
+            signedDocumentsArchive[replaceDraftIdx] = nextRec;
+          } else {
+            signedDocumentsArchive.unshift(nextRec);
+          }
+          savedDocIds.push(nextRec.docRecordId);
+        }
+
+        if (matchedWorker && signNow) {
+          const prevC = contractSignedMap.get(matchedWorker.empCode) || {
+            signed: false,
+            signedAt: null,
+            employmentContractSigned: false,
+            privacyConsentSigned: false,
+            ndaPledgeSigned: false,
+            nhisAcquired: (matchedWorker.weeklyHours || 40) >= 15,
+            eiAcquired: matchedWorker.workerCategory !== 'BIZ_33',
+          };
+          const empSigned =
+            prevC.employmentContractSigned || templateIds.includes('DOC_EMPLOYMENT_CONTRACT');
+          const prvSigned =
+            prevC.privacyConsentSigned || templateIds.includes('DOC_PRIVACY_CONSENT');
+          const ndaSigned =
+            prevC.ndaPledgeSigned || templateIds.includes('DOC_NDA_SECURITY_PLEDGE');
+          contractSignedMap.set(matchedWorker.empCode, {
+            ...prevC,
+            signed: empSigned,
+            signedAt: empSigned ? signedAt : prevC.signedAt,
+            employmentContractSigned: empSigned,
+            privacyConsentSigned: prvSigned,
+            ndaPledgeSigned: ndaSigned,
+          });
+        }
+
+        appendAudit(
+          '인사서식·전자서명',
+          `[${personName}${rawCode ? ` (${rawCode})` : ''}] 서식 ${templateIds.length}종 개인정보 반영 및 ${signNow ? '전자서명 완료' : '초안 저장'}`
+        );
+        return {
+          message: `[${personName}] 서식 ${templateIds.length}종에 개인정보가 자동 기입되고 ${signNow ? '전자서명이 완료·보관되었습니다.' : '작성 내역에 저장되었습니다.'}`,
+          savedDocIds,
+          personKey,
+          personName,
+          empCode: rawCode,
+        };
+      }
+
+      case 'TOGGLE_LIST_ITEM_CHECK': {
+        const groupKey = String(actionPayload.groupKey || '').trim().slice(0, 40);
+        const itemId = String(actionPayload.itemId || '').trim().slice(0, 80);
+        if (!groupKey || !itemId) throw badRequest('groupKey 및 itemId가 필요합니다.');
+        if (actionPayload.checked !== undefined && typeof actionPayload.checked !== 'boolean') {
+          throw badRequest('checked 값은 boolean이어야 합니다.');
+        }
+        const k = `${groupKey}:${itemId}`;
+        const cur = listItemMarks.get(k) || { checked: false, starred: false };
+        const nextChecked =
+          actionPayload.checked !== undefined ? actionPayload.checked : !cur.checked;
+        listItemMarks.set(k, { ...cur, checked: nextChecked });
+        return { message: '' };
+      }
+
+      case 'TOGGLE_LIST_ITEM_STAR': {
+        const groupKey = String(actionPayload.groupKey || '').trim().slice(0, 40);
+        const itemId = String(actionPayload.itemId || '').trim().slice(0, 80);
+        if (!groupKey || !itemId) throw badRequest('groupKey 및 itemId가 필요합니다.');
+        if (actionPayload.starred !== undefined && typeof actionPayload.starred !== 'boolean') {
+          throw badRequest('starred 값은 boolean이어야 합니다.');
+        }
+        const k = `${groupKey}:${itemId}`;
+        const cur = listItemMarks.get(k) || { checked: false, starred: false };
+        const nextStarred =
+          actionPayload.starred !== undefined ? actionPayload.starred : !cur.starred;
+        listItemMarks.set(k, { ...cur, starred: nextStarred });
+        return { message: '' };
+      }
+
+      case 'TOGGLE_LIST_GROUP_CHECK': {
+        const groupKey = String(actionPayload.groupKey || '').trim().slice(0, 40);
+        const itemIds = Array.isArray(actionPayload.itemIds) ? actionPayload.itemIds : [];
+        if (!groupKey) throw badRequest('groupKey가 필요합니다.');
+        if (itemIds.length > 500) throw badRequest('항목 수가 허용 범위를 초과했습니다.');
+        if (typeof actionPayload.checked !== 'boolean') {
+          throw badRequest('checked 값은 boolean이어야 합니다.');
+        }
+        for (const rawId of itemIds) {
+          const cleanId = String(rawId || '').trim().slice(0, 80);
+          if (!cleanId) continue;
+          const k = `${groupKey}:${cleanId}`;
+          const cur = listItemMarks.get(k) || { checked: false, starred: false };
+          listItemMarks.set(k, { ...cur, checked: actionPayload.checked });
+        }
+        return { message: '' };
       }
 
       case 'ISSUE_ASSIGNMENT': {
@@ -2070,8 +2895,13 @@ export function createOperationsSuiteManager() {
         if (typeof actionPayload.checked !== 'boolean') {
           throw badRequest('checked 값은 boolean이어야 합니다.');
         }
+        const subsetCodes = Array.isArray(actionPayload.empCodes)
+          ? new Set(actionPayload.empCodes.map((c) => String(c || '').trim()))
+          : null;
         for (const w of state.workers) {
-          w.checked = actionPayload.checked;
+          if (!subsetCodes || subsetCodes.has(w.empCode)) {
+            w.checked = actionPayload.checked;
+          }
         }
         return { message: '' };
       }
@@ -2486,5 +3316,7 @@ export function createOperationsSuiteManager() {
     resetForNewRoster,
     exportPersistenceState,
     restorePersistenceState,
+    getArchivedDocById,
+    findMatchingSignedDoc,
   });
 }

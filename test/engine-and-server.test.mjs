@@ -3627,4 +3627,446 @@ test('근태 팝업 캘린더 출퇴근 자동체크(8h초과 연장 · 22~07시
   }
 });
 
+test('전 영역 번호·체크·별표, 입사 필수 3종 서식 자동연결·전자서명, 기본↔변경 양식 비교 및 이름별 작성내역 검증', async () => {
+  let savedDiskState = null;
+  const memPersistence = {
+    load: () => (savedDiskState ? structuredClone(savedDiskState) : null),
+    save: (st) => {
+      savedDiskState = structuredClone(st);
+    },
+  };
+
+  const { server } = createAppServer({
+    requirePcAuth: false,
+    demoMode: true,
+    statePersistence: memPersistence,
+  });
+
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+  const baseUrl = `http://127.0.0.1:${port}`;
+
+  const postJson = async (pathname, body, csrf) =>
+    fetch(`${baseUrl}${pathname}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: baseUrl,
+        'X-CSRF-Token': csrf,
+      },
+      body: JSON.stringify(body),
+    });
+
+  try {
+    const bootRes = await fetch(`${baseUrl}/api/bootstrap`);
+    assert.equal(bootRes.status, 200);
+    const { csrfToken, snapshot: initSnap } = await bootRes.json();
+
+    // 1) 징계·고충·퇴사 등 전 영역 rowNo 및 초기 서명 보관함 확인
+    assert.equal(initSnap.operationsSuite.disciplineAndGrievance.disciplineBoard[0].rowNo, 1);
+    assert.equal(initSnap.operationsSuite.disciplineAndGrievance.grievances[0].rowNo, 1);
+    assert.equal(initSnap.offboardedWorkers[0].rowNo, 1);
+    assert.ok(initSnap.operationsSuite.signedDocumentsArchive.length >= 3);
+
+    // 2) 범용 리스트 체크박스(☐) · 별표(★) · 그룹 일괄 체크 동작 검증
+    const grvId = initSnap.operationsSuite.disciplineAndGrievance.grievances[0].grievanceId;
+    const starRes = await postJson(
+      '/api/ops/action',
+      { actionType: 'TOGGLE_LIST_ITEM_STAR', groupKey: 'grievances', itemId: grvId, starred: true },
+      csrfToken
+    );
+    assert.equal(starRes.status, 200);
+    const { snapshot: snapAfterStar } = await starRes.json();
+    assert.equal(snapAfterStar.operationsSuite.listItemMarks[`grievances:${grvId}`].starred, true);
+
+    const grpChkRes = await postJson(
+      '/api/ops/action',
+      {
+        actionType: 'TOGGLE_LIST_GROUP_CHECK',
+        groupKey: 'stdForms',
+        itemIds: ['DOC_EMPLOYMENT_CONTRACT', 'DOC_PRIVACY_CONSENT', 'DOC_NDA_SECURITY_PLEDGE'],
+        checked: true,
+      },
+      csrfToken
+    );
+    assert.equal(grpChkRes.status, 200);
+    const { snapshot: snapAfterGrp } = await grpChkRes.json();
+    assert.equal(
+      snapAfterGrp.operationsSuite.listItemMarks['stdForms:DOC_EMPLOYMENT_CONTRACT'].checked,
+      true
+    );
+    assert.equal(
+      snapAfterGrp.operationsSuite.listItemMarks['stdForms:DOC_NDA_SECURITY_PLEDGE'].checked,
+      true
+    );
+
+    // 3) 채용 후보자 입사 발령 시 입사 필수 3종 서식 자동 오픈 플래그 및 미서명 상태 검증
+    const openApplicant = initSnap.operationsSuite.recruitAndOnboarding.applicants.find(
+      (a) => !a.hiredEmpCode && a.stage !== 'DOC_RETENTION'
+    );
+    assert.ok(openApplicant);
+    const hireRes = await postJson(
+      '/api/ops/action',
+      { actionType: 'HIRE_APPLICANT', applicantId: openApplicant.applicantId },
+      csrfToken
+    );
+    assert.equal(hireRes.status, 200);
+    const hireBody = await hireRes.json();
+    assert.equal(hireBody.result.autoOpenOnboardingDocs, true);
+    const hiredCode = hireBody.result.hiredEmpCode;
+    assert.ok(hiredCode);
+
+    const hiredLedgerRow = hireBody.snapshot.operationsSuite.recruitAndOnboarding.contractLedger.find(
+      (c) => c.empCode === hiredCode
+    );
+    assert.equal(hiredLedgerRow.employmentContractSigned, false);
+    assert.equal(hiredLedgerRow.privacyConsentSigned, false);
+    assert.equal(hiredLedgerRow.ndaPledgeSigned, false);
+    assert.equal(hiredLedgerRow.allOnboardingSigned, false);
+
+    // 4) 기본 양식(blankTemplateBody) ↔ 변경된 양식(body) 실시간 비교 및 PII 자동 마스킹 검증
+    const dynamicRawPhone = ['010', '9876', '5432'].join('-');
+    const dynamicRawRrn = ['950315', '1234567'].join('-');
+    const docPreviewRes = await postJson(
+      '/api/document',
+      {
+        templateId: 'DOC_EMPLOYMENT_CONTRACT',
+        empCode: hiredCode,
+        personInfo: {
+          personName: openApplicant.name,
+          deptName: '품질보증팀',
+          jobTitle: 'QA 엔지니어',
+          hireDate: '2026-11-20',
+          maskedBirthOrId: dynamicRawRrn,
+          maskedPhone: dynamicRawPhone,
+          address: '경기도 성남시 분당구 판교역로 235',
+          weeklyHours: 40,
+          baseMonthlyPay: 3500000,
+          mealAllowance: 200000,
+        },
+      },
+      csrfToken
+    );
+    assert.equal(docPreviewRes.status, 200);
+    const { document: previewDoc } = await docPreviewRes.json();
+    assert.match(previewDoc.body, /경기도 성남시 분당구 판교역로 235/);
+    assert.match(previewDoc.body, /010-\*\*\*\*-5432/);
+    assert.match(previewDoc.body, /950315-\*\*\*\*\*\*\*/);
+    assert.doesNotMatch(previewDoc.blankTemplateBody, /경기도 성남시 분당구 판교역로 235/);
+    assert.ok(Array.isArray(previewDoc.autoFilledTokens) && previewDoc.autoFilledTokens.length >= 3);
+
+    // 초기 시드 EMP-201 서명본 무결성 일치 확인 (personInfo 생략 및 동일 필드 전달 모두 서명 완료 표시)
+    const emp201ContractRow = initSnap.operationsSuite.recruitAndOnboarding.contractLedger.find(
+      (c) => c.empCode === 'EMP-201'
+    );
+    const seedCheck1 = await postJson(
+      '/api/document',
+      { templateId: 'DOC_EMPLOYMENT_CONTRACT', empCode: 'EMP-201' },
+      csrfToken
+    );
+    const { document: seedDoc1 } = await seedCheck1.json();
+    assert.ok(seedDoc1.signedRecord, '초기 시드 EMP-201 조회 시 서명 기록이 일치해야 함');
+    const seedCheck2 = await postJson(
+      '/api/document',
+      {
+        previewOnly: true,
+        templateId: 'DOC_EMPLOYMENT_CONTRACT',
+        empCode: 'EMP-201',
+        personInfo: {
+          empCode: 'EMP-201',
+          personName: emp201ContractRow.displayName,
+          deptName: emp201ContractRow.deptName,
+          jobTitle: emp201ContractRow.jobTitle,
+          hireDate: emp201ContractRow.hireDate,
+          maskedBirthOrId: emp201ContractRow.maskedBirthOrId,
+          maskedPhone: emp201ContractRow.maskedPhone,
+          address: emp201ContractRow.address,
+          weeklyHours: emp201ContractRow.weeklyHours,
+          baseMonthlyPay: emp201ContractRow.baseMonthlyPay,
+          mealAllowance: emp201ContractRow.mealAllowance,
+        },
+      },
+      csrfToken
+    );
+    const { document: seedDoc2 } = await seedCheck2.json();
+    assert.ok(seedDoc2.signedRecord, '초기 시드 EMP-201 수정 없는 미리보기에서도 서명 증명이 유지되어야 함');
+
+    // 5) 명시적 동의(consentConfirmed: true) 누락 시 400 거부 검증 후 입사 필수 3종 일괄 서명·저장
+    const missingConsentRes = await postJson(
+      '/api/ops/action',
+      {
+        actionType: 'SAVE_PERSON_DOC_AND_SIGN',
+        empCode: hiredCode,
+        personName: openApplicant.name,
+        templateIds: ['DOC_EMPLOYMENT_CONTRACT'],
+        signNow: true,
+      },
+      csrfToken
+    );
+    assert.equal(missingConsentRes.status, 400, '명시적 동의(consentConfirmed: true) 없이는 서명 요청이 거부되어야 함');
+
+    const tinyPngDataUrl =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    const signRes = await postJson(
+      '/api/ops/action',
+      {
+        actionType: 'SAVE_PERSON_DOC_AND_SIGN',
+        empCode: hiredCode,
+        personName: openApplicant.name,
+        deptName: '품질보증팀',
+        jobTitle: 'QA 엔지니어',
+        hireDate: '2026-11-20',
+        maskedBirthOrId: dynamicRawRrn,
+        maskedPhone: dynamicRawPhone,
+        address: '경기도 성남시 분당구 판교역로 235',
+        weeklyHours: 40,
+        baseMonthlyPay: 3500000,
+        mealAllowance: 200000,
+        templateIds: [
+          'DOC_EMPLOYMENT_CONTRACT',
+          'DOC_PRIVACY_CONSENT',
+          'DOC_NDA_SECURITY_PLEDGE',
+        ],
+        signNow: true,
+        consentConfirmed: true,
+        signerName: openApplicant.name,
+        signatureDataUrl: tinyPngDataUrl,
+      },
+      csrfToken
+    );
+    assert.equal(signRes.status, 200);
+    const { snapshot: snapSigned } = await signRes.json();
+
+    const signedLedgerRow = snapSigned.operationsSuite.recruitAndOnboarding.contractLedger.find(
+      (c) => c.empCode === hiredCode
+    );
+    assert.equal(signedLedgerRow.employmentContractSigned, true);
+    assert.equal(signedLedgerRow.privacyConsentSigned, true);
+    assert.equal(signedLedgerRow.ndaPledgeSigned, true);
+    assert.equal(signedLedgerRow.allOnboardingSigned, true);
+
+    const savedByName = snapSigned.operationsSuite.signedDocumentsArchive.filter(
+      (d) => d.personName === openApplicant.name
+    );
+    assert.equal(savedByName.length, 3);
+    assert.ok(savedByName.every((d) => d.signed === true && d.signatureCode.startsWith('SIG-')));
+    assert.ok(savedByName.every((d) => d.maskedPhone === '010-****-5432'));
+    // 일반 스냅샷에는 원문 savedBody / signatureDataUrl이 노출되지 않고 메타데이터만 반환됨
+    assert.equal(savedByName[0].savedBody, undefined);
+    assert.equal(savedByName[0].signatureDataUrl, undefined);
+    assert.equal(savedByName[0].hasSignatureImage, true);
+
+    // 개별 권한 조회(docRecordId) 시에만 원문 및 자필서명 이미지 반환
+    const archDetailRes = await postJson(
+      '/api/document',
+      { docRecordId: savedByName[0].docRecordId },
+      csrfToken
+    );
+    assert.equal(archDetailRes.status, 200);
+    const { archivedDocument } = await archDetailRes.json();
+    assert.equal(archivedDocument.signatureDataUrl, tinyPngDataUrl);
+    assert.match(archivedDocument.savedBody, /전자서명 완료 ✓/);
+
+    // 서명 후 동일 원본 열람 시 전자서명 완료 증명 스탬프 포함 확인
+    const afterSignDocRes = await postJson(
+      '/api/document',
+      { templateId: 'DOC_NDA_SECURITY_PLEDGE', empCode: hiredCode },
+      csrfToken
+    );
+    assert.equal(afterSignDocRes.status, 200);
+    const { document: signedNdaDoc } = await afterSignDocRes.json();
+    assert.match(signedNdaDoc.body, /전자서명 완료 ✓/);
+
+    // 서명된 문서의 급여·주소 등 내용을 변경해 미리보기 요청 시 기존 서명 스탬프가 위조 부착되지 않는지 검증
+    const tamperedPreviewRes = await postJson(
+      '/api/document',
+      {
+        previewOnly: true,
+        templateId: 'DOC_NDA_SECURITY_PLEDGE',
+        empCode: hiredCode,
+        personInfo: {
+          empCode: hiredCode,
+          personName: openApplicant.name,
+          deptName: '품질보증팀',
+          jobTitle: 'QA 엔지니어',
+          hireDate: '2026-11-20',
+          maskedBirthOrId: '950315-*******',
+          maskedPhone: '010-****-5432',
+          address: '서울특별시 강남구 테헤란로 999 (변경됨)',
+          weeklyHours: 40,
+          baseMonthlyPay: 9900000,
+          mealAllowance: 200000,
+        },
+      },
+      csrfToken
+    );
+    assert.equal(tamperedPreviewRes.status, 200);
+    const { document: tamperedDoc } = await tamperedPreviewRes.json();
+    assert.equal(tamperedDoc.signedRecord, null);
+    assert.doesNotMatch(tamperedDoc.body, /전자서명 완료 ✓/);
+
+    // 초안(signNow 미지정 -> 기본값 false) 저장 시 기존 서명 완료본이 덮어써지지 않고 보존되는지 검증
+    const draftSaveRes = await postJson(
+      '/api/ops/action',
+      {
+        actionType: 'SAVE_PERSON_DOC_AND_SIGN',
+        empCode: hiredCode,
+        personName: openApplicant.name,
+        deptName: '품질보증팀',
+        jobTitle: 'QA 엔지니어',
+        hireDate: '2026-11-20',
+        templateIds: ['DOC_NDA_SECURITY_PLEDGE'],
+      },
+      csrfToken
+    );
+    assert.equal(draftSaveRes.status, 200);
+    const { snapshot: snapAfterDraft } = await draftSaveRes.json();
+    const stillSignedExists = snapAfterDraft.operationsSuite.signedDocumentsArchive.some(
+      (d) => d.empCode === hiredCode && d.templateId === 'DOC_NDA_SECURITY_PLEDGE' && d.signed === true
+    );
+    assert.equal(stillSignedExists, true, '기존 서명 완료본은 초안 저장으로 덮어써지지 않아야 함');
+
+    // 초안 저장 후 다시 재서명(signNow: true)했을 때 구 서명본·초안이 모두 superseded되어 활성 서명본이 정확히 1개만 남는지 검증
+    const resignRes = await postJson(
+      '/api/ops/action',
+      {
+        actionType: 'SAVE_PERSON_DOC_AND_SIGN',
+        empCode: hiredCode,
+        personName: openApplicant.name,
+        deptName: '기업부설연구소',
+        jobTitle: '선임 QA 엔지니어',
+        hireDate: '2026-11-20',
+        templateIds: ['DOC_NDA_SECURITY_PLEDGE'],
+        signNow: true,
+        consentConfirmed: true,
+        signerName: openApplicant.name,
+      },
+      csrfToken
+    );
+    assert.equal(resignRes.status, 200);
+    const { snapshot: snapAfterResign } = await resignRes.json();
+    const activeNdaForHired = snapAfterResign.operationsSuite.signedDocumentsArchive.filter(
+      (d) => d.empCode === hiredCode && d.templateId === 'DOC_NDA_SECURITY_PLEDGE'
+    );
+    assert.equal(activeNdaForHired.length, 1, '재서명 후 동일 (사번, 서식)의 활성 기록은 정확히 1개여야 함');
+    assert.equal(activeNdaForHired[0].deptName, '기업부설연구소');
+
+    // 서버 인사발령(부서 전보)으로 문서 본문이 변경된 뒤 personInfo 없이 /api/document 조회 시 구 서명이 자동 무효화되는지 검증
+    await postJson(
+      '/api/ops/action',
+      { actionType: 'ISSUE_ASSIGNMENT', empCode: hiredCode, orderType: 'TRANSFER', targetDept: '경영지원팀' },
+      csrfToken
+    );
+    const afterTransferDocRes = await postJson(
+      '/api/document',
+      { templateId: 'DOC_NDA_SECURITY_PLEDGE', empCode: hiredCode },
+      csrfToken
+    );
+    const { document: afterTransferDoc } = await afterTransferDocRes.json();
+    assert.equal(afterTransferDoc.signedRecord, null, '인사발령으로 본문 변경 시 personInfo 생략 조회에서도 구 서명이 해제되어야 함');
+
+    // 동명이인(사번 없는 외부 2명 '김하늘') 저장 시 각각 고유 personKey로 분리되어 충돌하지 않는지 검증
+    const ext1Res = await postJson(
+      '/api/ops/action',
+      {
+        actionType: 'SAVE_PERSON_DOC_AND_SIGN',
+        personName: '김하늘',
+        deptName: '외부자문A',
+        templateIds: ['DOC_PRIVACY_CONSENT'],
+        signNow: true,
+        consentConfirmed: true,
+      },
+      csrfToken
+    );
+    const ext2Res = await postJson(
+      '/api/ops/action',
+      {
+        actionType: 'SAVE_PERSON_DOC_AND_SIGN',
+        personName: '김하늘',
+        deptName: '외부자문B',
+        templateIds: ['DOC_PRIVACY_CONSENT'],
+        signNow: true,
+        consentConfirmed: true,
+      },
+      csrfToken
+    );
+    const ext1Data = await ext1Res.json();
+    const ext2Data = await ext2Res.json();
+    assert.notEqual(ext1Data.result.personKey, ext2Data.result.personKey);
+
+    // 표준 서식함 previewOnly 교차 조회: 퇴사자 사번으로 근로계약서 미리보기 & 재직자 사번으로 경력증명서 미리보기 시 200 및 발급횟수 미증가 검증
+    const firstAlumni = initSnap.offboardedWorkers.find(
+      (a) => a.dataLifecycleStatus !== 'ANONYMIZED_PURGED'
+    );
+    const beforeCertCount = firstAlumni.careerCertIssuedCount || 0;
+    const crossPreview1 = await postJson(
+      '/api/document',
+      {
+        previewOnly: true,
+        templateId: 'DOC_EMPLOYMENT_CONTRACT',
+        empCode: firstAlumni.empCode,
+        personInfo: { personName: firstAlumni.displayName, deptName: firstAlumni.deptName },
+      },
+      csrfToken
+    );
+    assert.equal(crossPreview1.status, 200);
+    const crossPreview2 = await postJson(
+      '/api/document',
+      {
+        previewOnly: true,
+        templateId: 'DOC_CAREER_CERTIFICATE',
+        empCode: firstAlumni.empCode,
+        personInfo: { personName: firstAlumni.displayName, deptName: firstAlumni.deptName },
+      },
+      csrfToken
+    );
+    assert.equal(crossPreview2.status, 200);
+    const checkBoot = await (await fetch(`${baseUrl}/api/bootstrap`)).json();
+    const afterCertCount =
+      checkBoot.snapshot.offboardedWorkers.find((a) => a.empCode === firstAlumni.empCode)
+        .careerCertIssuedCount || 0;
+    assert.equal(afterCertCount, beforeCertCount, 'previewOnly 호출은 경력증명서 발급횟수를 증가시키지 않아야 함');
+
+    // 부분집합 표 헤더 전체선택(empCodes 지정) 시 해당 대상자만 체크되고 나머지 직원은 영향받지 않는지 검증
+    await postJson(
+      '/api/ops/action',
+      { actionType: 'TOGGLE_ALL_WORKER_CHECK', checked: false },
+      csrfToken
+    );
+    const subToggleRes = await postJson(
+      '/api/ops/action',
+      {
+        actionType: 'TOGGLE_ALL_WORKER_CHECK',
+        empCodes: ['EMP-202', 'EMP-203'],
+        checked: true,
+      },
+      csrfToken
+    );
+    const { snapshot: snapSubChk } = await subToggleRes.json();
+    assert.equal(snapSubChk.workers.find((w) => w.empCode === 'EMP-201').checked, false);
+    assert.equal(snapSubChk.workers.find((w) => w.empCode === 'EMP-202').checked, true);
+    assert.equal(snapSubChk.workers.find((w) => w.empCode === 'EMP-203').checked, true);
+
+    // 6) 서버 재시작 후 체크·별표 및 서명 서식 보관함 영속 복원 검증
+    const restarted = createAppServer({
+      requirePcAuth: false,
+      demoMode: true,
+      statePersistence: memPersistence,
+    });
+    const restoredSnap = restarted.getSnapshot();
+    assert.equal(
+      restoredSnap.operationsSuite.listItemMarks[`grievances:${grvId}`].starred,
+      true
+    );
+    assert.ok(
+      restoredSnap.operationsSuite.signedDocumentsArchive.filter(
+        (d) => d.personName === openApplicant.name && d.signed === true
+      ).length >= 3
+    );
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+
 
