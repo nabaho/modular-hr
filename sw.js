@@ -3,29 +3,29 @@
  * - UI 정적 셸만 캐시하며, /api/* (개인정보·급여·결재·실시간 스트림)는 절대 캐시하지 않는다.
  */
 
-const SHELL_CACHE = 'modular-hr-shell-1c398065676d';
+const SHELL_CACHE = 'modular-hr-shell-ca7244dd8c0e';
 const STATIC_ASSETS = [
   './mobile.html',
-  './mobile.css?v=1c398065676d',
-  './mobile.js?v=1c398065676d',
+  './mobile.css?v=ca7244dd8c0e',
+  './mobile.js?v=ca7244dd8c0e',
   './manifest.webmanifest',
   './icon.svg',
   './index.html',
-  './styles.css?v=1c398065676d',
-  './app.js?v=1c398065676d',
-  './static-api-runtime.mjs?v=1c398065676d',
-  './virtual-server-worker.mjs?v=1c398065676d',
-  './server-core.mjs?v=1c398065676d',
-  './engine/browser-crypto-shim.mjs?v=1c398065676d',
-  './engine/virtual-http-shim.mjs?v=1c398065676d',
-  './engine/compliance-provisioner.mjs?v=1c398065676d',
-  './engine/document-generator.mjs?v=1c398065676d',
-  './engine/document-ingestion.mjs?v=1c398065676d',
-  './engine/hr-operations-suite.mjs?v=1c398065676d',
-  './engine/labor-rules.mjs?v=1c398065676d',
-  './engine/lifecycle-payroll.mjs?v=1c398065676d',
-  './engine/mobile-auth-realtime.mjs?v=1c398065676d',
-  './engine/offboarding-registry.mjs?v=1c398065676d',
+  './styles.css?v=ca7244dd8c0e',
+  './app.js?v=ca7244dd8c0e',
+  './static-api-runtime.mjs?v=ca7244dd8c0e',
+  './virtual-server-worker.mjs?v=ca7244dd8c0e',
+  './server-core.mjs?v=ca7244dd8c0e',
+  './engine/browser-crypto-shim.mjs?v=ca7244dd8c0e',
+  './engine/virtual-http-shim.mjs?v=ca7244dd8c0e',
+  './engine/compliance-provisioner.mjs?v=ca7244dd8c0e',
+  './engine/document-generator.mjs?v=ca7244dd8c0e',
+  './engine/document-ingestion.mjs?v=ca7244dd8c0e',
+  './engine/hr-operations-suite.mjs?v=ca7244dd8c0e',
+  './engine/labor-rules.mjs?v=ca7244dd8c0e',
+  './engine/lifecycle-payroll.mjs?v=ca7244dd8c0e',
+  './engine/mobile-auth-realtime.mjs?v=ca7244dd8c0e',
+  './engine/offboarding-registry.mjs?v=ca7244dd8c0e',
 ];
 
 self.addEventListener('install', (event) => {

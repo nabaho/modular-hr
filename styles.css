@@ -2798,4 +2798,232 @@ body {
   gap: 6px;
 }
 
+/* ==========================================================================
+   전 영역 리스트 체크·별표·넘버링 바 + 입사 3종 서식 스튜디오 & 서식·법정 좌우 분할 뷰
+   ========================================================================== */
+
+.inline-mark-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.forms-studio-layout {
+  display: grid;
+  grid-template-columns: minmax(300px, 390px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 980px) {
+  .forms-studio-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.forms-studio-sidebar,
+.forms-studio-viewer {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px 18px;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.studio-person-box {
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.studio-mini-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+@media (max-width: 560px) {
+  .studio-mini-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.studio-mini-grid .field label {
+  font-size: 0.76rem;
+}
+
+.studio-mini-grid .field input,
+.studio-mini-grid .field select {
+  min-height: 40px;
+  padding: 6px 9px;
+  font-size: 0.83rem;
+}
+
+.studio-form-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.studio-form-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  transition: border-color 0.14s ease, background-color 0.14s ease;
+}
+
+.studio-form-row:hover {
+  border-color: var(--primary);
+}
+
+.studio-form-row.is-active,
+.studio-form-row.is-active-form {
+  border: 2px solid var(--primary);
+  background: var(--primary-soft);
+}
+
+.studio-form-select-btn {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 40px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.86rem;
+  font-weight: 800;
+  text-align: left;
+  cursor: pointer;
+  padding: 4px 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.studio-form-cat {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.doc-compare-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 920px) {
+  .doc-compare-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.doc-compare-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.doc-paper-box {
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 0.83rem;
+  line-height: 1.62;
+  white-space: pre-wrap;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+  max-height: 540px;
+  overflow-y: auto;
+}
+
+.doc-filled-mark {
+  background: var(--badge-amber-bg);
+  color: var(--badge-amber-text);
+  font-weight: 800;
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+
+.sig-pad-card {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--surface-subtle);
+  border: 1.5px dashed var(--border-strong);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.field-label-text {
+  display: block;
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.sig-canvas-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sig-canvas {
+  width: 100%;
+  max-width: 300px;
+  height: 88px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: #ffffff;
+  cursor: crosshair;
+  touch-action: none;
+  display: block;
+}
+
+.sig-saved-preview {
+  max-width: 170px;
+  max-height: 54px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #ffffff;
+  padding: 2px;
+}
+
+.person-doc-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.person-doc-history-card {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+
 

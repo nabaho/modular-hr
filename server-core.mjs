@@ -4,29 +4,33 @@
  * - 엄격한 입력 스키마 검증(Boolean/Number/Enum/실재 날짜 검증), CSP 헤더, 64KB 413 응답 보장
  */
 
-import http from './engine/virtual-http-shim.mjs?v=1c398065676d';
-import crypto from './engine/browser-crypto-shim.mjs?v=1c398065676d';
+import http from './engine/virtual-http-shim.mjs?v=ca7244dd8c0e';
+import crypto from './engine/browser-crypto-shim.mjs?v=ca7244dd8c0e';
 // 정적 자산 서빙은 GitHub Pages CDN이 담당하며 server-core.mjs는 /api/* 전용으로 구동됨
 
-import { INDUSTRIES, LAW_BASELINE } from './engine/labor-rules.mjs?v=1c398065676d';
+import { INDUSTRIES, LAW_BASELINE } from './engine/labor-rules.mjs?v=ca7244dd8c0e';
 import {
   VALID_STATUTORY_TASK_IDS,
   assertValidIsoDate,
   provisionWorkplaceSystem,
-} from './engine/compliance-provisioner.mjs?v=1c398065676d';
+} from './engine/compliance-provisioner.mjs?v=ca7244dd8c0e';
 import {
   VALID_RESIGN_REASONS,
   computeEmployeePayrollLine,
   computeOffboardingSettlement,
   validateJobPosting,
-} from './engine/lifecycle-payroll.mjs?v=1c398065676d';
-import { VALID_DOC_TEMPLATES, generateStatutoryDocument } from './engine/document-generator.mjs?v=1c398065676d';
-import { buildWorkerBindingKey, createMobileHub } from './engine/mobile-auth-realtime.mjs?v=1c398065676d';
+} from './engine/lifecycle-payroll.mjs?v=ca7244dd8c0e';
+import {
+  VALID_DOC_TEMPLATES,
+  generateStatutoryDocument,
+  maskInlinePiiText,
+} from './engine/document-generator.mjs?v=ca7244dd8c0e';
+import { buildWorkerBindingKey, createMobileHub } from './engine/mobile-auth-realtime.mjs?v=ca7244dd8c0e';
 import {
   SAMPLE_INGESTION_BUNDLES,
   listSampleIngestionBundles,
   stageMultiDocumentBundle,
-} from './engine/document-ingestion.mjs?v=1c398065676d';
+} from './engine/document-ingestion.mjs?v=ca7244dd8c0e';
 import {
   buildOffboardedWorkerRecord,
   createInitialOffboardedWorkers,
@@ -37,12 +41,12 @@ import {
   refreshOffboardedLifecycle,
   summarizeOffboardedRegistry,
   updateOffboardedChecklist,
-} from './engine/offboarding-registry.mjs?v=1c398065676d';
+} from './engine/offboarding-registry.mjs?v=ca7244dd8c0e';
 import {
   createOperationsSuiteManager,
   DEFAULT_POLICY_SETTINGS,
   normalizePolicySettings,
-} from './engine/hr-operations-suite.mjs?v=1c398065676d';
+} from './engine/hr-operations-suite.mjs?v=ca7244dd8c0e';
 
 const PUBLIC_DIR = '/';
 const MAX_BODY_BYTES = 64 * 1024;
@@ -734,9 +738,10 @@ export function createAppServer(options = {}) {
       }
     );
 
-    const refreshedAlumni = state.offboardedWorkers.map((r) =>
-      refreshOffboardedLifecycle(r, state.company.referenceDate)
-    );
+    const refreshedAlumni = state.offboardedWorkers.map((r, idx) => ({
+      ...refreshOffboardedLifecycle(r, state.company.referenceDate),
+      rowNo: idx + 1,
+    }));
     const offboardedSummary = summarizeOffboardedRegistry(
       refreshedAlumni,
       state.company.referenceDate
@@ -1682,6 +1687,62 @@ export function createAppServer(options = {}) {
         }
 
         if (pathname === '/api/document') {
+          if (body.docRecordId !== undefined) {
+            const recId = String(body.docRecordId || '').trim();
+            const archived = opsSuite.getArchivedDocById(recId, {
+              bizRegNo: state.company.bizRegNo,
+              workers: state.workers,
+              offboardedWorkers: state.offboardedWorkers,
+            });
+            if (!archived) {
+              sendJson(res, 404, { error: '보관된 서식 기록을 찾을 수 없습니다.' });
+              return;
+            }
+            if (
+              archived.empCode &&
+              purgeTombstones.isEmpCodePurged(state.company.bizRegNo, archived.empCode)
+            ) {
+              sendJson(res, 409, { error: '비식별 파기된 인원의 문서는 열람할 수 없습니다.' });
+              return;
+            }
+            let resolvedBody = archived.savedBody || '';
+            if (!resolvedBody) {
+              const snapNow = buildSnapshot();
+              const gen = generateStatutoryDocument(archived.templateId, {
+                companyName: state.company.companyName,
+                bizRegNo: state.company.bizRegNo,
+                ceoName: state.company.ceoName,
+                ksicMajor: state.company.ksicMajor,
+                lsaRegularCount: snapNow.compliance.headcounts.lsaRegularCount,
+                oshRegularCount: snapNow.compliance.headcounts.oshRegularCount,
+                triggerDate: state.company.triggerDate,
+                referenceDate: archived.signedAt || state.company.referenceDate,
+                dueDate: archived.signedAt || state.company.referenceDate,
+                hasMajorityUnion: state.company.hasMajorityUnion,
+                policySettings: state.company.policySettings,
+                personInfo: archived,
+                signatureInfo: archived.signed
+                  ? {
+                      signed: true,
+                      signerName: archived.signerName,
+                      signedAt: archived.signedAt,
+                      signatureCode: archived.signatureCode,
+                    }
+                  : null,
+              });
+              resolvedBody = gen.body;
+            }
+            sendJson(res, 200, {
+              archivedDocument: {
+                ...archived,
+                savedBody: resolvedBody,
+              },
+            });
+            return;
+          }
+
+          assertOptionalBoolean(body, 'previewOnly');
+          const isPreviewOnly = body.previewOnly === true;
           const templateId = String(body.templateId ?? 'DOC_EMPLOYMENT_CONTRACT');
           if (!VALID_DOC_TEMPLATES.includes(templateId)) {
             throw badRequest(`지원하지 않는 문서 템플릿입니다 (${templateId}).`);
@@ -1695,37 +1756,128 @@ export function createAppServer(options = {}) {
           const snap = buildSnapshot();
           let alumniRecord = null;
           let workerRecord = null;
+          const hasCustomPersonInfo =
+            body.personInfo !== undefined &&
+            body.personInfo !== null &&
+            typeof body.personInfo === 'object' &&
+            !Array.isArray(body.personInfo) &&
+            Boolean(String(body.personInfo.displayName || body.personInfo.personName || '').trim());
+          if (
+            body.personInfo !== undefined &&
+            (body.personInfo === null || typeof body.personInfo !== 'object' || Array.isArray(body.personInfo))
+          ) {
+            throw badRequest('personInfo는 객체(object)여야 합니다.');
+          }
+          let sanitizedPersonInfo;
+          if (hasCustomPersonInfo) {
+            const p = body.personInfo;
+            const clampFinite = (val, min, max, fallback) => {
+              if (val === undefined || val === null || val === '') return fallback;
+              const n = Number(val);
+              if (!Number.isFinite(n)) {
+                if (isPreviewOnly) return fallback;
+                throw badRequest('personInfo 수치 필드가 올바르지 않습니다.');
+              }
+              if (!isPreviewOnly && (n < min || n > max)) {
+                throw badRequest(`personInfo 수치 범위(${min}~${max})를 벗어났습니다.`);
+              }
+              return Math.min(max, Math.max(min, n));
+            };
+            const normDate = (rawD) => {
+              const s = String(rawD || '').replace(/[\r\n]+/g, '').trim().slice(0, 10);
+              if (!s) return '';
+              if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+                try {
+                  assertValidIsoDate(s, 'personInfo.date');
+                  return s;
+                } catch (err) {
+                  if (!isPreviewOnly) throw err;
+                  return state.company.referenceDate || '2026-11-15';
+                }
+              }
+              if (!isPreviewOnly) throw badRequest('날짜 형식이 올바르지 않습니다 (YYYY-MM-DD).');
+              return state.company.referenceDate || '2026-11-15';
+            };
+            const rawInfo = {
+              personKey: String(p.personKey || '').replace(/[\r\n]+/g, '').trim().slice(0, 40),
+              empCode: p.empCode !== undefined ? maskInlinePiiText(String(p.empCode || '').slice(0, 30)) : undefined,
+              displayName: maskInlinePiiText(String(p.displayName || p.personName || '').slice(0, 40)),
+              personName: maskInlinePiiText(String(p.personName || p.displayName || '').slice(0, 40)),
+              deptName: p.deptName !== undefined ? maskInlinePiiText(String(p.deptName || '').slice(0, 40)) : undefined,
+              jobTitle: p.jobTitle !== undefined ? maskInlinePiiText(String(p.jobTitle || '').slice(0, 40)) : undefined,
+              hireDate: p.hireDate !== undefined ? normDate(p.hireDate) : undefined,
+              lastWorkDate: p.lastWorkDate !== undefined ? normDate(p.lastWorkDate) : undefined,
+              maskedBirthOrId:
+                p.maskedBirthOrId !== undefined
+                  ? maskInlinePiiText(String(p.maskedBirthOrId || '').slice(0, 30))
+                  : undefined,
+              maskedPhone:
+                p.maskedPhone !== undefined
+                  ? maskInlinePiiText(String(p.maskedPhone || '').slice(0, 30))
+                  : undefined,
+              address:
+                p.address !== undefined ? maskInlinePiiText(String(p.address || '').slice(0, 120)) : undefined,
+              workplaceLocation:
+                p.workplaceLocation !== undefined
+                  ? maskInlinePiiText(String(p.workplaceLocation || '').slice(0, 80))
+                  : undefined,
+              workStartEnd:
+                p.workStartEnd !== undefined
+                  ? maskInlinePiiText(String(p.workStartEnd || '').slice(0, 100))
+                  : undefined,
+              weeklyHours: clampFinite(p.weeklyHours, 1, 52, undefined),
+              baseMonthlyPay: clampFinite(p.baseMonthlyPay, 0, 100_000_000, undefined),
+              mealAllowance: clampFinite(p.mealAllowance, 0, 5_000_000, undefined),
+            };
+            sanitizedPersonInfo = Object.fromEntries(
+              Object.entries(rawInfo).filter(([, v]) => v !== undefined && v !== '')
+            );
+          }
+
           if (
             templateId === 'DOC_EMPLOYMENT_CERT' ||
             templateId === 'DOC_ANNUAL_LEAVE_PROMOTION' ||
             templateId === 'DOC_DISCIPLINE_WRITTEN_NOTICE'
           ) {
             const targetEmpCode = String(body.empCode ?? '').trim();
-            if (!targetEmpCode) {
+            if (!targetEmpCode && !hasCustomPersonInfo) {
               throw badRequest('대상 재직자 사번(empCode)이 필요합니다.');
             }
-            if (purgeTombstones.isEmpCodePurged(state.company.bizRegNo, targetEmpCode)) {
-              sendJson(res, 409, { error: '비식별 파기된 인원의 문서는 발급할 수 없습니다.' });
-              return;
+            if (targetEmpCode) {
+              if (purgeTombstones.isEmpCodePurged(state.company.bizRegNo, targetEmpCode)) {
+                sendJson(res, 409, { error: '비식별 파기된 인원의 문서는 발급할 수 없습니다.' });
+                return;
+              }
+              const baseWorker = snap.workers.find((w) => w.empCode === targetEmpCode) || null;
+              if (!baseWorker) {
+                if (!(isPreviewOnly && hasCustomPersonInfo)) {
+                  sendJson(res, 404, { error: '현재 재직자 명부에서 해당 사번을 찾을 수 없습니다.' });
+                  return;
+                }
+              } else {
+                const contractRow = snap.operationsSuite.recruitAndOnboarding.contractLedger.find(
+                  (c) => c.empCode === baseWorker.empCode
+                );
+                const leaveRow = snap.operationsSuite.leaveAndMaternity.ledger.find(
+                  (l) => l.empCode === baseWorker.empCode
+                );
+                const discRow = snap.operationsSuite.disciplineAndGrievance.disciplineBoard.find(
+                  (d) => d.empCode === baseWorker.empCode
+                );
+                workerRecord = {
+                  ...baseWorker,
+                  ...(contractRow || {}),
+                  ...(leaveRow || {}),
+                  ...(discRow || {}),
+                };
+              }
             }
-            const baseWorker = snap.workers.find((w) => w.empCode === targetEmpCode) || null;
-            if (!baseWorker) {
-              sendJson(res, 404, { error: '현재 재직자 명부에서 해당 사번을 찾을 수 없습니다.' });
-              return;
-            }
-            const leaveRow = snap.operationsSuite.leaveAndMaternity.ledger.find(
-              (l) => l.empCode === baseWorker.empCode
-            );
-            const discRow = snap.operationsSuite.disciplineAndGrievance.disciplineBoard.find(
-              (d) => d.empCode === baseWorker.empCode
-            );
-            workerRecord = {
-              ...baseWorker,
-              ...(leaveRow || {}),
-              ...(discRow || {}),
-            };
           }
-          if (templateId === 'DOC_PRIVACY_CONSENT' || templateId === 'DOC_NDA_SECURITY_PLEDGE') {
+          if (
+            templateId === 'DOC_EMPLOYMENT_CONTRACT' ||
+            templateId === 'DOC_PRIVACY_CONSENT' ||
+            templateId === 'DOC_NDA_SECURITY_PLEDGE'
+          ) {
             const targetEmpCode = String(body.empCode ?? '').trim();
             if (targetEmpCode) {
               if (purgeTombstones.isEmpCodePurged(state.company.bizRegNo, targetEmpCode)) {
@@ -1734,10 +1886,19 @@ export function createAppServer(options = {}) {
               }
               const baseWorker = snap.workers.find((w) => w.empCode === targetEmpCode) || null;
               if (!baseWorker) {
-                sendJson(res, 404, { error: '현재 재직자 명부에서 해당 사번을 찾을 수 없습니다.' });
-                return;
+                if (!(isPreviewOnly && hasCustomPersonInfo)) {
+                  sendJson(res, 404, { error: '현재 재직자 명부에서 해당 사번을 찾을 수 없습니다.' });
+                  return;
+                }
+              } else {
+                const contractRow = snap.operationsSuite.recruitAndOnboarding.contractLedger.find(
+                  (c) => c.empCode === baseWorker.empCode
+                );
+                workerRecord = {
+                  ...baseWorker,
+                  ...(contractRow || {}),
+                };
               }
-              workerRecord = baseWorker;
             }
           }
           if (
@@ -1746,7 +1907,7 @@ export function createAppServer(options = {}) {
             templateId === 'DOC_EXIT_SECURITY_NONCOMPETE'
           ) {
             const targetEmpCode = String(body.empCode ?? '').trim();
-            if (!targetEmpCode && templateId !== 'DOC_EXIT_SECURITY_NONCOMPETE') {
+            if (!targetEmpCode && templateId !== 'DOC_EXIT_SECURITY_NONCOMPETE' && !hasCustomPersonInfo) {
               throw badRequest('대상 퇴사자 사번(empCode)이 필요합니다.');
             }
             if (targetEmpCode) {
@@ -1768,7 +1929,7 @@ export function createAppServer(options = {}) {
                   });
                   return;
                 }
-                if (templateId === 'DOC_CAREER_CERTIFICATE') {
+                if (templateId === 'DOC_CAREER_CERTIFICATE' && !isPreviewOnly) {
                   state.offboardedWorkers[alIdx] = updateOffboardedChecklist(
                     currentAl,
                     { incrementCareerCert: true },
@@ -1778,11 +1939,17 @@ export function createAppServer(options = {}) {
                 } else {
                   alumniRecord = currentAl;
                 }
-              } else if (templateId === 'DOC_EXIT_SECURITY_NONCOMPETE') {
-                workerRecord = snap.workers.find((w) => w.empCode === targetEmpCode) || null;
-                if (!workerRecord) {
+              } else if (templateId === 'DOC_EXIT_SECURITY_NONCOMPETE' || (isPreviewOnly && hasCustomPersonInfo)) {
+                const baseW = snap.workers.find((w) => w.empCode === targetEmpCode) || null;
+                if (!baseW && !(isPreviewOnly && hasCustomPersonInfo)) {
                   sendJson(res, 404, { error: '대상 퇴사자 레코드를 찾을 수 없습니다.' });
                   return;
+                }
+                if (baseW) {
+                  const contractRow = snap.operationsSuite.recruitAndOnboarding.contractLedger.find(
+                    (c) => c.empCode === baseW.empCode
+                  );
+                  workerRecord = { ...baseW, ...(contractRow || {}) };
                 }
               } else {
                 sendJson(res, 404, { error: '대상 퇴사자 레코드를 찾을 수 없습니다.' });
@@ -1793,9 +1960,17 @@ export function createAppServer(options = {}) {
           const filingMatch = snap.compliance.statutoryFilings.find(
             (f) => f.docTemplateId === templateId
           );
-          const doc = generateStatutoryDocument(templateId, {
+          const rawBodyEmpCode = String(body.empCode ?? '').trim().toUpperCase();
+          const boundPersonId = workerRecord?.personId || alumniRecord?.personId || null;
+          // 사번(empCode)이 있는 경우 클라이언트 personKey를 신뢰하지 않고 서버 사번으로 확정
+          const lookupPersonKey = rawBodyEmpCode
+            ? `EMP:${rawBodyEmpCode}`
+            : String(body.personKey || sanitizedPersonInfo?.personKey || '').trim();
+
+          const sharedDocContext = {
             companyName: state.company.companyName,
             bizRegNo: state.company.bizRegNo,
+            ceoName: state.company.ceoName,
             ksicMajor: state.company.ksicMajor,
             lsaRegularCount: snap.compliance.headcounts.lsaRegularCount,
             oshRegularCount: snap.compliance.headcounts.oshRegularCount,
@@ -1807,7 +1982,51 @@ export function createAppServer(options = {}) {
             policySettings: state.company.policySettings,
             alumniRecord,
             workerRecord,
+            personInfo: sanitizedPersonInfo,
+          };
+
+          const matchedSignedDoc = opsSuite.findMatchingSignedDoc({
+            bizRegNo: state.company.bizRegNo,
+            templateId,
+            empCode: rawBodyEmpCode,
+            personId: boundPersonId,
+            personKey: lookupPersonKey,
+            renderUnsignedAtSignedDate: (signedDateIso) =>
+              generateStatutoryDocument(templateId, {
+                ...sharedDocContext,
+                referenceDate: signedDateIso || state.company.referenceDate,
+                dueDate: signedDateIso || sharedDocContext.dueDate,
+                signatureInfo: null,
+              }).body,
           });
+
+          const doc = generateStatutoryDocument(templateId, {
+            ...sharedDocContext,
+            referenceDate: matchedSignedDoc?.signedAt || state.company.referenceDate,
+            dueDate: matchedSignedDoc?.signedAt || sharedDocContext.dueDate,
+            signatureInfo: matchedSignedDoc
+              ? {
+                  signed: true,
+                  signerName: matchedSignedDoc.signerName,
+                  signedAt: matchedSignedDoc.signedAt,
+                  signatureCode: matchedSignedDoc.signatureCode,
+                }
+              : null,
+          });
+          doc.signedRecord = matchedSignedDoc
+            ? {
+                docRecordId: matchedSignedDoc.docRecordId,
+                signerName: matchedSignedDoc.signerName,
+                signedAt: matchedSignedDoc.signedAt,
+                signatureCode: matchedSignedDoc.signatureCode,
+                signatureDataUrl: matchedSignedDoc.signatureDataUrl || '',
+              }
+            : null;
+
+          if (isPreviewOnly) {
+            sendJson(res, 200, { document: doc });
+            return;
+          }
           appendAudit('문서엔진', `법정 문서 초안 열람: ${doc.title}`);
           sendJson(res, 200, { document: doc, auditLogs: state.auditLogs, snapshot: buildSnapshot() });
           return;
@@ -2255,6 +2474,8 @@ export function createAppServer(options = {}) {
             appendAudit,
             tombstoneStore: purgeTombstones,
             lsaRegularCount: preSnap.compliance.headcounts.exactLsaRatio,
+            docLsaCount: preSnap.compliance.headcounts.lsaRegularCount,
+            docOshCount: preSnap.compliance.headcounts.oshRegularCount,
           });
           try {
             persistValidatedState();

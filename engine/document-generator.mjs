@@ -3,7 +3,7 @@
  * - 모든 산출물은 실제 사실관계 기입·검토·서명 전의 「작성 보조용 표준 초안(양식)」으로 제공된다.
  */
 
-import { INDUSTRIES } from './labor-rules.mjs?v=1c398065676d';
+import { INDUSTRIES } from './labor-rules.mjs?v=ca7244dd8c0e';
 
 export const VALID_DOC_TEMPLATES = Object.freeze([
   'DOC_LMC_REGULATION_AND_FILING',
@@ -23,8 +23,40 @@ export const VALID_DOC_TEMPLATES = Object.freeze([
 ]);
 
 function safeText(v, fallback = '-') {
-  const s = String(v ?? '').trim();
+  const s = String(v ?? '')
+    .replace(/[\r\n]+/g, ' ')
+    .trim();
   return s.length > 0 ? s : fallback;
+}
+
+export function maskInlinePiiText(raw) {
+  return String(raw ?? '')
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/\b(\d{6})-?[1-8]\d{6}\b/g, '$1-*******')
+    .replace(/\b(01[016789])[-.\s]?\d{3,4}[-.\s]?(\d{4})\b/g, '$1-****-$2')
+    .replace(
+      /\b([A-Za-z0-9._%+-]{1,2})[A-Za-z0-9._%+-]*@([A-Za-z0-9.-]+\.[A-Za-z]{2,})\b/g,
+      '$1***@$2'
+    )
+    .trim();
+}
+
+export function canonicalizePersonDocFields(templateId, info = {}) {
+  const p = info && typeof info === 'object' ? info : {};
+  return JSON.stringify({
+    templateId: String(templateId || '').trim(),
+    empCode: String(p.empCode || '').trim().toUpperCase(),
+    personName: maskInlinePiiText(p.personName || p.displayName || ''),
+    deptName: maskInlinePiiText(p.deptName || ''),
+    jobTitle: maskInlinePiiText(p.jobTitle || ''),
+    hireDate: String(p.hireDate || '').trim(),
+    maskedBirthOrId: maskInlinePiiText(p.maskedBirthOrId || ''),
+    maskedPhone: maskInlinePiiText(p.maskedPhone || ''),
+    address: maskInlinePiiText(p.address || ''),
+    weeklyHours: Number(p.weeklyHours || 0),
+    baseMonthlyPay: Math.round(Number(p.baseMonthlyPay || 0)),
+    mealAllowance: Math.round(Number(p.mealAllowance || 0)),
+  });
 }
 
 const QUARTER_MONTH_HINT = Object.freeze({
@@ -36,9 +68,63 @@ const QUARTER_MONTH_HINT = Object.freeze({
 
 export function generateStatutoryDocument(templateId, context = {}) {
   const doc = buildStatutoryDocumentInternal(templateId, context);
+  let blankTemplateBody = doc.body;
+  if (context. _skipBlank !== true) {
+    const blankDoc = buildStatutoryDocumentInternal(templateId, {
+      _skipBlank: true,
+      companyName: '표준사업장(공란)',
+      bizRegNo: '___-__-_____',
+      ksicMajor: context.ksicMajor,
+      lsaRegularCount: context.lsaRegularCount,
+      oshRegularCount: context.oshRegularCount,
+      triggerDate: '______-__-__',
+      referenceDate: '______-__-__',
+      dueDate: '______-__-__',
+      hasMajorityUnion: context.hasMajorityUnion,
+      quarterNumber: context.quarterNumber,
+      policySettings: context.policySettings,
+    });
+    blankTemplateBody = blankDoc.body;
+  }
+
+  const mergedPerson = {
+    ...(context.alumniRecord || {}),
+    ...(context.workerRecord || {}),
+    ...(context.personInfo || {}),
+  };
+  const sig = context.signatureInfo || null;
+  const candidateTokens = [
+    context.companyName,
+    context.bizRegNo,
+    mergedPerson.displayName || mergedPerson.personName,
+    mergedPerson.empCode,
+    mergedPerson.deptName,
+    mergedPerson.jobTitle,
+    mergedPerson.hireDate,
+    mergedPerson.lastWorkDate,
+    mergedPerson.maskedBirthOrId,
+    mergedPerson.maskedPhone,
+    mergedPerson.address,
+    mergedPerson.workplaceLocation,
+    mergedPerson.baseMonthlyPay !== undefined && Number(mergedPerson.baseMonthlyPay) > 0
+      ? `${Number(mergedPerson.baseMonthlyPay).toLocaleString('ko-KR')}원`
+      : null,
+    mergedPerson.mealAllowance !== undefined && Number(mergedPerson.mealAllowance) > 0
+      ? `${Number(mergedPerson.mealAllowance).toLocaleString('ko-KR')}원`
+      : null,
+    sig?.signatureCode,
+    sig?.signerName ? `[전자서명 완료 ✓] ${sig.signerName}` : null,
+  ]
+    .map((t) => String(t ?? '').trim())
+    .filter((t) => t.length >= 2 && t !== '-' && !t.includes('____'));
+
+  const autoFilledTokens = Array.from(new Set(candidateTokens)).sort((a, b) => b.length - a.length);
+
   return {
     ...doc,
     legalBasis: doc.legalBasis || doc.subtitle || '',
+    blankTemplateBody,
+    autoFilledTokens,
   };
 }
 
@@ -53,6 +139,13 @@ function buildStatutoryDocumentInternal(templateId, context = {}) {
   const dueDate = safeText(context.dueDate, '2026-11-25');
   const hasUnion = context.hasMajorityUnion === true;
   const pol = context.policySettings || {};
+  const ceoName = safeText(context.ceoName, '대표이사');
+  const pOverride = context.personInfo && typeof context.personInfo === 'object' ? context.personInfo : {};
+  const sig = context.signatureInfo && typeof context.signatureInfo === 'object' ? context.signatureInfo : null;
+  const isSigned = Boolean(sig && sig.signed);
+  const sigStampBlock = isSigned
+    ? `\n----------------------------------------------------------------------\n[전자서명 증명 기록] [전자서명 완료 ✓] ${safeText(sig.signerName)} | 서명일시: ${safeText(sig.signedAt, referenceDate)} | 검증코드: ${safeText(sig.signatureCode, 'SIG-VERIFIED')}`
+    : '';
   const payDayLabel = safeText(pol.payDayLabel, '매월 25일');
   const isFiscalLeave = pol.leaveAccrualBasis === 'FISCAL_YEAR';
   const fyStartLabel = safeText(pol.fiscalYearStartMonthDay, '01-01');
@@ -243,8 +336,8 @@ ${companyName} ${refYear}년 제${quarterNum}분기 산업안전보건위원회 
       };
 
     case 'DOC_CAREER_CERTIFICATE': {
-      const al = context.alumniRecord || {};
-      const workerName = safeText(al.displayName, '홍길동');
+      const al = { ...(context.alumniRecord || {}), ...pOverride };
+      const workerName = safeText(al.displayName || al.personName, '홍길동');
       const deptName = safeText(al.deptName, '일반부서');
       const jobTitle = safeText(al.jobTitle, '담당');
       const hireDate = safeText(al.hireDate, '2023-01-01');
@@ -260,7 +353,8 @@ ${companyName} ${refYear}년 제${quarterNum}분기 산업안전보건위원회 
 사 용 증 명 서 (경 력 증 명 서)
 ======================================================================
 1. 인적 사항
-   - 성    명 : ${workerName} (사번: ${safeText(al.empCode, 'EMP-000')} / 생년월일: ${safeText(al.maskedBirthOrId, '******-*')})
+   - 성    명 : ${workerName} (사번: ${safeText(al.empCode, 'EMP-000')} / 생년월일: ${maskInlinePiiText(safeText(al.maskedBirthOrId, '******-*'))})
+   - 주    소 : ${maskInlinePiiText(safeText(al.address, '서울특별시 사업장 등록 주소지'))}
 
 2. 재직 및 담당 업무 사항 (근로자 청구 항목만 기재)
    - 사업장명 : ${companyName} (사업자등록번호: ${bizRegNo})
@@ -274,13 +368,13 @@ ${companyName} ${refYear}년 제${quarterNum}분기 산업안전보건위원회 
 위와 같이 재직하였음을 증명합니다.
 
 ${referenceDate}
-발급자 : ${companyName} 대표이사 (직인 날인란)`,
+발급자 : ${companyName} ${ceoName} (직인 날인란)${sigStampBlock}`,
       };
     }
 
     case 'DOC_EI_SEPARATION_CERT': {
-      const al = context.alumniRecord || {};
-      const workerName = safeText(al.displayName, '퇴사근로자');
+      const al = { ...(context.alumniRecord || {}), ...pOverride };
+      const workerName = safeText(al.displayName || al.personName, '퇴사근로자');
       return {
         templateId: 'DOC_EI_SEPARATION_CERT',
         title: `[M9 상실·이직초안] ${workerName} 4대보험 자격상실 및 고용보험 이직확인서 작성 보조표`,
@@ -291,7 +385,7 @@ ${referenceDate}
 4대보험 직장가입자 자격상실 및 고용보험 이직확인서 대조표
 ======================================================================
 1. 사업장 : ${companyName} (사업자등록번호: ${bizRegNo})
-2. 대상자 : ${workerName} (${safeText(al.empCode)} / ${safeText(al.maskedBirthOrId)}) — 소속: ${safeText(al.deptName)}
+2. 대상자 : ${workerName} (${safeText(al.empCode)} / ${maskInlinePiiText(safeText(al.maskedBirthOrId))}) — 소속: ${safeText(al.deptName)}
 3. 자격변동 일자 대조
    - 피보험자격 취득일(입사일) : ${safeText(al.hireDate)}
    - 마지막 근무일(퇴직일)    : ${safeText(al.lastWorkDate)}
@@ -303,13 +397,13 @@ ${referenceDate}
    - 퇴직금 산정액     : ${Number(al.severancePay ?? 0).toLocaleString('ko-KR')}원 (${al.eligibleForSeverance ? '1년 이상·주15h 이상 대상' : '1년 미만 비대상'})
    - 미사용연차수당    : ${Number(al.unusedLeavePayout ?? 0).toLocaleString('ko-KR')}원 (${Number(al.unusedLeaveDays ?? 0)}일분)
    - 총 금품청산 예정액 : ${Number(al.totalSettlementGross ?? 0).toLocaleString('ko-KR')}원 (법정 지급기한: ${safeText(al.settlementDueDate)}, 근기법 제36조 14일 이내)
-   - 법정 서류 보존만료 : ${safeText(al.retentionExpiresOn)} 까지 3년 의무 보존 (근로기준법 제42조)`,
+   - 법정 서류 보존만료 : ${safeText(al.retentionExpiresOn)} 까지 3년 의무 보존 (근로기준법 제42조)${sigStampBlock}`,
       };
     }
 
     case 'DOC_EMPLOYMENT_CERT': {
-      const wk = context.workerRecord || {};
-      const wkName = safeText(wk.displayName, '재직근로자');
+      const wk = { ...(context.workerRecord || {}), ...pOverride };
+      const wkName = safeText(wk.displayName || wk.personName, '재직근로자');
       return {
         templateId: 'DOC_EMPLOYMENT_CERT',
         title: `[M3 재직증명서] ${wkName} (${safeText(wk.empCode)}) 재직 사실 확인 증명서`,
@@ -319,7 +413,8 @@ ${referenceDate}
 ======================================================================
 1. 인적사항
    - 성명(사번) : ${wkName} (${safeText(wk.empCode)})
-   - 생년월일   : ${safeText(wk.maskedBirthOrId, '******-*')}
+   - 생년월일   : ${maskInlinePiiText(safeText(wk.maskedBirthOrId, '******-*'))}
+   - 연락처/주소 : ${maskInlinePiiText(safeText(wk.maskedPhone, '010-****-****'))} / ${maskInlinePiiText(safeText(wk.address, '사업장 인사카드 등록 주소'))}
 
 2. 재직사항
    - 사업장명   : ${companyName} (사업자등록번호: ${bizRegNo})
@@ -332,13 +427,13 @@ ${referenceDate}
 위 사람은 현재 당사에 재직하고 있음을 증명합니다.
 
 ${referenceDate}
-발급자 : ${companyName} 대표이사 (직인 날인란)`,
+발급자 : ${companyName} ${ceoName} (직인 날인란)${sigStampBlock}`,
       };
     }
 
     case 'DOC_ANNUAL_LEAVE_PROMOTION': {
-      const wk = context.workerRecord || {};
-      const wkName = safeText(wk.displayName, '대상근로자');
+      const wk = { ...(context.workerRecord || {}), ...pOverride };
+      const wkName = safeText(wk.displayName || wk.personName, '대상근로자');
       return {
         templateId: 'DOC_ANNUAL_LEAVE_PROMOTION',
         title: `[M5 연차사용촉진 서면통지서] ${wkName} (${safeText(wk.empCode)}) 미사용 연차유급휴가 사용촉진 통지`,
@@ -361,13 +456,13 @@ ${referenceDate}
    [2차 지정] 기한 내 사용 시기를 통보하지 아니한 경우, 회사가 만료 2개월 전까지 사용 시기를 지정하여 서면 통보하며, 그럼에도 사용하지 아니한 연차휴가는 소멸되고 금전보상 의무가 면제됩니다. (단, 회사의 노무수령 거부 입증이 수반되어야 유효함)
 
 ${referenceDate}
-통지인 : ${companyName} 대표이사 (인)  |  수령 확인 : ${wkName} (서명/인)`,
+통지인 : ${companyName} ${ceoName} (인)  |  수령 확인 : ${wkName} (${isSigned ? '전자서명 완료 ✓' : '서명/인'})${sigStampBlock}`,
       };
     }
 
     case 'DOC_DISCIPLINE_WRITTEN_NOTICE': {
-      const wk = context.workerRecord || {};
-      const wkName = safeText(wk.displayName, '대상근로자');
+      const wk = { ...(context.workerRecord || {}), ...pOverride };
+      const wkName = safeText(wk.displayName || wk.personName, '대상근로자');
       return {
         templateId: 'DOC_DISCIPLINE_WRITTEN_NOTICE',
         title: `[M7 적법징계 서면통지서] ${wkName} (${safeText(wk.empCode)}) 징계위원회 출석·소명 및 제95조 한도 검토서`,
@@ -390,17 +485,21 @@ ${referenceDate}
    - 법정 한도 초과 자동 차단액 : ${Number(wk.blockedCut ?? 0).toLocaleString('ko-KR')}원
 
 ${referenceDate}
-${companyName} 인사징계위원회 위원장 (서명/인)`,
+${companyName} 인사징계위원회 위원장 (서명/인)${sigStampBlock}`,
       };
     }
 
     case 'DOC_PRIVACY_CONSENT': {
-      const wk = context.workerRecord || {};
-      const hasBoundWorker = Boolean(wk.empCode);
-      const wkName = hasBoundWorker ? safeText(wk.displayName) : '____________';
-      const wkCode = hasBoundWorker ? safeText(wk.empCode) : 'EMP-____';
-      const wkDept = hasBoundWorker ? safeText(wk.deptName) : '____________';
+      const wk = { ...(context.workerRecord || {}), ...pOverride };
+      const hasBoundWorker = Boolean(wk.empCode || wk.displayName || wk.personName);
+      const wkName = hasBoundWorker ? safeText(wk.displayName || wk.personName) : '____________';
+      const wkCode = hasBoundWorker ? safeText(wk.empCode, '신규입사') : 'EMP-____';
+      const wkDept = hasBoundWorker ? safeText(wk.deptName, '일반부서') : '____________';
       const wkHire = hasBoundWorker ? safeText(wk.hireDate, referenceDate) : '______년 ___월 ___일';
+      const wkBirth = hasBoundWorker ? maskInlinePiiText(safeText(wk.maskedBirthOrId, '******-*******')) : '______-*******';
+      const wkPhone = hasBoundWorker ? maskInlinePiiText(safeText(wk.maskedPhone, '010-****-****')) : '010-____-____';
+      const wkAddr = hasBoundWorker ? maskInlinePiiText(safeText(wk.address, '서울특별시 사업장 등록 주소지')) : '________________________';
+      const chkMark = isSigned ? 'V' : ' ';
       return {
         templateId: 'DOC_PRIVACY_CONSENT',
         title: hasBoundWorker
@@ -417,13 +516,14 @@ ${companyName} 인사징계위원회 위원장 (서명/인)`,
 ======================================================================
 - 사업장명(개인정보처리자) : ${companyName} (사업자등록번호: ${bizRegNo})
 - 대상 근로자 성명(사번)   : ${wkName} (${wkCode})  |  소속부서 : ${wkDept}  |  입사(예정)일 : ${wkHire}
+- 생년월일 / 연락처 / 주소 : ${wkBirth}  |  ${wkPhone}  |  ${wkAddr}
 
 1. [필수] 인사 · 노무 · 급여관리 목적 개인정보 수집 · 이용 동의 (법 제15조 제1항)
    - 수집·이용 목적 : 근로계약 체결·이행, 인사명부·발령·근태·연차·인사평가 관리, 급여·퇴직급여 산정 및 지급, 증명서 발급, 산업안전보건·법정의무교육 이수 관리
    - 수집 항목(필수) : 성명, 생년월일, 연락처(010-****-****), 주소, 이메일, 급여계좌(은행명·계좌번호), 학력·경력·자격사항, 입·퇴사일, 부서·직위, 근태·연차·급여 내역
    - 보유 및 이용기간 : 재직 기간 중 보유하며, 퇴직 후 근로기준법 제42조에 따라 **3년간 의무 보존** (단, 국세기본법 제85조의3에 따른 원천징수 세무 증빙은 5년 분리 보관 후 지체 없이 비식별·영구 파기)
    - 동의 거부권 안내 : 귀하는 동의를 거부할 권리가 있으나, 필수 항목 동의를 거부할 경우 근로계약 체결, 급여 지급 및 4대보험 신고 등 정상적인 인사·노무 관리가 제한될 수 있습니다.
-   ▶ 위 필수 개인정보 수집·이용에 동의하십니까?   [ ] 동의함     [ ] 동의하지 않음
+   ▶ 위 필수 개인정보 수집·이용에 동의하십니까?   [${chkMark}] 동의함     [ ] 동의하지 않음
 
 2. [법령 근거 고지 — 별도 동의 불요] 고유식별정보(주민등록번호·외국인등록번호) 법정 처리 안내 (법 제24조의2)
    - 회사는 다음 법령에서 구체적으로 처리를 요구·허용한 범위에 한하여 고유식별정보(******-*******)를 처리하며, 목적 외 용도로 사용하지 않습니다.
@@ -436,34 +536,36 @@ ${companyName} 인사징계위원회 위원장 (서명/인)`,
    - 수집 항목(선택) : 비상연락처(가족 관계·연락처), 증명사진, 차량번호(사내 주차 시), 결혼기념일·경조사항
    - 보유 및 이용기간 : 재직 기간 중 (동의 철회 또는 퇴직 시 지체 없이 파기)
    - 동의 거부권 안내 : 선택 항목에 동의하지 않아도 채용·근로조건·인사상 어떠한 불이익도 없습니다.
-   ▶ 위 선택 개인정보 수집·이용에 동의하십니까?   [ ] 동의함     [ ] 동의하지 않음
+   ▶ 위 선택 개인정보 수집·이용에 동의하십니까?   [${chkMark}] 동의함     [ ] 동의하지 않음
 
 4. [별도 동의] 민감정보(건강·장애·산재 등 해당자 한함) 처리 동의 (법 제23조)
    - 처리 목적 및 항목 : 산업안전보건법상 건강진단 사후관리 소견, 장애인고용촉진법상 의무고용 산정 증빙(해당자에 한함), 모성보호·육아기 단축근무 신청 증빙
    - 보유 및 이용기간 : 관련 법정 의무 보존기간(3년) 종료 시 즉시 파기
-   ▶ 위 민감정보 처리에 동의하십니까?             [ ] 동의함     [ ] 동의하지 않음     [ ] 해당 없음
+   ▶ 위 민감정보 처리에 동의하십니까?             [${chkMark}] 동의함     [ ] 동의하지 않음     [ ] 해당 없음
 
 5. [별도 동의] 개인정보 제3자 제공 동의 (법 제17조 제1항)
    - 제공받는 자 : 주거래 급여이체 은행, 퇴직연금 사업자, 위탁 세무·노무법인, 고용노동부 지정 안전보건·법정의무교육 기관, 건강검진 의료기관
    - 제공 목적   : 급여·퇴직연금 지급, 원천세·4대보험 신고 대행, 법정의무교육 수료 등록 및 직장인 건강검진 실시
    - 제공 항목   : 성명, 생년월일, 사번, 소속부서, 입·퇴사일, 급여계좌(은행 한함), 교육이수 식별정보
    - 보유·이용기간 : 각 제공 목적 달성 시 또는 관련 법령상 보존기한 종료 시까지 (동의 거부 가능, 거부 시 해당 급여이체·퇴직연금·위탁 복지 서비스 제공이 제한될 수 있음)
-   ▶ 위 개인정보 제3자 제공에 동의하십니까?       [ ] 동의함     [ ] 동의하지 않음
+   ▶ 위 개인정보 제3자 제공에 동의하십니까?       [${chkMark}] 동의함     [ ] 동의하지 않음
 
 본인은 상기 내용을 충분히 설명 듣고 이해하였으며, 각 항목별로 자유로운 의사에 따라 동의 여부를 체크하였습니다.
 
 ${referenceDate}
-동의자(근로자) : ${wkName} (서명 또는 인)  |  확인자 : ${companyName} 인사담당 (인)`,
+동의자(근로자) : ${wkName} (${isSigned ? `전자서명 완료 ✓` : '서명 또는 인'})  |  확인자 : ${companyName} 인사담당 (인)${sigStampBlock}`,
       };
     }
 
     case 'DOC_NDA_SECURITY_PLEDGE': {
-      const wk = context.workerRecord || {};
-      const hasBoundWorker = Boolean(wk.empCode);
-      const wkName = hasBoundWorker ? safeText(wk.displayName) : '____________';
-      const wkCode = hasBoundWorker ? safeText(wk.empCode) : 'EMP-____';
-      const wkDept = hasBoundWorker ? safeText(wk.deptName) : '____________';
+      const wk = { ...(context.workerRecord || {}), ...pOverride };
+      const hasBoundWorker = Boolean(wk.empCode || wk.displayName || wk.personName);
+      const wkName = hasBoundWorker ? safeText(wk.displayName || wk.personName) : '____________';
+      const wkCode = hasBoundWorker ? safeText(wk.empCode, '신규입사') : 'EMP-____';
+      const wkDept = hasBoundWorker ? safeText(wk.deptName, '일반부서') : '____________';
       const wkTitle = hasBoundWorker ? safeText(wk.jobTitle, '사원') : '________';
+      const wkBirth = hasBoundWorker ? maskInlinePiiText(safeText(wk.maskedBirthOrId, '******-*******')) : '______-*******';
+      const wkAddr = hasBoundWorker ? maskInlinePiiText(safeText(wk.address, '서울특별시 사업장 등록 주소지')) : '________________________';
       return {
         templateId: 'DOC_NDA_SECURITY_PLEDGE',
         title: hasBoundWorker
@@ -478,6 +580,7 @@ ${referenceDate}
 ======================================================================
 - 수신(회사명) : ${companyName} 대표이사 귀하 (사업자등록번호: ${bizRegNo} / 업종: ${industry.name})
 - 서약자 인적사항 : 소속 ${wkDept}  |  직위 ${wkTitle}  |  사번 ${wkCode}  |  성명 ${wkName}
+- 생년월일 / 주소 : ${wkBirth}  |  ${wkAddr}
 
 상기 본인은 ${companyName}(이하 "회사")에 입사·재직함에 있어 회사의 영업비밀, 기술·경영 자료 및 고객·임직원 개인정보를 보호하기 위하여 다음 사항을 성실히 준수할 것을 서약합니다.
 
@@ -503,16 +606,16 @@ ${referenceDate}
 본인은 위 조항을 숙지하고 자유로운 의사로 서약하며, 서약서 사본 1부를 교부받았음을 확인합니다.
 
 ${referenceDate}
-서약자(근로자) : ${wkName} (자필 서명/인)  |  사본 수령 확인 : [ ] 교부받음`,
+서약자(근로자) : ${wkName} (${isSigned ? '자필·전자서명 완료 ✓' : '자필 서명/인'})  |  사본 수령 확인 : [${isSigned ? 'V' : ' '}] 교부받음${sigStampBlock}`,
       };
     }
 
     case 'DOC_EXIT_SECURITY_NONCOMPETE': {
-      const rec = context.alumniRecord || context.workerRecord || {};
-      const hasBoundPerson = Boolean(rec.empCode);
-      const pName = hasBoundPerson ? safeText(rec.displayName) : '____________';
-      const pCode = hasBoundPerson ? safeText(rec.empCode) : 'EMP-____';
-      const pDept = hasBoundPerson ? safeText(rec.deptName) : '____________';
+      const rec = { ...(context.alumniRecord || context.workerRecord || {}), ...pOverride };
+      const hasBoundPerson = Boolean(rec.empCode || rec.displayName || rec.personName);
+      const pName = hasBoundPerson ? safeText(rec.displayName || rec.personName) : '____________';
+      const pCode = hasBoundPerson ? safeText(rec.empCode, 'EMP-000') : 'EMP-____';
+      const pDept = hasBoundPerson ? safeText(rec.deptName, '일반부서') : '____________';
       const pTitle = hasBoundPerson ? safeText(rec.jobTitle, '담당') : '________';
       const pHire = hasBoundPerson ? safeText(rec.hireDate, '2023-01-01') : '______-__-__';
       const pExit = hasBoundPerson ? safeText(rec.lastWorkDate, referenceDate) : referenceDate;
@@ -533,7 +636,7 @@ ${referenceDate}
 ======================================================================
 1. 퇴직자 및 재직 정보
    - 회  사  명 : ${companyName} (사업자등록번호: ${bizRegNo} / 업종: ${industry.name})
-   - 성명(사번) : ${pName} (${pCode} / 생년월일: ${safeText(rec.maskedBirthOrId, '******-*')})
+   - 성명(사번) : ${pName} (${pCode} / 생년월일: ${maskInlinePiiText(safeText(rec.maskedBirthOrId, '******-*'))})
    - 소속 / 직위 : ${pDept} / ${pTitle}
    - 재직 기간   : ${pHire} ~ ${pExit} (퇴직일: ${pExit})
 
@@ -542,14 +645,14 @@ ${referenceDate}
 
 제2조 (회사 정보자산 전량 반납 및 사적 사본 영구삭제 확인 체크리스트)
 본인은 퇴직일(${pExit}) 기준 아래 항목을 전량 반납 또는 영구 삭제 완료하였음을 확인합니다.
-   [ ] 1. 회사 지급 IT·보안장비 반납 완료 (법인 노트북·휴대폰·보안토큰·사원증·출입키)
-   [ ] 2. 업무 문서·도면·소스코드·거래처 자료 원본 및 인쇄물 전량 반납·인수인계 완료
-   [ ] 3. 개인 소유 PC·스마트폰·외장매체·개인 이메일·클라우드 내 회사 자료 복구불능 영구삭제 완료
-   [ ] 4. 사내 ERP·클라우드·메신저·모바일 인사앱 계정 로그아웃 및 접근권한 즉시 해지 확인
+   [${isSigned ? 'V' : ' '}] 1. 회사 지급 IT·보안장비 반납 완료 (법인 노트북·휴대폰·보안토큰·사원증·출입키)
+   [${isSigned ? 'V' : ' '}] 2. 업무 문서·도면·소스코드·거래처 자료 원본 및 인쇄물 전량 반납·인수인계 완료
+   [${isSigned ? 'V' : ' '}] 3. 개인 소유 PC·스마트폰·외장매체·개인 이메일·클라우드 내 회사 자료 복구불능 영구삭제 완료
+   [${isSigned ? 'V' : ' '}] 4. 사내 ERP·클라우드·메신저·모바일 인사앱 계정 로그아웃 및 접근권한 즉시 해지 확인
 
 제3조 (경업금지 및 핵심인력 유인금지 약정 — 직무별 선택 적용)
 ※ 아래 두 유형 중 퇴직자의 실제 담당 직무에 부합하는 항목 하나에 체크([V])하고 세부 범위를 특정합니다.
-   [ ] [제1유형 — 일반 직무 적용] 비밀유지(제1조) 및 정보자산 반납(제2조) 의무만 적용하며 별도 전직·경업제한 기간을 두지 않음
+   [${isSigned ? 'V' : ' '}] [제1유형 — 일반 직무 적용] 비밀유지(제1조) 및 정보자산 반납(제2조) 의무만 적용하며 별도 전직·경업제한 기간을 두지 않음
    [ ] [제2유형 — 핵심 영업비밀·연구개발·임원 직무 개별 약정 적용]
        가. 경업금지 기간 : 퇴직일(${pExit})로부터 (   6   )개월간 [※ 판례 권고: 직무 비례 6개월 ~ 최대 1년 이내 합리적 설정]
        나. 제한 대상 범위 : 본인이 재직 중 직접 취급한 [____________________________________] 핵심 영업비밀을 침해할 우려가 있는 국내외 동종 경쟁 사업체 취업·고문·자문·공동창업 행위로 한정함
@@ -563,37 +666,71 @@ ${referenceDate}
 본 서약상의 영업비밀 침해 또는 유효하게 성립한 경업금지 약정 위반 시 회사는 「부정경쟁방지 및 영업비밀보호에 관한 법률」 제10조·제11조에 따른 침해금지·예방청구 및 실제 발생한 손해의 배상을 청구할 수 있음을 확인하며, 충분한 검토 기회를 거쳐 자발적 의사로 서명합니다.
 
 ${pExit}
-서약자(퇴직자) : ${pName} (자필 서명/인)  |  인수·확인자 : ${companyName} 인사보안담당 ____________ (인)
-[ ] 본 서약서 사본 1부를 퇴직자에게 교부함 (수령 서명: ____________)`,
+서약자(퇴직자) : ${pName} (${isSigned ? '자필·전자서명 완료 ✓' : '자필 서명/인'})  |  인수·확인자 : ${companyName} 인사보안담당 (인)
+[${isSigned ? 'V' : ' '}] 본 서약서 사본 1부를 퇴직자에게 교부함 (수령 서명: ${isSigned ? pName : '____________'})${sigStampBlock}`,
       };
     }
 
     case 'DOC_EMPLOYMENT_CONTRACT':
-    default:
+    default: {
+      const wk = { ...(context.workerRecord || {}), ...pOverride };
+      const hasBoundWorker = Boolean(wk.empCode || wk.displayName || wk.personName);
+      const wkName = hasBoundWorker ? safeText(wk.displayName || wk.personName) : '____________';
+      const wkCode = hasBoundWorker ? safeText(wk.empCode, '신규입사') : 'EMP-____';
+      const wkDept = hasBoundWorker ? safeText(wk.deptName, '생산·경영부서') : '____________';
+      const wkTitle = hasBoundWorker ? safeText(wk.jobTitle, '담당 사원') : '____________';
+      const wkHire = hasBoundWorker ? safeText(wk.hireDate, referenceDate) : '______년 ___월 ___일';
+      const wkBirth = hasBoundWorker ? maskInlinePiiText(safeText(wk.maskedBirthOrId, '******-*******')) : '______-*******';
+      const wkPhone = hasBoundWorker ? maskInlinePiiText(safeText(wk.maskedPhone, '010-****-****')) : '010-____-____';
+      const wkAddr = hasBoundWorker ? maskInlinePiiText(safeText(wk.address, '서울특별시 사업장 등록 주소지')) : '________________________';
+      const wkLoc = hasBoundWorker ? safeText(wk.workplaceLocation, `${companyName} 본사 및 지정 사업장`) : '________________________';
+      const weeklyH = hasBoundWorker ? Number(wk.weeklyHours ?? 40) : 40;
+      const dailyH = hasBoundWorker ? Number(wk.dailyHours ?? Math.min(8, Math.max(3, weeklyH / 5))) : 8;
+      const workSpan = hasBoundWorker ? safeText(wk.workStartEnd, '업무시작 09:00 ~ 종료 18:00, 휴게시간 12:00 ~ 13:00') : '업무시작 ___:___ ~ 종료 ___:___, 휴게시간 ___:___ ~ ___:___';
+      const basePayStr =
+        hasBoundWorker && wk.baseMonthlyPay !== undefined
+          ? `${Number(wk.baseMonthlyPay || 0).toLocaleString('ko-KR')}원`
+          : '________________원';
+      const fixedPayStr =
+        hasBoundWorker
+          ? `${Number(wk.fixedOrdinaryAllowance || 0).toLocaleString('ko-KR')}원`
+          : '________________원';
+      const mealPayStr =
+        hasBoundWorker
+          ? `${Number(wk.mealAllowance ?? 200000).toLocaleString('ko-KR')}원`
+          : '________________원';
+
       return {
         templateId: 'DOC_EMPLOYMENT_CONTRACT',
-        title: `[1인+ 표준초안] ${companyName} 표준 근로계약서 양식 (근로기준법 제17조 필수항목 반영)`,
-        subtitle: '개별 근로자 근로조건 기입 후 서명·즉시 교부용 표준 초안',
+        title: hasBoundWorker
+          ? `[표준 근로계약서] ${companyName} 근로계약서 (${wkName} · ${wkCode})`
+          : `[1인+ 표준초안] ${companyName} 표준 근로계약서 양식 (근로기준법 제17조 필수항목 반영)`,
+        subtitle: '근로기준법 제17조 필수 명시항목 자동기입 · 전자서명 및 즉시 교부용 표준 계약서',
         body: `※ 안내: 본 양식은 개별 근로계약 체결 전 근로조건을 기입하기 위한 [표준 근로계약서 초안]입니다.
 
 ======================================================================
-표준 근로계약서 (작성 초안)
+표준 근로계약서 (${hasBoundWorker ? `${wkName} 개인정보·근로조건 자동반영본` : '작성 초안'})
 ======================================================================
-${companyName}(이하 "사용자")와 근로자 ____________(이하 "근로자")는 다음과 같이 근로계약을 체결하고 서면(또는 전자문서)으로 1부를 교부한다.
+${companyName}(이하 "사용자")와 근로자 ${wkName}(이하 "근로자")는 다음과 같이 근로계약을 체결하고 서면(또는 전자문서)으로 1부를 교부한다.
 
-1. 근로계약기간 : ______년 ___월 ___일부터  [ ] 정함이 없음 / [ ] ______년 ___월 ___일까지
-2. 근무장소 및 담당업무 : ________________________ / ________________________
-3. 소정근로시간 : 1일 ( 8 )시간, 1주 ( 40 )시간 (업무시작 ___:___ ~ 종료 ___:___, 휴게시간 ___:___ ~ ___:___)
-4. 주휴일 및 공휴일 : 매주 ____요일 유급주휴일${lsaCount >= 5 ? ' 및 관공서의 공휴일에 관한 규정에 따른 유급휴일 적용' : ' (5인 미만 사업장 공휴일 약정 여부 별도 기재)'}
+[근로자 인적사항]
+ - 성명(사번) : ${wkName} (${wkCode})  |  생년월일 : ${wkBirth}
+ - 연  락  처 : ${wkPhone}  |  거주지 주소 : ${wkAddr}
+
+1. 근로계약기간 : ${wkHire}부터  [${hasBoundWorker ? 'V' : ' '}] 정함이 없음 / [ ] ______년 ___월 ___일까지
+2. 근무장소 및 담당업무 : ${wkLoc} / ${wkDept} · ${wkTitle}
+3. 소정근로시간 : 1일 ( ${dailyH} )시간, 1주 ( ${weeklyH} )시간 (${workSpan})
+4. 주휴일 및 공휴일 : 매주 일요일 유급주휴일${lsaCount >= 5 ? ' 및 관공서의 공휴일에 관한 규정에 따른 유급휴일 적용' : ' (5인 미만 사업장 공휴일 약정 여부 별도 기재)'}
 5. 임금의 구성항목·계산방법·지급방법
-   - 월 기본급 : 금 ________________원 / 고정수당(________) : 금 ________________원 / 식대 : 금 ________________원
+   - 월 기본급 : 금 ${basePayStr} / 고정수당 : 금 ${fixedPayStr} / 식대 : 금 ${mealPayStr}
    - 연장·야간·휴일 가산 기준 : ${lsaCount >= 5 ? '상시 5인 이상 법정 가산율(50% / 8시간 초과 휴일 100%) 적용' : '상시 5인 미만 가산수당 미적용 특례 (실근로시간 1.0배, 별도 약정 시 기재)'}
    - 임금지급일 : ${payDayLabel} (근로자 본인 명의 계좌 직접 지급 및 산출식 명시 임금명세서 교부)
 6. 연차유급휴가 : ${lsaCount >= 5 ? `근로기준법 제60조에 따라 부여 (${leavePolicySummary})` : '상시 5인 미만 법정 의무 면제 (약정 부여 시 일수 기재: ____일)'}
 
-______년 ___월 ___일
-사용자 : ${companyName} 대표 ____________ (서명/인)  |  근로자 : ____________ (서명/인)
-[ ] 근로계약서 사본 교부 확인 (근로자 수령 서명: ____________)`,
+${hasBoundWorker ? referenceDate : '______년 ___월 ___일'}
+사용자 : ${companyName} 대표 ${ceoName} (인)  |  근로자 : ${wkName} (${isSigned ? '자필·전자서명 완료 ✓' : '서명/인'})
+[${isSigned ? 'V' : ' '}] 근로계약서 사본 교부 확인 (근로자 수령 서명: ${isSigned ? wkName : '____________'})${sigStampBlock}`,
       };
+    }
   }
 }
