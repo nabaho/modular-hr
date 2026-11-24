@@ -49,9 +49,19 @@ const appState = {
 
 const RECENT_CODE_CHANGES = [
   {
+    id: 'CHG-FROZEN-TOP-HEADER',
+    menuGroup: 'hr',
+    badge: '변경 1 · 상단 헤더·세부 탭 틀 고정',
+    desc: '상단 대분류 타이틀·기능 버튼 바와 하부 세부 메뉴 탭(직원 명부 · 채용·계약 등) 영역을 통합 틀 고정해 스크롤 시 항상 상단에 고정 유지',
+    btnLabel: '인사 관리 틀고정 확인',
+    action: () => {
+      switchTab('ops-org', false);
+    },
+  },
+  {
     id: 'CHG-LEAVE-POPUP-MODAL',
     menuGroup: 'leave',
-    badge: '변경 1 · 연차 관리 직원 클릭 전용 팝업',
+    badge: '변경 2 · 연차 관리 직원 클릭 전용 팝업',
     desc: '연차 관리에서 직원 클릭 시 아래에 나열하지 않고 전체폭 전용 팝업 창으로 연차 발생·신청·사용 기록 즉시 오픈',
     btnLabel: '연차 팝업 열기',
     action: (triggerEl) => {
@@ -62,7 +72,7 @@ const RECENT_CODE_CHANGES = [
   {
     id: 'CHG-FULL-WIDTH-LAYOUT',
     menuGroup: 'home',
-    badge: '변경 2 · 전 화면·팝업 좌우 끝까지 전체폭 확장',
+    badge: '변경 3 · 전 화면·팝업 좌우 끝까지 전체폭 확장',
     desc: '본문·연차/근태 표·서식 스튜디오·팝업 창의 좌우 폭 제한을 제거해 화면 좌우 끝까지 100% 넓게 사용',
     btnLabel: '연차 전체폭 보기',
     action: () => {
@@ -70,21 +80,10 @@ const RECENT_CODE_CHANGES = [
     },
   },
   {
-    id: 'CHG-ONBOARDING-3DOCS',
-    menuGroup: 'hr',
-    badge: '변경 3 · 입사 3종 서식 자동연결·서명',
-    desc: '채용·입사 시 근로계약서·보안서약서·개인정보동의서 자동 오픈 + 좌측 개인정보 실시간 기입 + 자필 전자서명 연결',
-    btnLabel: '입사 서식·서명 열기',
-    action: () => {
-      switchTab('ops-recruit', false);
-      document.getElementById('onboarding-doc-studio')?.scrollIntoView({ block: 'start' });
-    },
-  },
-  {
     id: 'CHG-FORMS-SPLIT-STUDIO',
     menuGroup: 'legal',
-    badge: '변경 4 · 서식 좌우 분할·변경비교·이름조회',
-    desc: '서식·법정 클릭 시 오른쪽 전체폭 화면에 기본양식↔변경양식 실시간 비교 및 사람 이름별 반영·서명 내역 즉시 확인',
+    badge: '변경 4 · 입사 3종 자동서명 · 분할 서식함',
+    desc: '채용·입사 3종 서식 자동연결·자필서명 및 서식·법정 우측 전체폭 기본양식↔변경양식 실시간 비교',
     btnLabel: '분할 서식함 열기',
     action: () => {
       switchTab('forms-center', false);
@@ -7856,6 +7855,9 @@ function switchTab(tabKey, focusTabBtn = false) {
   }
   setMobileSidebarOpen(false);
   syncActiveNavigationState(tabKey, focusTabBtn);
+  if (typeof window.scrollTo === 'function' && window.scrollY > 0) {
+    window.scrollTo(0, 0);
+  }
 }
 
 function bindEvents() {
