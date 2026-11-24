@@ -116,8 +116,8 @@ body {
 
 .container {
   width: 100%;
-  max-width: 1320px;
-  margin: 0 auto;
+  max-width: none;
+  margin: 0;
   padding: 0 16px;
 }
 
@@ -885,7 +885,7 @@ body {
 }
 
 .breakable-name {
-  max-width: 240px;
+  max-width: none;
   overflow-wrap: anywhere;
   word-break: break-word;
   font-weight: 700;
@@ -982,7 +982,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 16px;
+  padding: 8px 12px;
 }
 
 .modal-backdrop[hidden] {
@@ -990,9 +990,9 @@ body {
 }
 
 .modal-dialog {
-  width: 100%;
-  max-width: 780px;
-  max-height: 90vh;
+  width: calc(100vw - 24px);
+  max-width: none;
+  max-height: 94vh;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 14px;
@@ -1687,10 +1687,15 @@ body {
   z-index: 1400;
 }
 
+#att-calendar-modal,
+#leave-detail-modal {
+  z-index: 1450;
+}
+
 .modal-dialog-wide {
-  width: 96vw;
-  max-width: 1280px;
-  max-height: 94vh;
+  width: calc(100vw - 24px);
+  max-width: none;
+  max-height: 95vh;
 }
 
 .popup-review-toolbar {
@@ -1732,7 +1737,7 @@ body {
 }
 
 .module-popup-body {
-  padding: 18px 22px 24px;
+  padding: 16px 18px 22px;
   overflow-y: auto;
   flex: 1;
 }
@@ -1742,7 +1747,7 @@ body {
 }
 
 [data-popup-mode="true"] .workspace-topbar {
-  padding: 12px 28px;
+  padding: 12px 16px;
 }
 
 /* ==========================================================================
@@ -1895,7 +1900,7 @@ body {
   z-index: 900;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
-  padding: 14px 28px;
+  padding: 12px 16px;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1945,9 +1950,9 @@ body {
 
 .workspace-inner {
   width: 100%;
-  max-width: 1440px;
-  margin: 0 auto;
-  padding: 0 28px;
+  max-width: none;
+  margin: 0;
+  padding: 0 16px;
 }
 
 .domain-subtabs-wrap {

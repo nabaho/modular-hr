@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>인사노무 관리 | MODULAR HR</title>
   <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="./styles.css?v=ca7244dd8c0e" />
+  <link rel="stylesheet" href="./styles.css?v=8740b2361cb9" />
 </head>
 <body>
   <a href="#main-content" class="skip-link">본문 바로가기</a>
@@ -667,6 +667,33 @@
     </div>
   </div>
 
+  <!-- 연차 관리: 직원 클릭 시 연차 발생·신청·사용 전용 팝업 모달 -->
+  <div
+    id="leave-detail-modal"
+    class="modal-backdrop module-popup-backdrop"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="leave-modal-title"
+    hidden
+  >
+    <div class="modal-dialog modal-dialog-wide">
+      <div class="modal-header">
+        <div>
+          <div class="step-pill-group">
+            <h2 id="leave-modal-title" class="modal-title">직원별 연차 발생 · 신청 · 사용 기록</h2>
+            <span class="code-diff-pill">변경됨 · 직원 클릭 전용 팝업 (전체폭)</span>
+          </div>
+          <p id="leave-modal-subtitle" class="modal-subtitle"></p>
+        </div>
+        <div class="step-pill-group">
+          <button type="button" id="leave-modal-payslip-btn" class="btn btn-secondary btn-sm">급여 명세서 보기</button>
+          <button type="button" id="leave-modal-close-btn" class="btn btn-secondary btn-sm" aria-label="연차 팝업 닫기">닫기</button>
+        </div>
+      </div>
+      <div id="leave-modal-body" class="module-popup-body" tabindex="0"></div>
+    </div>
+  </div>
+
   <!-- 서식 및 명세서 미리보기 모달 -->
   <div
     id="doc-modal"
@@ -692,7 +719,7 @@
     </div>
   </div>
 
-  <script type="module" src="./static-api-runtime.mjs?v=ca7244dd8c0e"></script>
-  <script type="module" src="./app.js?v=ca7244dd8c0e"></script>
+  <script type="module" src="./static-api-runtime.mjs?v=8740b2361cb9"></script>
+  <script type="module" src="./app.js?v=8740b2361cb9"></script>
 </body>
 </html>

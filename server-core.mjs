@@ -4,33 +4,33 @@
  * - 엄격한 입력 스키마 검증(Boolean/Number/Enum/실재 날짜 검증), CSP 헤더, 64KB 413 응답 보장
  */
 
-import http from './engine/virtual-http-shim.mjs?v=ca7244dd8c0e';
-import crypto from './engine/browser-crypto-shim.mjs?v=ca7244dd8c0e';
+import http from './engine/virtual-http-shim.mjs?v=8740b2361cb9';
+import crypto from './engine/browser-crypto-shim.mjs?v=8740b2361cb9';
 // 정적 자산 서빙은 GitHub Pages CDN이 담당하며 server-core.mjs는 /api/* 전용으로 구동됨
 
-import { INDUSTRIES, LAW_BASELINE } from './engine/labor-rules.mjs?v=ca7244dd8c0e';
+import { INDUSTRIES, LAW_BASELINE } from './engine/labor-rules.mjs?v=8740b2361cb9';
 import {
   VALID_STATUTORY_TASK_IDS,
   assertValidIsoDate,
   provisionWorkplaceSystem,
-} from './engine/compliance-provisioner.mjs?v=ca7244dd8c0e';
+} from './engine/compliance-provisioner.mjs?v=8740b2361cb9';
 import {
   VALID_RESIGN_REASONS,
   computeEmployeePayrollLine,
   computeOffboardingSettlement,
   validateJobPosting,
-} from './engine/lifecycle-payroll.mjs?v=ca7244dd8c0e';
+} from './engine/lifecycle-payroll.mjs?v=8740b2361cb9';
 import {
   VALID_DOC_TEMPLATES,
   generateStatutoryDocument,
   maskInlinePiiText,
-} from './engine/document-generator.mjs?v=ca7244dd8c0e';
-import { buildWorkerBindingKey, createMobileHub } from './engine/mobile-auth-realtime.mjs?v=ca7244dd8c0e';
+} from './engine/document-generator.mjs?v=8740b2361cb9';
+import { buildWorkerBindingKey, createMobileHub } from './engine/mobile-auth-realtime.mjs?v=8740b2361cb9';
 import {
   SAMPLE_INGESTION_BUNDLES,
   listSampleIngestionBundles,
   stageMultiDocumentBundle,
-} from './engine/document-ingestion.mjs?v=ca7244dd8c0e';
+} from './engine/document-ingestion.mjs?v=8740b2361cb9';
 import {
   buildOffboardedWorkerRecord,
   createInitialOffboardedWorkers,
@@ -41,12 +41,12 @@ import {
   refreshOffboardedLifecycle,
   summarizeOffboardedRegistry,
   updateOffboardedChecklist,
-} from './engine/offboarding-registry.mjs?v=ca7244dd8c0e';
+} from './engine/offboarding-registry.mjs?v=8740b2361cb9';
 import {
   createOperationsSuiteManager,
   DEFAULT_POLICY_SETTINGS,
   normalizePolicySettings,
-} from './engine/hr-operations-suite.mjs?v=ca7244dd8c0e';
+} from './engine/hr-operations-suite.mjs?v=8740b2361cb9';
 
 const PUBLIC_DIR = '/';
 const MAX_BODY_BYTES = 64 * 1024;

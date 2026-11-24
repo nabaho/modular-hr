@@ -3,8 +3,8 @@
  * 전 생애주기 근로기준법 검증 및 급여 자동 정산 도메인 엔진
  */
 
-import { FAIR_HIRING_FORBIDDEN_RULES, LAW_BASELINE } from './labor-rules.mjs?v=ca7244dd8c0e';
-import { addDaysISO, assertValidIsoDate } from './compliance-provisioner.mjs?v=ca7244dd8c0e';
+import { FAIR_HIRING_FORBIDDEN_RULES, LAW_BASELINE } from './labor-rules.mjs?v=8740b2361cb9';
+import { addDaysISO, assertValidIsoDate } from './compliance-provisioner.mjs?v=8740b2361cb9';
 
 export const VALID_RESIGN_REASONS = Object.freeze([
   'VOLUNTARY',

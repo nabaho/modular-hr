@@ -10,16 +10,16 @@
  *   7) M10 노사협의회 위원·안건 · 산업안전보건 선임·위험성평가 · 5대 법정의무교육 이수 감독
  */
 
-import crypto from './browser-crypto-shim.mjs?v=ca7244dd8c0e';
-import { addDaysISO, diffDaysISO, isValidIsoDate } from './compliance-provisioner.mjs?v=ca7244dd8c0e';
-import { computeMonthlyRefHours } from './lifecycle-payroll.mjs?v=ca7244dd8c0e';
-import { LAW_BASELINE } from './labor-rules.mjs?v=ca7244dd8c0e';
+import crypto from './browser-crypto-shim.mjs?v=8740b2361cb9';
+import { addDaysISO, diffDaysISO, isValidIsoDate } from './compliance-provisioner.mjs?v=8740b2361cb9';
+import { computeMonthlyRefHours } from './lifecycle-payroll.mjs?v=8740b2361cb9';
+import { LAW_BASELINE } from './labor-rules.mjs?v=8740b2361cb9';
 import {
   VALID_DOC_TEMPLATES,
   canonicalizePersonDocFields,
   generateStatutoryDocument,
   maskInlinePiiText,
-} from './document-generator.mjs?v=ca7244dd8c0e';
+} from './document-generator.mjs?v=8740b2361cb9';
 
 function computeDocPayloadDigest(templateId, info) {
   return crypto
