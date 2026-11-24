@@ -666,6 +666,33 @@
     </div>
   </div>
 
+  <!-- 연차 관리: 직원 클릭 시 연차 발생·신청·사용 전용 팝업 모달 -->
+  <div
+    id="leave-detail-modal"
+    class="modal-backdrop module-popup-backdrop"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="leave-modal-title"
+    hidden
+  >
+    <div class="modal-dialog modal-dialog-wide">
+      <div class="modal-header">
+        <div>
+          <div class="step-pill-group">
+            <h2 id="leave-modal-title" class="modal-title">직원별 연차 발생 · 신청 · 사용 기록</h2>
+            <span class="code-diff-pill">변경됨 · 직원 클릭 전용 팝업 (전체폭)</span>
+          </div>
+          <p id="leave-modal-subtitle" class="modal-subtitle"></p>
+        </div>
+        <div class="step-pill-group">
+          <button type="button" id="leave-modal-payslip-btn" class="btn btn-secondary btn-sm">급여 명세서 보기</button>
+          <button type="button" id="leave-modal-close-btn" class="btn btn-secondary btn-sm" aria-label="연차 팝업 닫기">닫기</button>
+        </div>
+      </div>
+      <div id="leave-modal-body" class="module-popup-body" tabindex="0"></div>
+    </div>
+  </div>
+
   <!-- 서식 및 명세서 미리보기 모달 -->
   <div
     id="doc-modal"

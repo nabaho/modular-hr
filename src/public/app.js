@@ -17,6 +17,7 @@ const appState = {
   lastFocusedBeforeModal: null,
   lastFocusedBeforeModulePopup: null,
   lastFocusedBeforeAttModal: null,
+  lastFocusedBeforeLeaveModal: null,
   popupModalTabKey: null,
   popupRestoreSlot: null,
   autoUnlockAttempted: false,
@@ -48,19 +49,30 @@ const appState = {
 
 const RECENT_CODE_CHANGES = [
   {
-    id: 'CHG-UNIVERSAL-MARKS',
-    menuGroup: 'hr',
-    badge: '변경 1 · 전 영역 번호·체크·별표',
-    desc: '인사·채용·계약·징계·고충·퇴사·연차·서식·법정 모든 인원·리스트에 No. 번호 · ☐ 네모 체크 · ★ 별표 전면 적용',
-    btnLabel: '징계·고충 체크 보기',
+    id: 'CHG-LEAVE-POPUP-MODAL',
+    menuGroup: 'leave',
+    badge: '변경 1 · 연차 관리 직원 클릭 전용 팝업',
+    desc: '연차 관리에서 직원 클릭 시 아래에 나열하지 않고 전체폭 전용 팝업 창으로 연차 발생·신청·사용 기록 즉시 오픈',
+    btnLabel: '연차 팝업 열기',
+    action: (triggerEl) => {
+      switchTab('ops-leave', false);
+      openLeaveDetailModal(appState.selectedEmpCode || 'EMP-201', triggerEl);
+    },
+  },
+  {
+    id: 'CHG-FULL-WIDTH-LAYOUT',
+    menuGroup: 'home',
+    badge: '변경 2 · 전 화면·팝업 좌우 끝까지 전체폭 확장',
+    desc: '본문·연차/근태 표·서식 스튜디오·팝업 창의 좌우 폭 제한을 제거해 화면 좌우 끝까지 100% 넓게 사용',
+    btnLabel: '연차 전체폭 보기',
     action: () => {
-      switchTab('ops-discipline', false);
+      switchTab('ops-leave', false);
     },
   },
   {
     id: 'CHG-ONBOARDING-3DOCS',
     menuGroup: 'hr',
-    badge: '변경 2 · 입사 3종 서식 자동연결·서명',
+    badge: '변경 3 · 입사 3종 서식 자동연결·서명',
     desc: '채용·입사 시 근로계약서·보안서약서·개인정보동의서 자동 오픈 + 좌측 개인정보 실시간 기입 + 자필 전자서명 연결',
     btnLabel: '입사 서식·서명 열기',
     action: () => {
@@ -71,21 +83,11 @@ const RECENT_CODE_CHANGES = [
   {
     id: 'CHG-FORMS-SPLIT-STUDIO',
     menuGroup: 'legal',
-    badge: '변경 3 · 서식 좌우 분할·변경비교·이름조회',
-    desc: '서식·법정 클릭 시 오른쪽 화면에 기본양식↔변경양식 실시간 비교 및 사람 이름별 반영·서명 내역 즉시 확인',
+    badge: '변경 4 · 서식 좌우 분할·변경비교·이름조회',
+    desc: '서식·법정 클릭 시 오른쪽 전체폭 화면에 기본양식↔변경양식 실시간 비교 및 사람 이름별 반영·서명 내역 즉시 확인',
     btnLabel: '분할 서식함 열기',
     action: () => {
       switchTab('forms-center', false);
-    },
-  },
-  {
-    id: 'CHG-LEAVE-ALUMNI-MARKS',
-    menuGroup: 'leave',
-    badge: '변경 4 · 퇴사·연차 전 리스트 동기화',
-    desc: '퇴사(은퇴) 관리 원장·연차 사용이력·연차 사용촉진·육아보호 리스트까지 번호·체크·별표 일괄 적용',
-    btnLabel: '연차·촉진 보기',
-    action: () => {
-      switchTab('ops-leave-promo', false);
     },
   },
 ];
@@ -2043,9 +2045,14 @@ function openModalWithText(title, subtitle, bodyText, triggerEl) {
 
   setBackgroundInert(true);
   const attModal = document.getElementById('att-calendar-modal');
+  const leaveModal = document.getElementById('leave-detail-modal');
   if (attModal && !attModal.hidden) {
     attModal.inert = true;
     attModal.setAttribute('aria-hidden', 'true');
+  }
+  if (leaveModal && !leaveModal.hidden) {
+    leaveModal.inert = true;
+    leaveModal.setAttribute('aria-hidden', 'true');
   }
   if (modPopup && !modPopup.hidden) {
     modPopup.inert = true;
@@ -2058,12 +2065,16 @@ function openModalWithText(title, subtitle, bodyText, triggerEl) {
 function closeModal() {
   const modal = document.getElementById('doc-modal');
   const attModal = document.getElementById('att-calendar-modal');
+  const leaveModal = document.getElementById('leave-detail-modal');
   const modPopup = document.getElementById('module-popup-modal');
   if (!modal || modal.hidden) return;
   modal.hidden = true;
   if (attModal && !attModal.hidden) {
     attModal.inert = false;
     attModal.removeAttribute('aria-hidden');
+  } else if (leaveModal && !leaveModal.hidden) {
+    leaveModal.inert = false;
+    leaveModal.removeAttribute('aria-hidden');
   } else if (modPopup && !modPopup.hidden) {
     modPopup.inert = false;
     modPopup.removeAttribute('aria-hidden');
@@ -2081,6 +2092,8 @@ function closeModal() {
     prev.focus();
   } else if (attModal && !attModal.hidden) {
     document.getElementById('att-cal-close-btn')?.focus();
+  } else if (leaveModal && !leaveModal.hidden) {
+    document.getElementById('leave-modal-close-btn')?.focus();
   } else if (modPopup && !modPopup.hidden) {
     (document.getElementById('popup-module-select') || document.getElementById('module-popup-close-btn'))?.focus();
   } else {
@@ -2105,10 +2118,12 @@ function openStandalonePopupWindow(tabKey = null) {
   if (tabKey) query.set('tab', tabKey);
   const url = buildCustomDomainUrl(`/?${query.toString()}`);
   const winName = tabKey ? `mhr_popup_${tabKey}` : 'mhr_dashboard_main_popup';
+  const popW = Math.max(1440, (window.screen?.availWidth || 1760) - 24);
+  const popH = Math.max(880, (window.screen?.availHeight || 960) - 48);
   const opened = window.open(
     url,
     winName,
-    'popup=yes,width=1360,height=880,left=60,top=45,resizable=yes,scrollbars=yes'
+    `popup=yes,width=${popW},height=${popH},left=12,top=20,resizable=yes,scrollbars=yes`
   );
   if (!opened) {
     openModuleDetailPopup(targetTab);
@@ -4326,8 +4341,12 @@ function computeClientAutoShift(date, clockIn, clockOut, breakHoursRaw, customHo
 function openAttCalendarModal(empCode, triggerEl = null) {
   if (!appState.snapshot) return;
   const modal = document.getElementById('att-calendar-modal');
+  const leaveModal = document.getElementById('leave-detail-modal');
   const modPopup = document.getElementById('module-popup-modal');
   if (!modal) return;
+  if (leaveModal && !leaveModal.hidden) {
+    closeLeaveDetailModal(false);
+  }
   const wasHidden = modal.hidden;
   if (empCode) {
     appState.selectedEmpCode = empCode;
@@ -5181,6 +5200,374 @@ function renderOpsAttendanceTab(snapshot) {
   wrap.replaceChildren(section);
 }
 
+function openLeaveDetailModal(empCode, triggerEl = null) {
+  if (!appState.snapshot) return;
+  const modal = document.getElementById('leave-detail-modal');
+  const attModal = document.getElementById('att-calendar-modal');
+  const modPopup = document.getElementById('module-popup-modal');
+  if (!modal) return;
+  if (attModal && !attModal.hidden) {
+    closeAttCalendarModal(false);
+  }
+  const wasHidden = modal.hidden;
+  if (empCode) {
+    appState.selectedEmpCode = empCode;
+  }
+  if (wasHidden) {
+    appState.lastFocusedBeforeLeaveModal = triggerEl || document.activeElement;
+  }
+  renderOpsLeaveTab(appState.snapshot);
+  renderLeaveDetailModalContent(appState.snapshot);
+  setBackgroundInert(true);
+  if (modPopup && !modPopup.hidden) {
+    modPopup.inert = true;
+    modPopup.setAttribute('aria-hidden', 'true');
+  }
+  modal.hidden = false;
+  modal.inert = false;
+  modal.removeAttribute('aria-hidden');
+  if (wasHidden) {
+    document.getElementById('leave-modal-close-btn')?.focus();
+  }
+}
+
+function closeLeaveDetailModal(restoreFocus = true) {
+  const modal = document.getElementById('leave-detail-modal');
+  const modPopup = document.getElementById('module-popup-modal');
+  if (!modal || modal.hidden) return;
+  modal.hidden = true;
+  if (modPopup && !modPopup.hidden) {
+    modPopup.inert = false;
+    modPopup.removeAttribute('aria-hidden');
+  } else {
+    setBackgroundInert(false);
+  }
+  if (appState.snapshot) {
+    renderOpsLeaveTab(appState.snapshot);
+  }
+  if (restoreFocus) {
+    const prev = appState.lastFocusedBeforeLeaveModal;
+    const isFocusablePrev =
+      prev &&
+      prev !== document.body &&
+      prev.isConnected &&
+      !prev.closest('[hidden]') &&
+      typeof prev.focus === 'function' &&
+      (prev.tabIndex >= 0 || /^(BUTTON|A|INPUT|SELECT|TEXTAREA)$/.test(prev.tagName || ''));
+    if (isFocusablePrev) {
+      prev.focus();
+    } else if (appState.selectedEmpCode) {
+      const recreatedBtn = Array.from(document.querySelectorAll('[data-leave-pop-btn]')).find(
+        (b) => b.dataset.leavePopBtn === appState.selectedEmpCode && !b.closest('[hidden]')
+      );
+      recreatedBtn?.focus();
+    }
+  }
+}
+
+function renderLeaveDetailModalContent(snapshot) {
+  const modalEl = document.getElementById('leave-detail-modal');
+  const bodyEl = document.getElementById('leave-modal-body');
+  const titleEl = document.getElementById('leave-modal-title');
+  const subEl = document.getElementById('leave-modal-subtitle');
+  if (!bodyEl || !snapshot?.operationsSuite) return;
+
+  const prevActive = document.activeElement;
+  const wasFocusInsideModal = modalEl ? modalEl.contains(prevActive) : false;
+  const prevId = prevActive?.id || '';
+  const prevAriaLabel = prevActive?.getAttribute?.('aria-label') || '';
+
+  const lv = snapshot.operationsSuite.leaveAndMaternity;
+  const policy = snapshot.operationsSuite.policySettings || snapshot.company.policySettings || {};
+  const leaveBasisLabel = formatLeaveBasisShort(policy);
+  const selectedCode = resolveSelectedWorkerCode(lv.ledger);
+  const selectedLv = lv.ledger.find((r) => r.empCode === selectedCode) || lv.ledger[0] || null;
+  if (!selectedLv) {
+    bodyEl.replaceChildren(h('div', { className: 'empty-state' }, '표시할 직원 연차 정보가 없습니다.'));
+    return;
+  }
+
+  const ym = lv.selectedYearMonth || '2026-11';
+  const defaultUseDate = `${ym}-25`;
+  const defaultAppliedDate = `${ym}-18`;
+
+  if (titleEl) {
+    titleEl.textContent = `[연차 발생 · 신청 · 사용 기록] No.${selectedLv.rowNo} ${selectedLv.displayName} (${selectedLv.empCode} · ${selectedLv.deptName})`;
+  }
+  if (subEl) {
+    subEl.textContent = selectedLv.leaveEligible
+      ? `${leaveBasisLabel} | 입사일 ${selectedLv.hireDate} · 만료일 ${selectedLv.cycleExpiryDate || '-'} | 발생 ${selectedLv.grantedCount}회(${selectedLv.accruedDays}일) · 사용 ${selectedLv.usedCount}회(${selectedLv.usedDays}일) · 잔여 ${selectedLv.remainingDays}일`
+      : `${leaveBasisLabel} | 입사일 ${selectedLv.hireDate} · ${selectedLv.ruleBasis}`;
+  }
+
+  const indexedLeaveRecords = (selectedLv.records || []).map((recItem, idx) => ({
+    ...recItem,
+    rowNo: idx + 1,
+  }));
+  const visibleLeaveRecords = applyGenericStarFilter(
+    snapshot,
+    'leaveRecords',
+    indexedLeaveRecords,
+    (r) => r.recordId
+  );
+
+  const modalTopToolbar = h(
+    'div',
+    { className: 'ops-section-head' },
+    h(
+      'div',
+      { className: 'step-pill-group' },
+      h(
+        'select',
+        {
+          id: 'leave-emp-switcher',
+          className: 'month-input-box',
+          'aria-label': '연차 조회 대상 직원 선택',
+          onChange: (e) => {
+            appState.selectedEmpCode = e.currentTarget.value;
+            renderLeaveDetailModalContent(snapshot);
+            renderOpsLeaveTab(snapshot);
+          },
+        },
+        ...lv.ledger.map((r) =>
+          h(
+            'option',
+            { value: r.empCode, selected: r.empCode === selectedLv.empCode },
+            `No.${r.rowNo} ${r.displayName} (${r.empCode} · ${r.deptName})`
+          )
+        )
+      ),
+      selectedLv.leaveEligible
+        ? h('span', { className: 'tag tag-blue' }, `발생 ${selectedLv.grantedCount}회 (${selectedLv.accruedDays}일)`)
+        : h('span', { className: 'tag tag-gray' }, selectedLv.ruleBasis),
+      selectedLv.leaveEligible
+        ? h(
+            'span',
+            { className: selectedLv.usedDays > 0 ? 'tag tag-amber' : 'tag tag-gray' },
+            `사용 ${selectedLv.usedCount}회 (${selectedLv.usedDays}일 · 당월 ${selectedLv.monthUsedDays}일)`
+          )
+        : null,
+      selectedLv.leaveEligible
+        ? h('span', { className: 'tag tag-green' }, `잔여 ${selectedLv.remainingDays}일`)
+        : null
+    ),
+    h(
+      'div',
+      { className: 'step-pill-group' },
+      selectedLv.leaveEligible
+        ? renderGenericSyncControls(
+            snapshot,
+            'leaveRecords',
+            indexedLeaveRecords,
+            (r) => r.recordId,
+            renderLeaveDetailModalContent,
+            '건',
+            { showGroupCheckbox: false }
+          )
+        : null
+    )
+  );
+
+  const addLeaveForm = !selectedLv.leaveEligible
+    ? h('div', { className: 'att-day-editor' }, selectedLv.ruleBasis)
+    : h(
+        'form',
+        {
+          className: 'ops-inline-form',
+          onSubmit: (e) => {
+            e.preventDefault();
+            const f = e.currentTarget;
+            const kindVal = f.querySelector('[name="lvKind"]').value;
+            const [daysStr, typeLabel] = kindVal.split('|');
+            runOpsAction(
+              {
+                actionType: 'ADD_LEAVE_USAGE',
+                empCode: selectedLv.empCode,
+                appliedAt: f.querySelector('[name="lvApplied"]').value,
+                useDate: f.querySelector('[name="lvUseDate"]').value,
+                days: Number(daysStr),
+                leaveType: typeLabel,
+                reason: f.querySelector('[name="lvReason"]').value,
+              },
+              f.querySelector('button[type="submit"]')
+            );
+          },
+        },
+        h(
+          'div',
+          { className: 'field' },
+          h('label', { for: 'lv-modal-applied-input' }, '연차 신청일'),
+          h('input', {
+            id: 'lv-modal-applied-input',
+            name: 'lvApplied',
+            type: 'date',
+            value: defaultAppliedDate,
+            required: true,
+          })
+        ),
+        h(
+          'div',
+          { className: 'field' },
+          h('label', { for: 'lv-modal-use-input' }, '연차 사용일'),
+          h('input', {
+            id: 'lv-modal-use-input',
+            name: 'lvUseDate',
+            type: 'date',
+            value: defaultUseDate,
+            required: true,
+          })
+        ),
+        h(
+          'div',
+          { className: 'field' },
+          h('label', { for: 'lv-modal-kind-select' }, '구분 · 사용일수'),
+          h(
+            'select',
+            { id: 'lv-modal-kind-select', name: 'lvKind' },
+            h('option', { value: '1|연차(1일)' }, '연차 (1일)'),
+            h('option', { value: '0.5|오전반차(0.5일)' }, '오전반차 (0.5일)'),
+            h('option', { value: '0.5|오후반차(0.5일)' }, '오후반차 (0.5일)'),
+            h('option', { value: '2|연차(2일)' }, '연차 (2일)')
+          )
+        ),
+        h(
+          'div',
+          { className: 'field' },
+          h('label', { for: 'lv-modal-reason-input' }, '사유 · 메모'),
+          h('input', {
+            id: 'lv-modal-reason-input',
+            name: 'lvReason',
+            type: 'text',
+            value: '개인 연차 사용',
+          })
+        ),
+        h(
+          'div',
+          { className: 'field' },
+          h(
+            'button',
+            { type: 'submit', className: 'btn btn-primary full-width' },
+            '연차 기록 추가 · 명세서 연동'
+          )
+        )
+      );
+
+  const recordsTable = selectedLv.leaveEligible
+    ? h(
+        'div',
+        { className: 'table-scroll-wrap' },
+        h(
+          'table',
+          { className: 'payroll-table', 'aria-label': `${selectedLv.displayName} 연차 신청 및 사용 이력` },
+          h(
+            'thead',
+            {},
+            h(
+              'tr',
+              {},
+              renderGenericSelectHeaderTh(
+                snapshot,
+                'leaveRecords',
+                indexedLeaveRecords,
+                (r) => r.recordId,
+                '연차 신청 및 사용 이력'
+              ),
+              h('th', { scope: 'col' }, '회차'),
+              h('th', { scope: 'col' }, '신청일자'),
+              h('th', { scope: 'col' }, '사용일자'),
+              h('th', { scope: 'col', className: 'num' }, '구분 · 사용일수'),
+              h('th', { scope: 'col' }, '사유'),
+              h('th', { scope: 'col' }, '관리')
+            )
+          ),
+          h(
+            'tbody',
+            {},
+            visibleLeaveRecords.length === 0
+              ? [
+                  h(
+                    'tr',
+                    {},
+                    h(
+                      'td',
+                      { colspan: '7' },
+                      indexedLeaveRecords.length === 0
+                        ? '등록된 연차 신청·사용 이력이 없습니다.'
+                        : '표시할 별표(★) 연차 기록이 없습니다.'
+                    )
+                  ),
+                ]
+              : visibleLeaveRecords.map((recItem) =>
+                  h(
+                    'tr',
+                    {},
+                    renderGenericMarkTd(
+                      snapshot,
+                      'leaveRecords',
+                      recItem.recordId,
+                      recItem.rowNo,
+                      `${selectedLv.displayName} ${recItem.useDate}`
+                    ),
+                    h(
+                      'td',
+                      { 'data-label': '회차' },
+                      `${indexedLeaveRecords.length - recItem.rowNo + 1}회`
+                    ),
+                    h('td', { 'data-label': '신청일자' }, recItem.appliedAt),
+                    h('td', { 'data-label': '사용일자', className: 'font-extrabold' }, recItem.useDate),
+                    h(
+                      'td',
+                      { className: 'num', 'data-label': '구분 · 사용일수' },
+                      `${recItem.leaveType} (${recItem.days}일)`
+                    ),
+                    h('td', { 'data-label': '사유' }, recItem.reason || '-'),
+                    h(
+                      'td',
+                      { 'data-label': '관리' },
+                      h(
+                        'button',
+                        {
+                          type: 'button',
+                          className: 'btn btn-secondary btn-sm',
+                          onClick: (e) =>
+                            runOpsAction(
+                              {
+                                actionType: 'DELETE_LEAVE_USAGE',
+                                empCode: selectedLv.empCode,
+                                recordId: recItem.recordId,
+                              },
+                              e.currentTarget
+                            ),
+                        },
+                        '삭제'
+                      )
+                    )
+                  )
+                )
+          )
+        )
+      )
+    : null;
+
+  bodyEl.replaceChildren(...[modalTopToolbar, addLeaveForm, recordsTable].filter(Boolean));
+
+  if (wasFocusInsideModal && (!document.activeElement || document.activeElement === document.body)) {
+    const byId = prevId ? document.getElementById(prevId) : null;
+    const byLabel =
+      !byId && prevAriaLabel
+        ? Array.from(bodyEl.querySelectorAll('button, input, select')).find(
+            (el) => el.getAttribute('aria-label') === prevAriaLabel && !el.disabled
+          )
+        : null;
+    (
+      byId ||
+      byLabel ||
+      document.getElementById('leave-emp-switcher') ||
+      document.getElementById('leave-modal-close-btn')
+    )?.focus();
+  }
+}
+
 function renderOpsLeaveTab(snapshot) {
   const wrap = document.getElementById('ops-leave-container');
   const promoWrap = document.getElementById('ops-leave-promo-container');
@@ -5207,19 +5594,18 @@ function renderOpsLeaveTab(snapshot) {
     const visibleLedger = applyStarFilter(lv.ledger);
     const selectedCode = resolveSelectedWorkerCode(lv.ledger);
     const selectedLv = lv.ledger.find((r) => r.empCode === selectedCode) || lv.ledger[0] || null;
-    const defaultUseDate = `${lv.selectedYearMonth || '2026-11'}-25`;
-    const defaultAppliedDate = `${lv.selectedYearMonth || '2026-11'}-18`;
 
     const ledgerSection = h(
       'div',
-      { className: 'ops-section-block' },
+      { className: 'ops-section-block code-diff-box' },
       h(
         'div',
         { className: 'ops-section-head' },
         h(
           'div',
           { className: 'step-pill-group' },
-          h('h3', { className: 'ops-section-title' }, '직원별 연차 현황'),
+          h('h3', { className: 'ops-section-title' }, '직원별 연차 현황 (직원 클릭 시 연차 기록 팝업)'),
+          h('span', { className: 'code-diff-pill' }, '변경됨 · 하단 표시 제거 · 직원 클릭 시 전체폭 팝업 오픈'),
           h('span', { className: 'tag tag-blue' }, leaveBasisLabel)
         ),
         h(
@@ -5273,7 +5659,7 @@ function renderOpsLeaveTab(snapshot) {
               h('th', { scope: 'col', className: 'num' }, '사용 (횟수 · 일수)'),
               h('th', { scope: 'col', className: 'num' }, '잔여 연차'),
               h('th', { scope: 'col', className: 'num' }, `당월(${lv.selectedYearMonth || '2026-11'}) 사용`),
-              h('th', { scope: 'col' }, '신청·사용 기록')
+              h('th', { scope: 'col' }, '연차 기록 팝업')
             )
           ),
           h(
@@ -5297,9 +5683,9 @@ function renderOpsLeaveTab(snapshot) {
                     'tr',
                     {
                       className: isSel ? 'emp-select-row is-selected-worker' : 'emp-select-row',
-                      onClick: () => {
-                        appState.selectedEmpCode = r.empCode;
-                        renderOpsLeaveTab(snapshot);
+                      onClick: (e) => {
+                        const rowBtn = e.currentTarget.querySelector('[data-leave-pop-btn]');
+                        openLeaveDetailModal(r.empCode, rowBtn || e.currentTarget);
                       },
                     },
                     renderMasterMarkTd(r),
@@ -5342,7 +5728,7 @@ function renderOpsLeaveTab(snapshot) {
                     ),
                     h(
                       'td',
-                      { 'data-label': '신청·사용 기록', onClick: (e) => e.stopPropagation() },
+                      { 'data-label': '연차 기록 팝업', onClick: (e) => e.stopPropagation() },
                       h(
                         'div',
                         { className: 'step-pill-group' },
@@ -5350,14 +5736,11 @@ function renderOpsLeaveTab(snapshot) {
                           'button',
                           {
                             type: 'button',
-                            className: isSel ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm',
-                            'aria-pressed': String(Boolean(isSel)),
-                            onClick: () => {
-                              appState.selectedEmpCode = r.empCode;
-                              renderOpsLeaveTab(snapshot);
-                            },
+                            className: 'btn btn-primary btn-sm',
+                            dataset: { leavePopBtn: r.empCode },
+                            onClick: (e) => openLeaveDetailModal(r.empCode, e.currentTarget),
                           },
-                          isSel ? '기록 열림' : '기록 보기'
+                          '연차 기록 팝업'
                         ),
                         h(
                           'button',
@@ -5377,253 +5760,7 @@ function renderOpsLeaveTab(snapshot) {
       )
     );
 
-    let leaveDetailCard = null;
-    if (selectedLv) {
-      const addLeaveForm = !selectedLv.leaveEligible
-        ? h('div', { className: 'att-day-editor' }, selectedLv.ruleBasis)
-        : h(
-            'form',
-            {
-              className: 'ops-inline-form',
-              onSubmit: (e) => {
-                e.preventDefault();
-                const f = e.currentTarget;
-                const kindVal = f.querySelector('[name="lvKind"]').value;
-                const [daysStr, typeLabel] = kindVal.split('|');
-                runOpsAction(
-                  {
-                    actionType: 'ADD_LEAVE_USAGE',
-                    empCode: selectedLv.empCode,
-                    appliedAt: f.querySelector('[name="lvApplied"]').value,
-                    useDate: f.querySelector('[name="lvUseDate"]').value,
-                    days: Number(daysStr),
-                    leaveType: typeLabel,
-                    reason: f.querySelector('[name="lvReason"]').value,
-                  },
-                  f.querySelector('button[type="submit"]')
-                );
-              },
-            },
-            h(
-              'div',
-              { className: 'field' },
-              h('label', { for: 'lv-applied-input' }, '연차 신청일'),
-              h('input', {
-                id: 'lv-applied-input',
-                name: 'lvApplied',
-                type: 'date',
-                value: defaultAppliedDate,
-                required: true,
-              })
-            ),
-            h(
-              'div',
-              { className: 'field' },
-              h('label', { for: 'lv-use-input' }, '연차 사용일'),
-              h('input', {
-                id: 'lv-use-input',
-                name: 'lvUseDate',
-                type: 'date',
-                value: defaultUseDate,
-                required: true,
-              })
-            ),
-            h(
-              'div',
-              { className: 'field' },
-              h('label', { for: 'lv-kind-select' }, '구분 · 사용일수'),
-              h(
-                'select',
-                { id: 'lv-kind-select', name: 'lvKind' },
-                h('option', { value: '1|연차(1일)' }, '연차 (1일)'),
-                h('option', { value: '0.5|오전반차(0.5일)' }, '오전반차 (0.5일)'),
-                h('option', { value: '0.5|오후반차(0.5일)' }, '오후반차 (0.5일)'),
-                h('option', { value: '2|연차(2일)' }, '연차 (2일)')
-              )
-            ),
-            h(
-              'div',
-              { className: 'field' },
-              h('label', { for: 'lv-reason-input' }, '사유 · 메모'),
-              h('input', {
-                id: 'lv-reason-input',
-                name: 'lvReason',
-                type: 'text',
-                value: '개인 연차 사용',
-              })
-            ),
-            h(
-              'div',
-              { className: 'field' },
-              h(
-                'button',
-                { type: 'submit', className: 'btn btn-primary full-width' },
-                '연차 기록 추가 · 명세서 연동'
-              )
-            )
-          );
-
-      const indexedLeaveRecords = (selectedLv.records || []).map((recItem, idx) => ({
-        ...recItem,
-        rowNo: idx + 1,
-      }));
-      const visibleLeaveRecords = applyGenericStarFilter(
-        snapshot,
-        'leaveRecords',
-        indexedLeaveRecords,
-        (r) => r.recordId
-      );
-
-      const recordsTable = selectedLv.leaveEligible
-        ? h(
-            'div',
-            { className: 'table-scroll-wrap' },
-            h(
-              'table',
-              { className: 'payroll-table', 'aria-label': `${selectedLv.displayName} 연차 신청 및 사용 이력` },
-              h(
-                'thead',
-                {},
-                h(
-                  'tr',
-                  {},
-                  renderGenericSelectHeaderTh(
-                    snapshot,
-                    'leaveRecords',
-                    indexedLeaveRecords,
-                    (r) => r.recordId,
-                    '연차 신청 및 사용 이력'
-                  ),
-                  h('th', { scope: 'col' }, '회차'),
-                  h('th', { scope: 'col' }, '신청일자'),
-                  h('th', { scope: 'col' }, '사용일자'),
-                  h('th', { scope: 'col', className: 'num' }, '구분 · 사용일수'),
-                  h('th', { scope: 'col' }, '사유'),
-                  h('th', { scope: 'col' }, '관리')
-                )
-              ),
-              h(
-                'tbody',
-                {},
-                visibleLeaveRecords.length === 0
-                  ? [
-                      h(
-                        'tr',
-                        {},
-                        h(
-                          'td',
-                          { colspan: '7' },
-                          indexedLeaveRecords.length === 0
-                            ? '등록된 연차 신청·사용 이력이 없습니다.'
-                            : '표시할 별표(★) 연차 기록이 없습니다.'
-                        )
-                      ),
-                    ]
-                  : visibleLeaveRecords.map((recItem) =>
-                      h(
-                        'tr',
-                        {},
-                        renderGenericMarkTd(
-                          snapshot,
-                          'leaveRecords',
-                          recItem.recordId,
-                          recItem.rowNo,
-                          `${selectedLv.displayName} ${recItem.useDate}`
-                        ),
-                        h(
-                          'td',
-                          { 'data-label': '회차' },
-                          `${indexedLeaveRecords.length - recItem.rowNo + 1}회`
-                        ),
-                        h('td', { 'data-label': '신청일자' }, recItem.appliedAt),
-                        h('td', { 'data-label': '사용일자', className: 'font-extrabold' }, recItem.useDate),
-                        h(
-                          'td',
-                          { className: 'num', 'data-label': '구분 · 사용일수' },
-                          `${recItem.leaveType} (${recItem.days}일)`
-                        ),
-                        h('td', { 'data-label': '사유' }, recItem.reason || '-'),
-                        h(
-                          'td',
-                          { 'data-label': '관리' },
-                          h(
-                            'button',
-                            {
-                              type: 'button',
-                              className: 'btn btn-secondary btn-sm',
-                              onClick: (e) =>
-                                runOpsAction(
-                                  {
-                                    actionType: 'DELETE_LEAVE_USAGE',
-                                    empCode: selectedLv.empCode,
-                                    recordId: recItem.recordId,
-                                  },
-                                  e.currentTarget
-                                ),
-                            },
-                            '삭제'
-                          )
-                        )
-                      )
-                    )
-              )
-            )
-          )
-        : null;
-
-      leaveDetailCard = h(
-        'div',
-        { className: 'leave-detail-card', id: 'leave-usage-detail-panel' },
-        h(
-          'div',
-          { className: 'ops-section-head' },
-          h(
-            'div',
-            { className: 'step-pill-group' },
-            h(
-              'h3',
-              { className: 'ops-section-title' },
-              `No.${selectedLv.rowNo} ${selectedLv.empCode} ${selectedLv.displayName} — 연차 발생 · 신청 · 사용 기록`
-            ),
-            selectedLv.leaveEligible
-              ? h(
-                  'span',
-                  { className: 'tag tag-blue' },
-                  `발생 ${selectedLv.grantedCount}회(${selectedLv.accruedDays}일) · 사용 ${selectedLv.usedCount}회(${selectedLv.usedDays}일) · 잔여 ${selectedLv.remainingDays}일`
-                )
-              : null
-          ),
-          h(
-            'div',
-            { className: 'step-pill-group' },
-            selectedLv.leaveEligible
-              ? renderGenericSyncControls(
-                  snapshot,
-                  'leaveRecords',
-                  indexedLeaveRecords,
-                  (r) => r.recordId,
-                  renderOpsLeaveTab,
-                  '건',
-                  { showGroupCheckbox: false }
-                )
-              : null,
-            h(
-              'button',
-              {
-                type: 'button',
-                className: 'btn btn-secondary btn-sm',
-                onClick: (e) => openPayslipByEmpCode(selectedLv.empCode, e.currentTarget),
-              },
-              '급여 명세서에서 연차 내역 확인'
-            )
-          )
-        ),
-        addLeaveForm,
-        recordsTable
-      );
-    }
-
-    wrap.replaceChildren(...[ledgerSection, leaveDetailCard].filter(Boolean));
+    wrap.replaceChildren(ledgerSection);
   }
 
   if (promoWrap) {
@@ -7564,6 +7701,10 @@ function updateSnapshot(snapshot) {
   if (attModal && !attModal.hidden) {
     renderAttCalendarModalContent(snapshot);
   }
+  const leaveModal = document.getElementById('leave-detail-modal');
+  if (leaveModal && !leaveModal.hidden) {
+    renderLeaveDetailModalContent(snapshot);
+  }
 }
 
 function setMobileSidebarOpen(isOpen) {
@@ -7708,6 +7849,10 @@ function switchTab(tabKey, focusTabBtn = false) {
   const attModal = document.getElementById('att-calendar-modal');
   if (attModal && !attModal.hidden) {
     closeAttCalendarModal(false);
+  }
+  const leaveModal = document.getElementById('leave-detail-modal');
+  if (leaveModal && !leaveModal.hidden) {
+    closeLeaveDetailModal(false);
   }
   setMobileSidebarOpen(false);
   syncActiveNavigationState(tabKey, focusTabBtn);
@@ -8092,6 +8237,17 @@ function bindEvents() {
   document.getElementById('att-calendar-modal')?.addEventListener('click', (e) => {
     if (e.target.id === 'att-calendar-modal') closeAttCalendarModal(true);
   });
+  document.getElementById('leave-modal-close-btn')?.addEventListener('click', () => {
+    closeLeaveDetailModal(true);
+  });
+  document.getElementById('leave-modal-payslip-btn')?.addEventListener('click', (e) => {
+    if (appState.selectedEmpCode) {
+      openPayslipByEmpCode(appState.selectedEmpCode, e.currentTarget);
+    }
+  });
+  document.getElementById('leave-detail-modal')?.addEventListener('click', (e) => {
+    if (e.target.id === 'leave-detail-modal') closeLeaveDetailModal(true);
+  });
   document.getElementById('modal-copy-btn')?.addEventListener('click', async () => {
     const text = document.getElementById('modal-body')?.textContent || '';
     const fb = document.getElementById('copy-feedback');
@@ -8308,6 +8464,7 @@ function bindEvents() {
   document.addEventListener('keydown', (e) => {
     const docModal = document.getElementById('doc-modal');
     const attModal = document.getElementById('att-calendar-modal');
+    const leaveModal = document.getElementById('leave-detail-modal');
     const modPopup = document.getElementById('module-popup-modal');
     const sidebar = document.getElementById('left-sidebar');
     const activeModal =
@@ -8315,9 +8472,11 @@ function bindEvents() {
         ? docModal
         : attModal && !attModal.hidden
           ? attModal
-          : modPopup && !modPopup.hidden
-            ? modPopup
-            : null;
+          : leaveModal && !leaveModal.hidden
+            ? leaveModal
+            : modPopup && !modPopup.hidden
+              ? modPopup
+              : null;
     if (!activeModal) {
       if (e.key === 'Escape' && sidebar?.getAttribute('data-sidebar-open') === 'true') {
         e.preventDefault();
@@ -8331,6 +8490,7 @@ function bindEvents() {
       e.preventDefault();
       if (activeModal === docModal) closeModal();
       else if (activeModal === attModal) closeAttCalendarModal(true);
+      else if (activeModal === leaveModal) closeLeaveDetailModal(true);
       else closeModuleDetailPopup(true);
       return;
     }

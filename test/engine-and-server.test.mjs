@@ -4068,5 +4068,41 @@ test('전 영역 번호·체크·별표, 입사 필수 3종 서식 자동연결�
   }
 });
 
+test('연차 관리 직원 클릭 전용 전체폭 팝업(#leave-detail-modal) 전환 · 하단 영역 제거 · 전 화면 좌우 끝까지 전체폭 레이아웃 검증', () => {
+  const html = fs.readFileSync(path.join(PROJECT_ROOT, 'src', 'public', 'index.html'), 'utf8');
+  const appJs = fs.readFileSync(path.join(PROJECT_ROOT, 'src', 'public', 'app.js'), 'utf8');
+  const css = fs.readFileSync(path.join(PROJECT_ROOT, 'src', 'public', 'styles.css'), 'utf8');
+
+  // 1) 연차 관리 전용 팝업 모달 마크업 및 접근성 속성 검증
+  assert.ok(html.includes('id="leave-detail-modal"'), '연차 관리 전용 팝업 모달(#leave-detail-modal) 존재 필수');
+  assert.ok(html.includes('aria-labelledby="leave-modal-title"'), '연차 팝업 aria-labelledby 연결 필수');
+  assert.ok(html.includes('id="leave-modal-close-btn"'), '연차 팝업 닫기 버튼 존재 필수');
+  assert.ok(html.includes('id="leave-modal-payslip-btn"'), '연차 팝업 급여명세서 연동 버튼 존재 필수');
+
+  // 2) 연차 관리 표 하단에 기록 카드가 렌더링되지 않고 팝업 모달로만 열리도록 전환 검증
+  assert.equal(
+    appJs.includes('leave-usage-detail-panel'),
+    false,
+    '연차 관리 표 아래 하단 패널(leave-usage-detail-panel)이 남아 있으면 안 됨'
+  );
+  assert.ok(appJs.includes('function openLeaveDetailModal('), 'openLeaveDetailModal 함수 정의 필수');
+  assert.ok(appJs.includes('function closeLeaveDetailModal('), 'closeLeaveDetailModal 함수 정의 필수');
+  assert.ok(
+    appJs.includes('function renderLeaveDetailModalContent('),
+    'renderLeaveDetailModalContent 함수 정의 필수'
+  );
+  assert.ok(appJs.includes('leavePopBtn: r.empCode'), '직원별 연차 기록 팝업 트리거 버튼 데이터 속성 필수');
+
+  // 3) 전 화면 및 팝업 좌우 끝까지 전체폭(max-width 제한 해제) 검증
+  assert.equal(css.includes('max-width: 1440px'), false, '.workspace-inner 1440px 좌우 여백 제한이 남아 있으면 안 됨');
+  assert.equal(css.includes('max-width: 1280px'), false, '.modal-dialog-wide 1280px 폭 제한이 남아 있으면 안 됨');
+  assert.equal(css.includes('max-width: 1320px'), false, '.container 1320px 폭 제한이 남아 있으면 안 됨');
+  assert.equal(css.includes('max-width: 780px'), false, '.modal-dialog 780px 폭 제한이 남아 있으면 안 됨');
+  assert.match(css, /\.workspace-inner\s*\{[\s\S]*?max-width:\s*none;/);
+  assert.match(css, /\.modal-dialog-wide\s*\{[\s\S]*?max-width:\s*none;/);
+  assert.match(css, /\.modal-dialog\s*\{[\s\S]*?max-width:\s*none;/);
+});
+
+
 
 
