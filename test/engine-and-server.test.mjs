@@ -4101,6 +4101,27 @@ test('연차 관리 직원 클릭 전용 전체폭 팝업(#leave-detail-modal) �
   assert.match(css, /\.workspace-inner\s*\{[\s\S]*?max-width:\s*none;/);
   assert.match(css, /\.modal-dialog-wide\s*\{[\s\S]*?max-width:\s*none;/);
   assert.match(css, /\.modal-dialog\s*\{[\s\S]*?max-width:\s*none;/);
+
+  // 4) 상단 타이틀 바(#review-tour-bar) + 세부 탭 바(#domain-subtabs-wrap) 통합 틀 고정(#workspace-frozen-top) 검증
+  assert.ok(
+    html.includes('id="workspace-frozen-top"'),
+    '상단 헤더·세부 탭 통합 틀 고정 래퍼(#workspace-frozen-top) 존재 필수'
+  );
+  assert.match(
+    html,
+    /id="workspace-frozen-top"[\s\S]*?id="review-tour-bar"[\s\S]*?id="domain-subtabs-wrap"[\s\S]*?<main id="main-content"/,
+    '#workspace-frozen-top 내부에 상단 타이틀 바와 세부 메뉴 탭 바가 함께 묶여 틀 고정되어야 함'
+  );
+  assert.match(
+    css,
+    /\.workspace-frozen-top\s*\{[\s\S]*?position:\s*sticky;[\s\S]*?top:\s*0;/,
+    '.workspace-frozen-top 에 position: sticky; top: 0; 틀 고정 스타일 필수'
+  );
+  assert.doesNotMatch(
+    css,
+    /\.workspace-topbar\s*\{[^}]*position:\s*static/,
+    '좁은 화면 미디어쿼리에서 상단 바 틀 고정이 해제(position: static)되면 안 됨'
+  );
 });
 
 

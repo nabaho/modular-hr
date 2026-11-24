@@ -73,47 +73,50 @@
 
     <!-- 우측 메인 화면 -->
     <div id="workspace-pane" class="app-workspace">
-      <header id="review-tour-bar" class="top-header workspace-topbar">
-        <div class="workspace-topbar-left">
-          <button
-            type="button"
-            id="btn-mobile-sidebar-toggle"
-            class="btn btn-secondary btn-sm mobile-only-btn"
-            aria-expanded="false"
-            aria-controls="left-sidebar"
-          >
-            메뉴
-          </button>
-          <div class="workspace-title-line">
-            <h1 id="workspace-major-title" class="workspace-screen-title">대시보드</h1>
-            <span id="compact-workplace-summary" class="compact-summary-line"></span>
+      <div id="workspace-frozen-top" class="workspace-frozen-top code-diff-box">
+        <header id="review-tour-bar" class="top-header workspace-topbar">
+          <div class="workspace-topbar-left">
+            <button
+              type="button"
+              id="btn-mobile-sidebar-toggle"
+              class="btn btn-secondary btn-sm mobile-only-btn"
+              aria-expanded="false"
+              aria-controls="left-sidebar"
+            >
+              메뉴
+            </button>
+            <div class="workspace-title-line">
+              <h1 id="workspace-major-title" class="workspace-screen-title">대시보드</h1>
+              <span id="compact-workplace-summary" class="compact-summary-line"></span>
+              <span class="code-diff-pill">변경됨 · 상단 타이틀 + 세부 탭 틀 고정</span>
+            </div>
           </div>
-        </div>
-        <div class="workspace-topbar-actions">
-          <button
-            type="button"
-            id="btn-toggle-diff-marks"
-            class="btn btn-secondary btn-sm"
-            aria-pressed="true"
-          >
-            변경점 표시 켜짐
-          </button>
-          <button type="button" id="btn-quick-forms-jump" class="btn btn-secondary btn-sm">
-            표준 서식함
-          </button>
-          <button type="button" id="btn-open-current-module-modal" class="btn btn-secondary btn-sm">
-            확대
-          </button>
-          <button type="button" id="btn-open-dashboard-popup" class="btn btn-primary btn-sm">
-            새 창 열기
-          </button>
-        </div>
-      </header>
+          <div class="workspace-topbar-actions">
+            <button
+              type="button"
+              id="btn-toggle-diff-marks"
+              class="btn btn-secondary btn-sm"
+              aria-pressed="true"
+            >
+              변경점 표시 켜짐
+            </button>
+            <button type="button" id="btn-quick-forms-jump" class="btn btn-secondary btn-sm">
+              표준 서식함
+            </button>
+            <button type="button" id="btn-open-current-module-modal" class="btn btn-secondary btn-sm">
+              확대
+            </button>
+            <button type="button" id="btn-open-dashboard-popup" class="btn btn-primary btn-sm">
+              새 창 열기
+            </button>
+          </div>
+        </header>
 
-      <!-- 상단 세부 탭 바 (대시보드에서는 자동 숨김) -->
-      <div id="domain-subtabs-wrap" class="domain-subtabs-wrap" hidden>
-        <div class="workspace-inner">
-          <div id="domain-subtabs-bar" class="domain-subtabs-bar" role="tablist" aria-label="세부 메뉴 탭"></div>
+        <!-- 상단 세부 탭 바 (대시보드에서는 자동 숨김 · 상단 바와 함께 틀 고정) -->
+        <div id="domain-subtabs-wrap" class="domain-subtabs-wrap" hidden>
+          <div class="workspace-inner">
+            <div id="domain-subtabs-bar" class="domain-subtabs-bar" role="tablist" aria-label="세부 메뉴 탭"></div>
+          </div>
         </div>
       </div>
 
