@@ -1412,6 +1412,83 @@ export function createAppServer(options = {}) {
           return;
         }
 
+        // ============================================================
+        // 개별 수신자(노사위원 / 근로자) 최소권한 토큰 기반 확인·전자서명 라우터 (/api/public-sign/*)
+        // - 전체 급여·인사 스냅샷 노출 없이 해당 수신자의 회의록 또는 취업규칙 개정안만 검증·서명 처리
+        // ============================================================
+        if (pathname === '/api/public-sign/inspect' || pathname === '/api/public-sign/submit') {
+          if (req.method !== 'POST') {
+            sendJson(res, 405, { error: 'Method Not Allowed' });
+            return;
+          }
+          if (!isAllowedOrigin(req, boundPort)) {
+            sendJson(res, 403, { error: 'Forbidden Cross-Origin request' });
+            return;
+          }
+          const pubHeaderCsrf = req.headers['x-csrf-token'];
+          if (!verifyCsrfToken(pubHeaderCsrf, csrfToken)) {
+            sendJson(res, 403, { error: 'Invalid or missing CSRF token' });
+            return;
+          }
+          const pubBody = await readJsonBody(req);
+
+          if (pathname === '/api/public-sign/inspect') {
+            const prevOpsBk = opsSuite.exportPersistenceState();
+            const targetView = opsSuite.inspectPublicSignTarget(pubBody, { state });
+            try {
+              persistValidatedState();
+            } catch (saveErr) {
+              opsSuite.restorePersistenceState(prevOpsBk);
+              throw saveErr;
+            }
+            sendJson(res, 200, { target: targetView });
+            return;
+          }
+
+          if (pathname === '/api/public-sign/submit') {
+            const prevAuditBk = structuredClone(state.auditLogs);
+            const prevOpsBk = opsSuite.exportPersistenceState();
+            let submitRes;
+            try {
+              submitRes = opsSuite.submitPublicSignTarget(pubBody, {
+                state,
+                appendAudit,
+              });
+            } catch (submitErr) {
+              if (submitErr && submitErr.persistSecurityMutation === true) {
+                try {
+                  persistValidatedState();
+                } catch {
+                  state.auditLogs = prevAuditBk;
+                  opsSuite.restorePersistenceState(prevOpsBk);
+                  const storageErr = new Error(
+                    '상태 저장소 기록 장애로 본인확인 검증이 일시 중단되었습니다. 잠시 후 다시 시도해 주세요.'
+                  );
+                  storageErr.statusCode = 503;
+                  throw storageErr;
+                }
+              }
+              throw submitErr;
+            }
+            try {
+              persistValidatedState();
+            } catch (saveErr) {
+              state.auditLogs = prevAuditBk;
+              opsSuite.restorePersistenceState(prevOpsBk);
+              throw saveErr;
+            }
+            mobileHub.pushRealtimeNotification({
+              targetRole: 'CEO_AND_HR',
+              severity: 'INFO',
+              eventCode: 'RECIPIENT_SIGNED',
+              title: '개별 전자서명 제출 · 자동 취합 반영',
+              bodySummary: submitRes.message,
+            });
+            sendJson(res, 200, { result: submitRes });
+            return;
+          }
+        }
+
         // PC 관리자 API 경계 보호: 제한된 모바일 세션(WORKER / DEPT_MANAGER / MFA_PENDING) 보유 브라우저의 우회 접근 차단
         const pcCookies = parseCookieHeader(req.headers.cookie);
         const mobileCookieOnPc = pcCookies[MOBILE_SESSION_COOKIE] || '';
@@ -1518,6 +1595,7 @@ export function createAppServer(options = {}) {
             };
             state.completedTaskIds = [];
             state.emptyRosterMode = false;
+            opsSuite.resetManualScaleOverrides();
             mobileHub.syncWorkerAccessWithRoster(
               state.workers,
               state.offboardedWorkers,
@@ -2702,6 +2780,94 @@ export function createAppServer(options = {}) {
 const isDirectRun =
   process.argv[1] && path.resolve(process.argv[1]) === path.resolve(__filename);
 
+export function createDiskStatePersistence(targetStateFilePath) {
+  const resolvedStatePath = path.resolve(targetStateFilePath);
+  let corruptedStateBlocked = false;
+
+  return Object.freeze({
+    load() {
+      let rawText;
+      try {
+        rawText = fs.readFileSync(resolvedStatePath, 'utf8');
+      } catch (readErr) {
+        if (readErr && readErr.code === 'ENOENT') {
+          return null;
+        }
+        corruptedStateBlocked = true;
+        const ioErr = new Error(
+          `기존 상태 파일(${resolvedStatePath}) 읽기에 실패하여 데이터 보호를 위해 초기화·덮어쓰기가 차단되었습니다: ${readErr?.message || 'IO_ERROR'}`
+        );
+        ioErr.statusCode = 500;
+        throw ioErr;
+      }
+
+      try {
+        const parsed = JSON.parse(rawText);
+        if (
+          !parsed ||
+          typeof parsed !== 'object' ||
+          Array.isArray(parsed) ||
+          !parsed.company ||
+          typeof parsed.company !== 'object' ||
+          Array.isArray(parsed.company) ||
+          !Array.isArray(parsed.workers) ||
+          !Array.isArray(parsed.offboardedWorkers)
+        ) {
+          throw new Error('필수 상태 스키마(company, workers, offboardedWorkers)가 누락되었거나 형식이 올바르지 않습니다.');
+        }
+        return parsed;
+      } catch (parseErr) {
+        corruptedStateBlocked = true;
+        const corruptErr = new Error(
+          `기존 상태 파일(${resolvedStatePath}) 파싱 손상이 감지되어 복구 전 덮어쓰기가 차단되었습니다: ${parseErr?.message || 'PARSE_ERROR'}`
+        );
+        corruptErr.statusCode = 500;
+        throw corruptErr;
+      }
+    },
+
+    save(payload) {
+      if (corruptedStateBlocked) {
+        const blockErr = new Error(
+          '손상된 기존 상태 파일이 복구되지 않아 기존 기록 보호를 위해 덮어쓰기가 차단되었습니다.'
+        );
+        blockErr.statusCode = 500;
+        throw blockErr;
+      }
+      fs.mkdirSync(path.dirname(resolvedStatePath), { recursive: true });
+      const realPubDir = fs.realpathSync(PUBLIC_DIR);
+      const realStateDir = fs.realpathSync(path.dirname(resolvedStatePath));
+      const relCheck = path.relative(
+        realPubDir,
+        path.join(realStateDir, path.basename(resolvedStatePath))
+      );
+      if (relCheck === '' || (!relCheck.startsWith('..') && !path.isAbsolute(relCheck))) {
+        const secErr = new Error('상태 파일 경로가 공개 정적 디렉터리를 가리켜 저장이 차단되었습니다.');
+        secErr.statusCode = 500;
+        throw secErr;
+      }
+      const tmpPath = `${resolvedStatePath}.${process.pid}.${crypto.randomBytes(8).toString('hex')}.tmp`;
+      try {
+        fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2), {
+          encoding: 'utf8',
+          mode: 0o600,
+          flag: 'wx',
+        });
+        fs.renameSync(tmpPath, resolvedStatePath);
+      } catch {
+        try {
+          if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+        } catch {
+          // ignore cleanup error
+        }
+        const ioErr = new Error('상태 파일 원자적 저장에 실패했습니다.');
+        ioErr.statusCode = 500;
+        throw ioErr;
+      }
+    },
+  });
+}
+
 if (isDirectRun) {
   const port = Number(process.env.PORT || 4330);
   const stateFilePath = process.env.MHR_STATE_FILE ? path.resolve(process.env.MHR_STATE_FILE) : '';
@@ -2732,45 +2898,7 @@ if (isDirectRun) {
     }
   }
   const statePersistence = stateFilePath
-    ? {
-        load() {
-          try {
-            if (!fs.existsSync(stateFilePath)) return null;
-            return JSON.parse(fs.readFileSync(stateFilePath, 'utf8'));
-          } catch {
-            return null;
-          }
-        },
-        save(payload) {
-          fs.mkdirSync(path.dirname(stateFilePath), { recursive: true });
-          const realPubDir = fs.realpathSync(PUBLIC_DIR);
-          const realStateDir = fs.realpathSync(path.dirname(stateFilePath));
-          const relCheck = path.relative(realPubDir, path.join(realStateDir, path.basename(stateFilePath)));
-          if (relCheck === '' || (!relCheck.startsWith('..') && !path.isAbsolute(relCheck))) {
-            const secErr = new Error('상태 파일 경로가 공개 정적 디렉터리를 가리켜 저장이 차단되었습니다.');
-            secErr.statusCode = 500;
-            throw secErr;
-          }
-          const tmpPath = `${stateFilePath}.${process.pid}.${crypto.randomBytes(8).toString('hex')}.tmp`;
-          try {
-            fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2), {
-              encoding: 'utf8',
-              mode: 0o600,
-              flag: 'wx',
-            });
-            fs.renameSync(tmpPath, stateFilePath);
-          } catch {
-            try {
-              if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
-            } catch {
-              // ignore cleanup error
-            }
-            const ioErr = new Error('상태 파일 원자적 저장에 실패했습니다.');
-            ioErr.statusCode = 500;
-            throw ioErr;
-          }
-        },
-      }
+    ? createDiskStatePersistence(stateFilePath)
     : undefined;
   const { server } = createAppServer({ statePersistence });
   server.listen(port, '127.0.0.1', () => {

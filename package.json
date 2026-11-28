@@ -13,6 +13,6 @@
     "popup:demo": "node scripts/open-popup-app.mjs --demo --with-mobile",
     "build:pages": "node scripts/build-gh-pages.mjs",
     "test": "node --test test/*.test.mjs",
-    "check": "node --check src/engine/labor-rules.mjs && node --check src/engine/compliance-provisioner.mjs && node --check src/engine/lifecycle-payroll.mjs && node --check src/engine/document-generator.mjs && node --check src/engine/offboarding-registry.mjs && node --check src/engine/document-ingestion.mjs && node --check src/engine/hr-operations-suite.mjs && node --check src/engine/mobile-auth-realtime.mjs && node --check src/server.mjs && node --check src/public/app.js && node --check src/public/mobile.js && node --check src/public/sw.js && node --check scripts/open-popup-app.mjs && node --check scripts/build-gh-pages.mjs"
+    "check": "node --check src/engine/labor-rules.mjs && node --check src/engine/compliance-provisioner.mjs && node --check src/engine/lifecycle-payroll.mjs && node --check src/engine/document-generator.mjs && node --check src/engine/offboarding-registry.mjs && node --check src/engine/document-ingestion.mjs && node --check src/engine/statutory-governance.mjs && node --check src/engine/hr-operations-suite.mjs && node --check src/engine/mobile-auth-realtime.mjs && node --check src/server.mjs && node --check src/public/app.js && node --check src/public/mobile.js && node --check src/public/sw.js && node --check scripts/open-popup-app.mjs && node --check scripts/build-gh-pages.mjs"
   }
 }

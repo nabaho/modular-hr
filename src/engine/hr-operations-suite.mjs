@@ -20,6 +20,7 @@ import {
   generateStatutoryDocument,
   maskInlinePiiText,
 } from './document-generator.mjs';
+import { createStatutoryGovernanceManager } from './statutory-governance.mjs';
 
 function computeDocPayloadDigest(templateId, info) {
   return crypto
@@ -412,6 +413,7 @@ export function computeStatutoryAnnualLeaveDays(hireDate, referenceDate = '2026-
 }
 
 export function createOperationsSuiteManager() {
+  const statutoryGovernance = createStatutoryGovernanceManager();
   let applicantSeq = 105;
   let hireEmpSeq = 266;
   let assignmentSeq = 304;
@@ -761,6 +763,7 @@ export function createOperationsSuiteManager() {
     contractSignedMap.clear();
     evalGradeMap.clear();
     workerProfileExtrasMap.clear();
+    statutoryGovernance.resetForNewRoster();
   }
 
   function exportPersistenceState() {
@@ -797,6 +800,7 @@ export function createOperationsSuiteManager() {
       profileExtras: profileExtrasObj,
       contractSigned: contractMapObj,
       signedDocumentsArchive: structuredClone(signedDocumentsArchive),
+      statutoryGovernance: statutoryGovernance.exportPersistenceState(),
     };
   }
 
@@ -856,6 +860,9 @@ export function createOperationsSuiteManager() {
         const mExt = String(rec.personKey || '').match(/^EXT-(\d+)$/);
         if (mExt) customPersonSeq = Math.max(customPersonSeq, Number(mExt[1]));
       }
+    }
+    if (saved.statutoryGovernance && typeof saved.statutoryGovernance === 'object') {
+      statutoryGovernance.restorePersistenceState(saved.statutoryGovernance);
     }
   }
 
@@ -1552,6 +1559,7 @@ export function createOperationsSuiteManager() {
         applicants.splice(i, 1);
       }
     }
+    statutoryGovernance.scrubPurgedPerson(origEmpCode, origDisplayName);
   }
 
   /**
@@ -1959,6 +1967,13 @@ export function createOperationsSuiteManager() {
         riskAssessments: structuredClone(riskAssessments),
         statutoryTrainings: structuredClone(statutoryTrainings),
       },
+      statutoryGovernance: statutoryGovernance.buildView({
+        company,
+        workers,
+        compliance,
+        getMaskedPhoneFn: (empCode) =>
+          workerProfileExtrasMap.get(empCode)?.maskedPhone || '010-****-0000',
+      }),
       listItemMarks: Object.fromEntries(listItemMarks.entries()),
       signedDocumentsArchive: signedDocumentsArchive
         .filter((d) => !d.superseded && isRecordValidForRoster(d, company.bizRegNo, workers, []))
@@ -3303,14 +3318,20 @@ export function createOperationsSuiteManager() {
         };
       }
 
-      default:
+      default: {
+        const govRes = statutoryGovernance.applyAction(actionPayload, { state, appendAudit });
+        if (govRes !== null) return govRes;
         throw badRequest(`지원하지 않는 관리 액션(${actionType})입니다.`);
+      }
     }
   }
 
   return Object.freeze({
     buildView,
     applyAction,
+    inspectPublicSignTarget: statutoryGovernance.inspectPublicSignTarget,
+    submitPublicSignTarget: statutoryGovernance.submitPublicSignTarget,
+    resetManualScaleOverrides: statutoryGovernance.resetManualScaleOverrides,
     scrubPurgedPerson,
     invalidateWorkerCalendar,
     resetForNewRoster,

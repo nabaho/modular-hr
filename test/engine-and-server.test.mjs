@@ -26,7 +26,8 @@ import {
   computeAutoClassifiedShift,
   getKoreanStatutoryHolidayName,
 } from '../src/engine/hr-operations-suite.mjs';
-import { createAppServer } from '../src/server.mjs';
+import os from 'node:os';
+import { createAppServer, createDiskStatePersistence } from '../src/server.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -4122,6 +4123,478 @@ test('연차 관리 직원 클릭 전용 전체폭 팝업(#leave-detail-modal) �
     /\.workspace-topbar\s*\{[^}]*position:\s*static/,
     '좁은 화면 미디어쿼리에서 상단 바 틀 고정이 해제(position: static)되면 안 됨'
   );
+});
+
+test('28. 규모별 법정 체크리스트 · 30인+ 노사협의회 대시보드(규정·녹음회의록·위원 메일서명 취합) · 취업규칙 개정(메일/카톡·열람확인·본인서명·과반수 동의서 취합·인쇄양식) 통합 검증', async () => {
+  const html = fs.readFileSync(path.join(PROJECT_ROOT, 'src', 'public', 'index.html'), 'utf8');
+  const css = fs.readFileSync(path.join(PROJECT_ROOT, 'src', 'public', 'styles.css'), 'utf8');
+  for (const requiredId of [
+    'major-nav-lmc',
+    'panel-lmc-dashboard',
+    'panel-work-rules',
+    'settings-statutory-scale-panel',
+    'recipient-sign-modal',
+    'print-sheet-modal',
+    'print-sheet-exec-btn',
+  ]) {
+    assert.ok(html.includes(`id="${requiredId}"`), `index.html 에 ${requiredId} 요소 존재 필수`);
+  }
+  assert.match(css, /@media\s+print\s*\{/, 'styles.css 에 오프라인 자필서명용 @media print 규칙 존재 필수');
+
+  let persistedBlob = null;
+  const memPersistence = {
+    load: () => (persistedBlob ? structuredClone(persistedBlob) : null),
+    save: (st) => {
+      persistedBlob = structuredClone(st);
+    },
+  };
+
+  const { server } = createAppServer({
+    requirePcAuth: false,
+    demoMode: true,
+    statePersistence: memPersistence,
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  const baseUrl = `http://127.0.0.1:${port}`;
+
+  const postAdmin = (urlPath, payload, token) =>
+    fetch(`${baseUrl}${urlPath}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: baseUrl,
+        'X-CSRF-Token': token,
+      },
+      body: JSON.stringify(payload),
+    });
+
+  try {
+    const bootRes = await fetch(`${baseUrl}/api/bootstrap`);
+    assert.equal(bootRes.status, 200);
+    const { csrfToken, snapshot: snap0 } = await bootRes.json();
+    const { loginCsrfToken } = await (await fetch(`${baseUrl}/api/mobile/bootstrap`)).json();
+
+    // 1) 초기 60인 사업장: 법정 추가 과제 및 규모별 체크리스트(1인~300인+) 확인
+    const filingIds0 = snap0.compliance.statutoryFilings.map((f) => f.id);
+    assert.ok(filingIds0.includes('TASK_RETIREMENT_PENSION_EDU_1'));
+    assert.ok(filingIds0.includes('TASK_WORKPLACE_BULLYING_5'));
+    assert.ok(filingIds0.includes('TASK_FAIR_HIRING_30'));
+    assert.equal(snap0.operationsSuite.statutoryGovernance.lmcWorkspaceEnabled, true);
+    assert.equal(snap0.operationsSuite.statutoryGovernance.scaleChecklist.length >= 15, true);
+
+    // 550인 대기업 시뮬레이션 시 500인+ 과제(직장어린이집·AA·재취업지원) 자동 발동 검증 후 4인 소규모 전환
+    const scale550Res = await postAdmin(
+      '/api/simulate-company',
+      {
+        headcountInput: {
+          regularWorkers: 550,
+          partTimeWorkers: 0,
+          dailyWorkerManDays: 0,
+          dispatchedWorkers: 0,
+          operatingDays: 22,
+        },
+      },
+      csrfToken
+    );
+    const { snapshot: snap550 } = await scale550Res.json();
+    assert.ok(snap550.compliance.statutoryFilings.some((f) => f.id === 'TASK_LARGE_CORP_500'));
+
+    const scale4Res = await postAdmin(
+      '/api/simulate-company',
+      { presetId: 'STARTUP_4_IT' },
+      csrfToken
+    );
+    assert.equal(scale4Res.status, 200);
+    const { snapshot: snap4 } = await scale4Res.json();
+    assert.equal(snap4.operationsSuite.statutoryGovernance.lmcWorkspaceEnabled, false);
+
+    // 환경 설정에서 "30인 이상 · 노사협의회 필요" 클릭 시 별도 노사협의회 대시보드 즉시 활성화 검증
+    const activateLmcRes = await postAdmin(
+      '/api/ops/action',
+      { actionType: 'TOGGLE_SCALE_CHECK_ITEM', itemId: 'CHK_30_LMC', checked: true },
+      csrfToken
+    );
+    assert.equal(activateLmcRes.status, 200);
+    const activateLmcData = await activateLmcRes.json();
+    assert.equal(activateLmcData.result.openWorkspaceTab, 'lmc-dashboard');
+    assert.equal(
+      activateLmcData.snapshot.operationsSuite.statutoryGovernance.lmcWorkspaceEnabled,
+      true
+    );
+
+    // 다시 기본 60인 제조업 프리셋 복원
+    await postAdmin('/api/simulate-company', { presetId: 'MFG_62_OSH' }, csrfToken);
+
+    // 2) 노사협의회 규정 개정 자동 보관 + 운영위원회 녹음 원문 → 법정 회의록 자동 구조화 + 위원 메일 발송 + 개별 전자서명/서면서명 → 결과보고서 자동 취합
+    const regSaveRes = await postAdmin(
+      '/api/ops/action',
+      {
+        actionType: 'SAVE_LMC_REGULATION',
+        committeeCountEachSide: 4,
+        grievanceHandlingDays: 10,
+        enactedDate: '2026-11-28',
+        customAddendum: '운영위원회 녹음본 자동 회의록 변환 및 전자서명 취합 조항 신설',
+      },
+      csrfToken
+    );
+    assert.equal(regSaveRes.status, 200);
+    const { snapshot: snapReg } = await regSaveRes.json();
+    assert.equal(snapReg.operationsSuite.statutoryGovernance.lmcGovernance.regulations[0].version, 2);
+
+    const recConvertRes = await postAdmin(
+      '/api/ops/action',
+      {
+        actionType: 'CREATE_LMC_MINUTES_FROM_RECORDING',
+        meetingCategory: '운영위원회',
+        meetingDate: '2026-11-28',
+        location: '본사 노사협의회실',
+        audioFileName: '2026-11-28_운영위원회_회의녹음.webm',
+        durationSec: 1520,
+        rawTranscript: [
+          '[의장 박정훈] 4분기 안전보건 예산 집행 현황과 신규 수주 실적을 보고합니다.',
+          '[근로자위원 김하늘] 동절기 야간교대 휴게실 난방기 교체와 작업복 추가 지급을 협의 요청합니다.',
+          '[의장 박정훈] 노사 위원 전원 찬성으로 12월 5일까지 난방기 교체 및 동계 방한복 지급을 만장일치 의결합니다.',
+        ].join('\n'),
+      },
+      csrfToken
+    );
+    assert.equal(recConvertRes.status, 200);
+    const recConvertJson = await recConvertRes.json();
+    const newMinId = recConvertJson.result.minutesId;
+    const createdMin =
+      recConvertJson.snapshot.operationsSuite.statutoryGovernance.lmcGovernance.minutesList.find(
+        (m) => m.minutesId === newMinId
+      );
+    assert.ok(createdMin.reportItems.length >= 1);
+    assert.ok(createdMin.discussionItems.length >= 1);
+    assert.ok(createdMin.resolutionItems.length >= 1);
+    assert.equal(createdMin.retentionUntil, '2029-11-28');
+
+    const dispatchLmcRes = await postAdmin(
+      '/api/ops/action',
+      { actionType: 'DISPATCH_LMC_SIGN_REQUESTS', minutesId: newMinId, channel: 'EMAIL' },
+      csrfToken
+    );
+    assert.equal(dispatchLmcRes.status, 200);
+    const dispatchLmcJson = await dispatchLmcRes.json();
+    const lmcLinks = dispatchLmcJson.result.dispatchedLinks;
+    assert.equal(lmcLinks.length, 6, '사용자위원 3명 + 근로자위원 3명 모두에게 서명 링크 발송');
+
+    // 디스크/스냅샷에 평문 서명 토큰 및 6자리 인증번호가 노출되지 않는지 보안 검증
+    const firstRawToken = new URLSearchParams(lmcLinks[0].hashFragment.slice(1)).get('token');
+    const firstAuthCode = lmcLinks[0].authCode;
+    assert.ok(firstRawToken && firstRawToken.length >= 32);
+    assert.match(firstAuthCode, /^\d{6}$/);
+    assert.equal(lmcLinks[0].hashFragment.includes(firstAuthCode), false, '링크 해시에 인증번호 미포함 필수');
+    assert.equal(JSON.stringify(dispatchLmcJson.snapshot).includes(firstRawToken), false);
+    assert.equal(JSON.stringify(persistedBlob).includes(firstRawToken), false);
+    assert.equal(JSON.stringify(persistedBlob).includes(`"${firstAuthCode}"`), false);
+
+    // 개별 위원 최소권한 열람(/api/public-sign/inspect): 전사 스냅샷 및 평문 성명 미노출 검증
+    const inspect0 = await postAdmin(
+      '/api/public-sign/inspect',
+      {
+        portalKind: 'LMC',
+        targetId: newMinId,
+        recipientId: lmcLinks[0].memberId,
+        signToken: firstRawToken,
+      },
+      loginCsrfToken
+    );
+    assert.equal(inspect0.status, 200);
+    const { target: lmcTarget0 } = await inspect0.json();
+    assert.equal(lmcTarget0.snapshot, undefined, '개별 서명 API는 전사 스냅샷을 노출하면 안 됨');
+    assert.equal(lmcTarget0.recipient.expectedSignerName, undefined, '열람 응답에 평문 성명 노출 금지');
+    assert.ok(lmcTarget0.recipient.maskedSignerHint.includes('*'));
+
+    // 잘못된 인증번호 입력 시 403 차단
+    const wrongPinRes = await postAdmin(
+      '/api/public-sign/submit',
+      {
+        portalKind: 'LMC',
+        targetId: newMinId,
+        recipientId: lmcLinks[0].memberId,
+        signToken: firstRawToken,
+        authCode: '000000',
+        expectedBodySha256: lmcTarget0.expectedBodySha256,
+        readConfirmed: true,
+        consentConfirmed: true,
+        signerName: lmcLinks[0].name,
+      },
+      loginCsrfToken
+    );
+    if (firstAuthCode !== '000000') {
+      assert.equal(wrongPinRes.status, 403);
+    }
+
+    // 타인 성명 오입력 시 400 거부
+    const wrongNameRes = await postAdmin(
+      '/api/public-sign/submit',
+      {
+        portalKind: 'LMC',
+        targetId: newMinId,
+        recipientId: lmcLinks[0].memberId,
+        signToken: firstRawToken,
+        authCode: firstAuthCode,
+        expectedBodySha256: lmcTarget0.expectedBodySha256,
+        readConfirmed: true,
+        consentConfirmed: true,
+        signerName: '타인성명',
+      },
+      loginCsrfToken
+    );
+    assert.equal(wrongNameRes.status, 400);
+
+    // 1~5번 위원 전자서명 제출 + 6번 위원 오프라인 인쇄본 서면서명 반영 → 6/6 전원 취합 보고서 완성 검증
+    for (let i = 0; i < 5; i++) {
+      const linkObj = lmcLinks[i];
+      const tok = new URLSearchParams(linkObj.hashFragment.slice(1)).get('token');
+      const subRes = await postAdmin(
+        '/api/public-sign/submit',
+        {
+          portalKind: 'LMC',
+          targetId: newMinId,
+          recipientId: linkObj.memberId,
+          signToken: tok,
+          authCode: linkObj.authCode,
+          expectedBodySha256: lmcTarget0.expectedBodySha256,
+          readConfirmed: true,
+          consentConfirmed: true,
+          signerName: linkObj.name,
+        },
+        loginCsrfToken
+      );
+      assert.equal(subRes.status, 200);
+    }
+
+    // 이미 전자서명한 위원을 오프라인 서면서명으로 덮어쓰려 할 때 409 차단 검증
+    const overwriteLmcRes = await postAdmin(
+      '/api/ops/action',
+      {
+        actionType: 'RECORD_LMC_OFFLINE_SIGNATURE',
+        minutesId: newMinId,
+        memberId: lmcLinks[0].memberId,
+      },
+      csrfToken
+    );
+    assert.equal(overwriteLmcRes.status, 409);
+
+    // 이미 사용된 1회용 서명 토큰 재사용(Replay) 시 403 차단 검증
+    const replayRes = await postAdmin(
+      '/api/public-sign/submit',
+      {
+        portalKind: 'LMC',
+        targetId: newMinId,
+        recipientId: lmcLinks[0].memberId,
+        signToken: firstRawToken,
+        authCode: firstAuthCode,
+        expectedBodySha256: lmcTarget0.expectedBodySha256,
+        readConfirmed: true,
+        consentConfirmed: true,
+        signerName: lmcLinks[0].name,
+      },
+      loginCsrfToken
+    );
+    assert.equal(replayRes.status, 403, '사용 완료된 1회용 서명 토큰 재사용은 403 차단 필수');
+
+    const lastPaperLmcRes = await postAdmin(
+      '/api/ops/action',
+      {
+        actionType: 'RECORD_LMC_OFFLINE_SIGNATURE',
+        minutesId: newMinId,
+        memberId: lmcLinks[5].memberId,
+      },
+      csrfToken
+    );
+    assert.equal(lastPaperLmcRes.status, 200);
+    const { snapshot: snapLmcDone } = await lastPaperLmcRes.json();
+    const completedMin =
+      snapLmcDone.operationsSuite.statutoryGovernance.lmcGovernance.minutesList.find(
+        (m) => m.minutesId === newMinId
+      );
+    assert.equal(completedMin.allSigned, true);
+    assert.equal(completedMin.signedTotal, 6);
+    assert.match(completedMin.compiledReportBody, /전원 서명 취합 완료/);
+
+    // 3) 취업규칙 개정 → 전 근로자 메일·카톡 개별 발송 → 열람확인·본인서명 → 과반수 동의서 자동 취합 검증
+    const createWrRes = await postAdmin(
+      '/api/ops/action',
+      {
+        actionType: 'CREATE_WORK_RULE_AMENDMENT',
+        title: '2026년 특별 취업규칙 개정안 (유연근무 및 평가수당 개편)',
+        effectiveDate: '2026-12-20',
+        changeType: 'ADVERSE_CONSENT',
+        reason: '평가수당 구간 조정에 따른 근로기준법 제94조 제1항 단서 과반수 동의 절차 진행',
+        clauses: [
+          {
+            articleTitle: '제30조 (성과수당 지급률)',
+            beforeText: '전 직원 월 기본급의 10% 정률 지급',
+            afterText: '부서 성과등급에 따라 5%~18% 차등 지급',
+          },
+        ],
+      },
+      csrfToken
+    );
+    assert.equal(createWrRes.status, 200);
+    const createWrJson = await createWrRes.json();
+    const wrId = createWrJson.result.amendmentId;
+
+    const dispatchWrRes = await postAdmin(
+      '/api/ops/action',
+      {
+        actionType: 'DISPATCH_WORK_RULE_NOTICES',
+        amendmentId: wrId,
+        channel: 'EMAIL_AND_KAKAO',
+      },
+      csrfToken
+    );
+    assert.equal(dispatchWrRes.status, 200);
+    const dispatchWrJson = await dispatchWrRes.json();
+    const wrLinks = dispatchWrJson.result.dispatchedLinks;
+    assert.equal(wrLinks.length, 5, '3.3% 사업소득자(EXT-401) 제외 근로기준법 적용 근로자 5명 발송');
+
+    // 불이익 변경 시 명시적 decision 누락/오타는 암묵적 AGREE 처리 없이 400 거부 검증
+    const wrTok0 = new URLSearchParams(wrLinks[0].hashFragment.slice(1)).get('token');
+    const wrInsp0 = await (
+      await postAdmin(
+        '/api/public-sign/inspect',
+        {
+          portalKind: 'WORK_RULE',
+          targetId: wrId,
+          recipientId: wrLinks[0].empCode,
+          signToken: wrTok0,
+        },
+        loginCsrfToken
+      )
+    ).json();
+    const badDecisionRes = await postAdmin(
+      '/api/public-sign/submit',
+      {
+        portalKind: 'WORK_RULE',
+        targetId: wrId,
+        recipientId: wrLinks[0].empCode,
+        signToken: wrTok0,
+        authCode: wrLinks[0].authCode,
+        expectedBodySha256: wrInsp0.target.expectedBodySha256,
+        readConfirmed: true,
+        consentConfirmed: true,
+        decision: 'INVALID_DECISION',
+        signerName: wrLinks[0].displayName,
+      },
+      loginCsrfToken
+    );
+    assert.equal(badDecisionRes.status, 400, '불이익 변경 동의값 오타 시 400 거부 필수');
+
+    // 과반수 기준 = floor(5 / 2) + 1 = 3명! 먼저 2명 전자서명 + 1명 인쇄본 자필서명으로 3명(60%) 과반수 달성 검증
+    for (let i = 0; i < 2; i++) {
+      const wLink = wrLinks[i];
+      const tok = new URLSearchParams(wLink.hashFragment.slice(1)).get('token');
+      const insp = await (
+        await postAdmin(
+          '/api/public-sign/inspect',
+          {
+            portalKind: 'WORK_RULE',
+            targetId: wrId,
+            recipientId: wLink.empCode,
+            signToken: tok,
+          },
+          loginCsrfToken
+        )
+      ).json();
+      const signWr = await postAdmin(
+        '/api/public-sign/submit',
+        {
+          portalKind: 'WORK_RULE',
+          targetId: wrId,
+          recipientId: wLink.empCode,
+          signToken: tok,
+          authCode: wLink.authCode,
+          expectedBodySha256: insp.target.expectedBodySha256,
+          readConfirmed: true,
+          consentConfirmed: true,
+          decision: 'AGREE',
+          opinionText: '개정 내용 확인 후 동의합니다.',
+          signerName: wLink.displayName,
+        },
+        loginCsrfToken
+      );
+      assert.equal(signWr.status, 200);
+    }
+
+    // 이미 전자서명한 근로자 기록을 오프라인 서면서명으로 덮어쓰기 시도 시 409 차단 검증
+    const overwriteWrRes = await postAdmin(
+      '/api/ops/action',
+      {
+        actionType: 'RECORD_WORK_RULE_OFFLINE_SIGNATURE',
+        amendmentId: wrId,
+        empCode: wrLinks[0].empCode,
+        decision: 'DISAGREE',
+      },
+      csrfToken
+    );
+    assert.equal(overwriteWrRes.status, 409);
+
+    const thirdPaperWrRes = await postAdmin(
+      '/api/ops/action',
+      {
+        actionType: 'RECORD_WORK_RULE_OFFLINE_SIGNATURE',
+        amendmentId: wrId,
+        empCode: wrLinks[2].empCode,
+        decision: 'AGREE',
+      },
+      csrfToken
+    );
+    assert.equal(thirdPaperWrRes.status, 200);
+    const { snapshot: snapWrDone } = await thirdPaperWrRes.json();
+    const completedWr =
+      snapWrDone.operationsSuite.statutoryGovernance.workRulesGovernance.amendments.find(
+        (a) => a.amendmentId === wrId
+      );
+    assert.equal(completedWr.stats.eligibleWorkerCount, 5);
+    assert.equal(completedWr.stats.majorityRequiredCount, 3);
+    assert.equal(completedWr.stats.agreedCount, 3);
+    assert.equal(completedWr.stats.majorityAchieved, true);
+    assert.equal(completedWr.stats.procedureSatisfied, true);
+    assert.match(completedWr.aggregatedConsentDocBody, /근로자 과반수 동의 달성 완료/);
+    assert.match(completedWr.laborOfficeFilingBody, /상시근로자 수 : 60명/);
+
+    // 4) 서버 재시작 후 회의록 서명 보고서 및 취업규칙 과반수 동의 연명부 영속 복원 검증
+    const restarted = createAppServer({
+      requirePcAuth: false,
+      demoMode: true,
+      statePersistence: memPersistence,
+    });
+    const restoredSnap = restarted.getSnapshot();
+    const restoredMin =
+      restoredSnap.operationsSuite.statutoryGovernance.lmcGovernance.minutesList.find(
+        (m) => m.minutesId === newMinId
+      );
+    const restoredWr =
+      restoredSnap.operationsSuite.statutoryGovernance.workRulesGovernance.amendments.find(
+        (a) => a.amendmentId === wrId
+      );
+    assert.equal(restoredMin.allSigned, true);
+    assert.equal(restoredWr.stats.majorityAchieved, true);
+
+    // 5) 디스크 상태 파일 손상 시 초기화·덮어쓰기 차단 검증 (ENOENT와 파싱 오류 분리)
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mhr-state-guard-'));
+    const corruptFile = path.join(tmpDir, 'corrupt-state.json');
+    try {
+      const missingStore = createDiskStatePersistence(path.join(tmpDir, 'missing.json'));
+      assert.equal(missingStore.load(), null, '파일 부재(ENOENT) 시 초기 상태(null) 반환');
+
+      fs.writeFileSync(corruptFile, '{broken-json', 'utf8');
+      const corruptStore = createDiskStatePersistence(corruptFile);
+      assert.throws(() => corruptStore.load(), /파싱 손상이 감지되어 복구 전 덮어쓰기가 차단/);
+      assert.throws(() => corruptStore.save({ overwritten: true }), /덮어쓰기가 차단/);
+      assert.equal(fs.readFileSync(corruptFile, 'utf8'), '{broken-json');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
 });
 
 

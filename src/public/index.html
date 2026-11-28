@@ -52,6 +52,9 @@
           <button type="button" id="major-nav-payroll" class="major-nav-btn" data-group="payroll">
             <span class="nav-btn-text">급여 관리</span>
           </button>
+          <button type="button" id="major-nav-lmc" class="major-nav-btn" data-group="lmc">
+            <span class="nav-btn-text">노사협의회</span>
+          </button>
           <button type="button" id="major-nav-legal" class="major-nav-btn" data-group="legal">
             <span class="nav-btn-text">서식 · 법정</span>
           </button>
@@ -346,6 +349,16 @@
           <div id="ops-eval-container"></div>
         </section>
 
+        <!-- 5-3. 노사협의회 전용 대시보드 (환경 설정 30인+ 노사협의회 필요 클릭 시 활성화) -->
+        <section id="panel-lmc-dashboard" role="region" aria-label="노사협의회 전용 대시보드" class="tab-panel" hidden>
+          <div id="lmc-dashboard-container"></div>
+        </section>
+
+        <!-- 6-0. 서식 · 법정 > 취업규칙 개정 · 과반수 동의 취합 -->
+        <section id="panel-work-rules" role="tabpanel" class="tab-panel" hidden>
+          <div id="work-rules-container"></div>
+        </section>
+
         <!-- 6-1. 서식 · 법정 > 표준 서식함 -->
         <section id="panel-forms-center" role="tabpanel" class="tab-panel" hidden>
           <div id="forms-center-container"></div>
@@ -412,6 +425,8 @@
             <strong class="ops-section-title">규모 예시 빠른 불러오기</strong>
             <div id="preset-buttons" class="preset-group" role="group" aria-label="사업장 규모 프리셋"></div>
           </div>
+
+          <div id="settings-statutory-scale-panel" class="ops-section-block code-diff-box" aria-live="polite"></div>
 
           <form id="sim-form" class="settings-master-form" novalidate>
             <div class="settings-card-grid">
@@ -693,6 +708,57 @@
         </div>
       </div>
       <div id="leave-modal-body" class="module-popup-body" tabindex="0"></div>
+    </div>
+  </div>
+
+  <!-- 개별 수신자(노사위원 메일 / 근로자 메일·카톡) 확인 및 본인 전자서명 제출 모달 -->
+  <div
+    id="recipient-sign-modal"
+    class="modal-backdrop module-popup-backdrop"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="recipient-sign-title"
+    hidden
+  >
+    <div class="modal-dialog modal-dialog-wide">
+      <div class="modal-header">
+        <div>
+          <div class="step-pill-group">
+            <h2 id="recipient-sign-title" class="modal-title">개별 통지 내용 확인 및 본인 서명</h2>
+            <span class="code-diff-pill">변경됨 · 메일/카톡 개별 확인 → 서명 시 보고서·동의서 자동 취합</span>
+          </div>
+          <p id="recipient-sign-subtitle" class="modal-subtitle"></p>
+        </div>
+        <button type="button" id="recipient-sign-close-btn" class="btn btn-secondary btn-sm" aria-label="개별 서명 창 닫기">닫기</button>
+      </div>
+      <div id="recipient-sign-body" class="module-popup-body" tabindex="0"></div>
+    </div>
+  </div>
+
+  <!-- 오프라인 프린트 자필서명 전용 양식 모달 (인쇄 시 A4 서명부만 깔끔하게 출력) -->
+  <div
+    id="print-sheet-modal"
+    class="modal-backdrop module-popup-backdrop"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="print-sheet-title"
+    hidden
+  >
+    <div class="modal-dialog modal-dialog-wide print-modal-dialog">
+      <div class="modal-header no-print">
+        <div>
+          <div class="step-pill-group">
+            <h2 id="print-sheet-title" class="modal-title">프린트용 자필서명 양식</h2>
+            <span class="code-diff-pill">변경됨 · 인쇄 후 오프라인 자필서명 징구 지원</span>
+          </div>
+          <p id="print-sheet-subtitle" class="modal-subtitle"></p>
+        </div>
+        <div class="step-pill-group">
+          <button type="button" id="print-sheet-exec-btn" class="btn btn-primary btn-sm">프린터 인쇄 / PDF 저장</button>
+          <button type="button" id="print-sheet-close-btn" class="btn btn-secondary btn-sm" aria-label="프린트 양식 창 닫기">닫기</button>
+        </div>
+      </div>
+      <div id="print-sheet-body" class="module-popup-body print-sheet-scroll" tabindex="0"></div>
     </div>
   </div>
 
