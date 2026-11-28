@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>인사노무 관리 | MODULAR HR</title>
   <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="./styles.css?v=b13536e9ae42" />
+  <link rel="stylesheet" href="./styles.css?v=8f0f4f241d19" />
 </head>
 <body>
   <a href="#main-content" class="skip-link">본문 바로가기</a>
@@ -52,6 +52,9 @@
           </button>
           <button type="button" id="major-nav-payroll" class="major-nav-btn" data-group="payroll">
             <span class="nav-btn-text">급여 관리</span>
+          </button>
+          <button type="button" id="major-nav-eval" class="major-nav-btn" data-group="eval">
+            <span class="nav-btn-text">평가 · 보상</span>
           </button>
           <button type="button" id="major-nav-lmc" class="major-nav-btn" data-group="lmc">
             <span class="nav-btn-text">노사협의회</span>
@@ -345,9 +348,21 @@
           <div id="payroll-table-container"></div>
         </section>
 
-        <!-- 5-2. 급여 관리 > 평가 · 인상 반영 -->
+        <!-- 5-2. 평가 · 보상 스튜디오 (기업진단·모듈조립·가인지라이브러리·고객사추출) -->
+        <section id="panel-eval-builder" role="tabpanel" class="tab-panel" hidden>
+          <div id="eval-builder-container"></div>
+        </section>
+
+        <section id="panel-eval-gainge" role="tabpanel" class="tab-panel" hidden>
+          <div id="eval-gainge-container"></div>
+        </section>
+
         <section id="panel-ops-eval" role="tabpanel" class="tab-panel" hidden>
           <div id="ops-eval-container"></div>
+        </section>
+
+        <section id="panel-eval-export" role="tabpanel" class="tab-panel" hidden>
+          <div id="eval-export-container"></div>
         </section>
 
         <!-- 5-3. 노사협의회 전용 대시보드 (환경 설정 30인+ 노사협의회 필요 클릭 시 활성화) -->
@@ -763,6 +778,33 @@
     </div>
   </div>
 
+  <!-- 직원 명부 전용 전체폭 팝업 모달 (법정 근로자명부 별지 제16호 카드 · PDF/신분증사진 자동병합 스튜디오) -->
+  <div
+    id="worker-registry-modal"
+    class="modal-backdrop module-popup-backdrop"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="worker-registry-modal-title"
+    hidden
+  >
+    <div class="modal-dialog modal-dialog-wide">
+      <div class="modal-header">
+        <div>
+          <div class="step-pill-group">
+            <h2 id="worker-registry-modal-title" class="modal-title">법정 근로자명부 상세카드 · PDF/신분증 증빙 연결</h2>
+            <span class="code-diff-pill">변경됨 · 근기법 제41조 별지 제16호 + 사진·계약서 단일PDF 자동정리</span>
+          </div>
+          <p id="worker-registry-modal-subtitle" class="modal-subtitle"></p>
+        </div>
+        <div class="step-pill-group">
+          <button type="button" id="worker-registry-print-btn" class="btn btn-secondary btn-sm">별지 제16호 명부 인쇄</button>
+          <button type="button" id="worker-registry-close-btn" class="btn btn-secondary btn-sm" aria-label="직원 명부 팝업 닫기">닫기</button>
+        </div>
+      </div>
+      <div id="worker-registry-modal-body" class="module-popup-body" tabindex="0"></div>
+    </div>
+  </div>
+
   <!-- 서식 및 명세서 미리보기 모달 -->
   <div
     id="doc-modal"
@@ -788,7 +830,7 @@
     </div>
   </div>
 
-  <script type="module" src="./static-api-runtime.mjs?v=b13536e9ae42"></script>
-  <script type="module" src="./app.js?v=b13536e9ae42"></script>
+  <script type="module" src="./static-api-runtime.mjs?v=8f0f4f241d19"></script>
+  <script type="module" src="./app.js?v=8f0f4f241d19"></script>
 </body>
 </html>

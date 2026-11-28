@@ -4,33 +4,34 @@
  * - 엄격한 입력 스키마 검증(Boolean/Number/Enum/실재 날짜 검증), CSP 헤더, 64KB 413 응답 보장
  */
 
-import http from './engine/virtual-http-shim.mjs?v=b13536e9ae42';
-import crypto from './engine/browser-crypto-shim.mjs?v=b13536e9ae42';
+import http from './engine/virtual-http-shim.mjs?v=8f0f4f241d19';
+import crypto from './engine/browser-crypto-shim.mjs?v=8f0f4f241d19';
 // 정적 자산 서빙은 GitHub Pages CDN이 담당하며 server-core.mjs는 /api/* 전용으로 구동됨
 
-import { INDUSTRIES, LAW_BASELINE } from './engine/labor-rules.mjs?v=b13536e9ae42';
+import { INDUSTRIES, LAW_BASELINE } from './engine/labor-rules.mjs?v=8f0f4f241d19';
 import {
   VALID_STATUTORY_TASK_IDS,
   assertValidIsoDate,
   provisionWorkplaceSystem,
-} from './engine/compliance-provisioner.mjs?v=b13536e9ae42';
+} from './engine/compliance-provisioner.mjs?v=8f0f4f241d19';
 import {
   VALID_RESIGN_REASONS,
   computeEmployeePayrollLine,
   computeOffboardingSettlement,
   validateJobPosting,
-} from './engine/lifecycle-payroll.mjs?v=b13536e9ae42';
+} from './engine/lifecycle-payroll.mjs?v=8f0f4f241d19';
 import {
   VALID_DOC_TEMPLATES,
   generateStatutoryDocument,
   maskInlinePiiText,
-} from './engine/document-generator.mjs?v=b13536e9ae42';
-import { buildWorkerBindingKey, createMobileHub } from './engine/mobile-auth-realtime.mjs?v=b13536e9ae42';
+} from './engine/document-generator.mjs?v=8f0f4f241d19';
+import { buildWorkerBindingKey, createMobileHub } from './engine/mobile-auth-realtime.mjs?v=8f0f4f241d19';
 import {
   SAMPLE_INGESTION_BUNDLES,
   listSampleIngestionBundles,
   stageMultiDocumentBundle,
-} from './engine/document-ingestion.mjs?v=b13536e9ae42';
+} from './engine/document-ingestion.mjs?v=8f0f4f241d19';
+import { extractTextFromPdfBytes, parseWorkerDossierText } from './engine/roster-dossier.mjs?v=8f0f4f241d19';
 import {
   buildOffboardedWorkerRecord,
   createInitialOffboardedWorkers,
@@ -41,12 +42,12 @@ import {
   refreshOffboardedLifecycle,
   summarizeOffboardedRegistry,
   updateOffboardedChecklist,
-} from './engine/offboarding-registry.mjs?v=b13536e9ae42';
+} from './engine/offboarding-registry.mjs?v=8f0f4f241d19';
 import {
   createOperationsSuiteManager,
   DEFAULT_POLICY_SETTINGS,
   normalizePolicySettings,
-} from './engine/hr-operations-suite.mjs?v=b13536e9ae42';
+} from './engine/hr-operations-suite.mjs?v=8f0f4f241d19';
 
 const PUBLIC_DIR = '/';
 const MAX_BODY_BYTES = 64 * 1024;
@@ -1671,18 +1672,18 @@ export function createAppServer(options = {}) {
               state.emptyRosterMode = body.emptyRosterMode;
               if (!body.emptyRosterMode && state.workers.length === 0) {
                 state.workers = createDefaultWorkers();
-                opsSuite.resetForNewRoster();
+                opsSuite.resetForNewRoster({ withDemoSeeds: true });
               }
             }
             if (body.resetWorkers === true) {
               state.workers = createDefaultWorkers();
               state.emptyRosterMode = false;
-              opsSuite.resetForNewRoster();
+              opsSuite.resetForNewRoster({ withDemoSeeds: true });
             }
             if (body.bulkRosterMode === true) {
               state.workers = createBulkWorkers(50);
               state.emptyRosterMode = false;
-              opsSuite.resetForNewRoster();
+              opsSuite.resetForNewRoster({ withDemoSeeds: false });
             }
             if (body.hasSubsidies !== undefined) {
               state.company.activeSubsidies = body.hasSubsidies
@@ -2545,24 +2546,27 @@ export function createAppServer(options = {}) {
           const prevWorkersBackup = structuredClone(state.workers);
           const prevCompanyBackup = structuredClone(state.company);
           const prevAuditBackup = structuredClone(state.auditLogs);
+          const prevEmptyRosterBackup = state.emptyRosterMode;
           const prevOpsBackup = opsSuite.exportPersistenceState();
-          const actionResult = opsSuite.applyAction(body, {
-            state,
-            payrollLocked: mobileHub.getPayrollCloseState().status === 'APPROVED_LOCKED',
-            appendAudit,
-            tombstoneStore: purgeTombstones,
-            lsaRegularCount: preSnap.compliance.headcounts.exactLsaRatio,
-            docLsaCount: preSnap.compliance.headcounts.lsaRegularCount,
-            docOshCount: preSnap.compliance.headcounts.oshRegularCount,
-          });
+          let actionResult;
           try {
+            actionResult = opsSuite.applyAction(body, {
+              state,
+              payrollLocked: mobileHub.getPayrollCloseState().status === 'APPROVED_LOCKED',
+              appendAudit,
+              tombstoneStore: purgeTombstones,
+              lsaRegularCount: preSnap.compliance.headcounts.exactLsaRatio,
+              docLsaCount: preSnap.compliance.headcounts.lsaRegularCount,
+              docOshCount: preSnap.compliance.headcounts.oshRegularCount,
+            });
             persistValidatedState();
-          } catch (saveErr) {
+          } catch (actionOrSaveErr) {
             state.workers = prevWorkersBackup;
             state.company = prevCompanyBackup;
             state.auditLogs = prevAuditBackup;
+            state.emptyRosterMode = prevEmptyRosterBackup;
             opsSuite.restorePersistenceState(prevOpsBackup);
-            throw saveErr;
+            throw actionOrSaveErr;
           }
           mobileHub.syncWorkerAccessWithRoster(
             state.workers,
@@ -2571,6 +2575,52 @@ export function createAppServer(options = {}) {
           );
           sendJson(res, 200, {
             result: actionResult,
+            snapshot: buildSnapshot(),
+          });
+          return;
+        }
+
+        if (pathname === '/api/roster/parse-preview') {
+          let extractedFromPdf = '';
+          if (body.pdfBase64 !== undefined && body.pdfBase64 !== '') {
+            if (typeof body.pdfBase64 !== 'string' || body.pdfBase64.length > 56_000) {
+              throw badRequest('PDF 미리보기 데이터(pdfBase64)는 56,000자 이하의 base64 문자열이어야 합니다.');
+            }
+            const pdfBytes = Buffer.from(body.pdfBase64, 'base64');
+            extractedFromPdf = await extractTextFromPdfBytes(pdfBytes);
+          }
+          const combinedText = [extractedFromPdf, typeof body.rawText === 'string' ? body.rawText : '']
+            .filter(Boolean)
+            .join('\n');
+          const fileNames = Array.isArray(body.fileNames)
+            ? body.fileNames.map((n) => String(n || '').slice(0, 80)).filter(Boolean).slice(0, 15)
+            : [];
+          const parsed = parseWorkerDossierText({
+            rawText: combinedText,
+            fileNames,
+            companyName: state.company.companyName,
+            referenceDate: state.company.referenceDate || '2026-11-15',
+          });
+          sendJson(res, 200, { parsed });
+          return;
+        }
+
+        if (pathname === '/api/eval-reward/export-package') {
+          const templateOnly = Boolean(body?.templateOnly);
+          const curSnap = buildSnapshot();
+          const pkg = opsSuite.buildStandaloneEvalPackage({
+            company: state.company,
+            workers: state.emptyRosterMode || templateOnly ? [] : state.workers,
+            payrollLines: curSnap.payrollLines,
+            compliance: curSnap.compliance,
+            offboardedSummary: curSnap.offboardedSummary,
+          });
+          appendAudit(
+            'M6모듈추출',
+            `고객사 [${pkg.summary.clientName}] 맞춤형 독립 평가·보상 패키지(${pkg.summary.enabledModulesCount}개 모듈${templateOnly ? ' · 급여/실명 제외' : ''}) 추출`
+          );
+          sendJson(res, 200, {
+            package: pkg,
             snapshot: buildSnapshot(),
           });
           return;

@@ -3,30 +3,34 @@
  * - UI 정적 셸만 캐시하며, /api/* (개인정보·급여·결재·실시간 스트림)는 절대 캐시하지 않는다.
  */
 
-const SHELL_CACHE = 'modular-hr-shell-b13536e9ae42';
+const SHELL_CACHE = 'modular-hr-shell-8f0f4f241d19';
 const STATIC_ASSETS = [
   './mobile.html',
-  './mobile.css?v=b13536e9ae42',
-  './mobile.js?v=b13536e9ae42',
+  './mobile.css?v=8f0f4f241d19',
+  './mobile.js?v=8f0f4f241d19',
   './manifest.webmanifest',
   './icon.svg',
   './index.html',
-  './styles.css?v=b13536e9ae42',
-  './app.js?v=b13536e9ae42',
-  './static-api-runtime.mjs?v=b13536e9ae42',
-  './virtual-server-worker.mjs?v=b13536e9ae42',
-  './server-core.mjs?v=b13536e9ae42',
-  './engine/browser-crypto-shim.mjs?v=b13536e9ae42',
-  './engine/virtual-http-shim.mjs?v=b13536e9ae42',
-  './engine/compliance-provisioner.mjs?v=b13536e9ae42',
-  './engine/document-generator.mjs?v=b13536e9ae42',
-  './engine/document-ingestion.mjs?v=b13536e9ae42',
-  './engine/hr-operations-suite.mjs?v=b13536e9ae42',
-  './engine/labor-rules.mjs?v=b13536e9ae42',
-  './engine/lifecycle-payroll.mjs?v=b13536e9ae42',
-  './engine/mobile-auth-realtime.mjs?v=b13536e9ae42',
-  './engine/offboarding-registry.mjs?v=b13536e9ae42',
-  './engine/statutory-governance.mjs?v=b13536e9ae42',
+  './styles.css?v=8f0f4f241d19',
+  './app.js?v=8f0f4f241d19',
+  './static-api-runtime.mjs?v=8f0f4f241d19',
+  './virtual-server-worker.mjs?v=8f0f4f241d19',
+  './server-core.mjs?v=8f0f4f241d19',
+  './engine/browser-crypto-shim.mjs?v=8f0f4f241d19',
+  './engine/virtual-http-shim.mjs?v=8f0f4f241d19',
+  './engine/compliance-provisioner.mjs?v=8f0f4f241d19',
+  './engine/document-generator.mjs?v=8f0f4f241d19',
+  './engine/document-ingestion.mjs?v=8f0f4f241d19',
+  './engine/eval-reward-catalog.mjs?v=8f0f4f241d19',
+  './engine/eval-reward-exporter.mjs?v=8f0f4f241d19',
+  './engine/eval-reward-studio.mjs?v=8f0f4f241d19',
+  './engine/hr-operations-suite.mjs?v=8f0f4f241d19',
+  './engine/labor-rules.mjs?v=8f0f4f241d19',
+  './engine/lifecycle-payroll.mjs?v=8f0f4f241d19',
+  './engine/mobile-auth-realtime.mjs?v=8f0f4f241d19',
+  './engine/offboarding-registry.mjs?v=8f0f4f241d19',
+  './engine/roster-dossier.mjs?v=8f0f4f241d19',
+  './engine/statutory-governance.mjs?v=8f0f4f241d19',
 ];
 
 self.addEventListener('install', (event) => {

@@ -59,56 +59,65 @@ const appState = {
   lmcDraftDurationSec: 1840,
   lmcDraftAudioFileName: '2026-11-24_노사협의회_운영위원회_녹음.webm',
   lmcDraftTranscript: '',
+  evalGaingeView: 'COMP_400',
+  evalCompRoleFilter: '전체',
+  evalKpiRoleFilter: '전체',
+  evalSalaryIndustryFilter: '전체',
+  evalSalarySizeFilter: '전체',
+  evalSearchText: '',
+  evalLastExportPkg: null,
+  lastFocusedBeforeRosterModal: null,
+  lastRosterModalSelector: '',
+  rosterModalActiveEmpCode: 'EMP-201',
+  rosterModalSubView: 'CARD',
+  rosterDossierMode: 'NEW_WORKER',
+  rosterDossierTargetEmp: 'EMP-202',
+  rosterDossierDraft: null,
+  rosterMergedPdfBlobUrl: '',
   showCodeDiffMarks: true,
 };
 
 const RECENT_CODE_CHANGES = [
   {
-    id: 'CHG-SCALE-STATUTORY-CHECK',
-    menuGroup: 'settings',
-    badge: '변경 1 · 환경설정 인원수별 법정체크 & 30인+ 활성화',
-    desc: '1·5·10·30·50·100·300인+ 법정 필수 추가사항 전수 점검표 탑재 및 30인+ 노사협의회 클릭 시 별도 대시보드 창 즉시 활성화',
-    btnLabel: '환경설정 법정체크 보기',
+    id: 'CHG-ROSTER-STATUTORY-41',
+    menuGroup: 'hr',
+    badge: '변경 1 · 법정 근로자명부(근기법 제41조·별지 제16호) 전수 점검 & 전용 팝업',
+    desc: '시행령 제20조 9대 필수 기재사항(성별·생년월일·주소·종사업무·이력/자격·계약/갱신·계좌) + 제41조② 정정이력 + 일용 30일 예외·3.3% 위탁분리 + 별지 제16호 A4 인쇄',
+    btnLabel: '직원 명부 열기',
     action: () => {
-      switchTab('settings-master', false);
-      document.getElementById('settings-statutory-scale-panel')?.scrollIntoView({ block: 'start' });
+      switchTab('ops-org', false);
     },
   },
   {
-    id: 'CHG-LMC-DEDICATED-DASHBOARD',
-    menuGroup: 'lmc',
-    badge: '변경 2 · 노사협의회 대시보드 (녹음회의록·서명취합)',
-    desc: '노사협의회 규정·운영위원 관리 + 회의 녹음 자동 회의록 변환 + 사용자·근로자위원 메일 서명 시 결과보고서 자동 취합·보관',
-    btnLabel: '노사협의회 창 열기',
-    action: async (triggerEl) => {
-      if (!appState.snapshot?.operationsSuite?.statutoryGovernance?.lmcWorkspaceEnabled) {
-        await runOpsAction({ actionType: 'SET_LMC_WORKSPACE_ACTIVE', active: true }, triggerEl);
-      }
-      switchTab('lmc-dashboard', false);
-    },
-  },
-  {
-    id: 'CHG-WORK-RULES-CONSENT',
-    menuGroup: 'legal',
-    badge: '변경 3 · 취업규칙 개정 메일/카톡 발송 · 과반수 동의취합',
-    desc: '취업규칙 개정 시 근로자별 메일·카톡 발송 → 개정내용 열람확인 → 본인 이름 전자서명 → 과반수 동의서(연명부) 자동 취합',
-    btnLabel: '취업규칙 개정·동의 열기',
-    action: () => {
-      switchTab('work-rules', false);
-    },
-  },
-  {
-    id: 'CHG-OFFLINE-PRINT-SIGN',
-    menuGroup: 'legal',
-    badge: '변경 4 · 오프라인 프린트 자필서명 양식 인쇄 지원',
-    desc: '노사협의회 회의록 위원 서명부 및 취업규칙 개정 동의 연명부·개별 동의서를 프린트해 자필서명 받고 취합에 반영',
-    btnLabel: '프린트 서명양식 보기',
+    id: 'CHG-ROSTER-PDF-DOSSIER',
+    menuGroup: 'hr',
+    badge: '변경 2 · PDF · 신분증사진 · 근로계약서 · 통장사본 → 단일 PDF 병합 & 자동정리',
+    desc: '신분증·통장 촬영사진(주민번호 뒷자리 자동 가림)과 계약서·동의서 PDF를 단일 인사증빙 PDF로 묶어 직원 명부·근태·연차·급여에 자동 등록·보완 (채용절차법 금지항목 자동배제)',
+    btnLabel: 'PDF·사진 자동정리 열기',
     action: (triggerEl) => {
-      switchTab('work-rules', false);
-      const am = appState.snapshot?.operationsSuite?.statutoryGovernance?.workRulesGovernance?.amendments?.[0];
-      if (am && appState.snapshot) {
-        openWorkRuleRosterPrintSheet(appState.snapshot, am, triggerEl);
-      }
+      switchTab('ops-org', false);
+      appState.rosterDossierMode = 'NEW_WORKER';
+      openWorkerRegistryModal(null, 'DOSSIER', triggerEl);
+    },
+  },
+  {
+    id: 'CHG-EVAL-DIAG-BUILDER',
+    menuGroup: 'eval',
+    badge: '변경 3 · 대한민국 평가·보상 33개 모듈 조립기 & 기업진단',
+    desc: '6대 레이어 33개 평가·보상 모듈(KPI/OKR/MBO/BSC·역량/BARS·호봉/직무/역할급·PS/PI/RSU) + 6대 기업진단 프리셋 + 국내 SaaS 비교 + 노동법 가드레일 탑재',
+    btnLabel: '모듈 조립기 열기',
+    action: () => {
+      switchTab('eval-builder', false);
+    },
+  },
+  {
+    id: 'CHG-EVAL-GAINGE-LIB',
+    menuGroup: 'eval',
+    badge: '변경 4 · 가인지캠퍼스 원본 420문항 · 205 KPI · 200연봉 · 25호봉',
+    desc: '가인지컨설팅그룹 원본 엑셀 5종(21직무 역량 420문항, 15직무 KPI 205, 200 연봉테이블, 25호봉 자동계산, OKR 10종, 다면피드백 10종) 내장 및 편입',
+    btnLabel: '가인지 라이브러리 열기',
+    action: () => {
+      switchTab('eval-gainge', false);
     },
   },
 ];
@@ -150,7 +159,16 @@ const MAJOR_MENU_GROUPS = [
     groupTitle: '급여 관리',
     tabs: [
       { key: 'payroll', label: '급여 대장' },
-      { key: 'ops-eval', label: '평가 · 인상 반영' },
+    ],
+  },
+  {
+    groupKey: 'eval',
+    groupTitle: '평가 · 보상',
+    tabs: [
+      { key: 'eval-builder', label: '기업진단 · 모듈 조립기' },
+      { key: 'eval-gainge', label: '가인지 라이브러리 (420·205·200)' },
+      { key: 'ops-eval', label: '전사 평가 · 급여 반영' },
+      { key: 'eval-export', label: '고객사 모듈 추출' },
     ],
   },
   {
@@ -2077,6 +2095,7 @@ function openModalWithText(title, subtitle, bodyText, triggerEl) {
   const leaveModal = document.getElementById('leave-detail-modal');
   const rcpModal = document.getElementById('recipient-sign-modal');
   const prtModal = document.getElementById('print-sheet-modal');
+  const rosterModal = document.getElementById('worker-registry-modal');
   if (attModal && !attModal.hidden) {
     attModal.inert = true;
     attModal.setAttribute('aria-hidden', 'true');
@@ -2093,6 +2112,10 @@ function openModalWithText(title, subtitle, bodyText, triggerEl) {
     prtModal.inert = true;
     prtModal.setAttribute('aria-hidden', 'true');
   }
+  if (rosterModal && !rosterModal.hidden) {
+    rosterModal.inert = true;
+    rosterModal.setAttribute('aria-hidden', 'true');
+  }
   if (modPopup && !modPopup.hidden) {
     modPopup.inert = true;
     modPopup.setAttribute('aria-hidden', 'true');
@@ -2107,6 +2130,7 @@ function closeModal() {
   const leaveModal = document.getElementById('leave-detail-modal');
   const rcpModal = document.getElementById('recipient-sign-modal');
   const prtModal = document.getElementById('print-sheet-modal');
+  const rosterModal = document.getElementById('worker-registry-modal');
   const modPopup = document.getElementById('module-popup-modal');
   if (!modal || modal.hidden) return;
   modal.hidden = true;
@@ -2122,6 +2146,9 @@ function closeModal() {
   } else if (prtModal && !prtModal.hidden) {
     prtModal.inert = false;
     prtModal.removeAttribute('aria-hidden');
+  } else if (rosterModal && !rosterModal.hidden) {
+    rosterModal.inert = false;
+    rosterModal.removeAttribute('aria-hidden');
   } else if (modPopup && !modPopup.hidden) {
     modPopup.inert = false;
     modPopup.removeAttribute('aria-hidden');
@@ -2145,6 +2172,8 @@ function closeModal() {
     document.getElementById('recipient-sign-close-btn')?.focus();
   } else if (prtModal && !prtModal.hidden) {
     document.getElementById('print-sheet-close-btn')?.focus();
+  } else if (rosterModal && !rosterModal.hidden) {
+    document.getElementById('worker-registry-close-btn')?.focus();
   } else if (modPopup && !modPopup.hidden) {
     (document.getElementById('popup-module-select') || document.getElementById('module-popup-close-btn'))?.focus();
   } else {
@@ -4056,22 +4085,1798 @@ function renderOpsRecruitTab(snapshot) {
   wrap.replaceChildren(onboardingStudioSection, contractSection, applicantTable);
 }
 
+/* ==========================================================================
+   법정 근로자명부(근로기준법 제41조 · 별지 제16호) & 신분증사진·계약서 단일PDF 병합·자동정리 UI
+   ========================================================================== */
+
+function dataUrlToUint8Array(dataUrl) {
+  const commaIdx = String(dataUrl || '').indexOf(',');
+  if (commaIdx < 0) return new Uint8Array(0);
+  const bin = atob(dataUrl.slice(commaIdx + 1));
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+function uint8ToBase64(u8) {
+  let bin = '';
+  for (let i = 0; i < u8.byteLength; i++) bin += String.fromCharCode(u8[i]);
+  return btoa(bin);
+}
+
+async function computeSha256HexBrowser(bytes) {
+  if (window.crypto?.subtle) {
+    const digest = await window.crypto.subtle.digest('SHA-256', bytes);
+    return Array.from(new Uint8Array(digest))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+  }
+  return Array.from(bytes.slice(0, 32))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+    .padEnd(64, '0');
+}
+
+function createClientMergedPdf14Bytes({ titleAscii, summaryAsciiLines = [], jpegPages = [] }) {
+  const enc = (s) => new TextEncoder().encode(s);
+  const esc = (s) =>
+    String(s || '')
+      .replace(/[^\x20-\x7E]/g, '?')
+      .replace(/\\/g, '\\\\')
+      .replace(/\(/g, '\\(')
+      .replace(/\)/g, '\\)');
+
+  const objs = new Map();
+  const pageIds = [4];
+  const coverLines = [
+    'BT',
+    '/F1 14 Tf',
+    '42 786 Td',
+    `(${esc(titleAscii || 'MODULAR HR Employee Dossier Binder')}) Tj`,
+    '/F1 10 Tf',
+    '0 -20 Td',
+    '(Merged Personal Info / ID Photo (Redacted) / Labor Contract Binder - LSA Art. 41 & 42) Tj',
+    '0 -16 Td',
+    '(--------------------------------------------------------------------------------) Tj',
+  ];
+  for (const ln of summaryAsciiLines.slice(0, 30)) {
+    coverLines.push('0 -15 Td');
+    coverLines.push(`(${esc(ln)}) Tj`);
+  }
+  coverLines.push('ET');
+  const coverBytes = enc(coverLines.join('\n'));
+
+  objs.set(3, [enc('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>')]);
+  objs.set(5, [enc(`<< /Length ${coverBytes.byteLength} >>\nstream\n`), coverBytes, enc('\nendstream')]);
+  objs.set(4, [
+    enc(
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>'
+    ),
+  ]);
+
+  let nextId = 6;
+  for (let i = 0; i < jpegPages.length && i < 12; i++) {
+    const pg = jpegPages[i];
+    if (!pg?.jpegBytes?.byteLength) continue;
+    const imgId = nextId++;
+    const cntId = nextId++;
+    const pageId = nextId++;
+    const w = Math.max(1, Math.round(pg.width || 800));
+    const hPx = Math.max(1, Math.round(pg.height || 560));
+    const scale = Math.min(510 / w, 700 / hPx);
+    const dw = Number((w * scale).toFixed(2));
+    const dh = Number((hPx * scale).toFixed(2));
+    const dx = Number(((595 - dw) / 2).toFixed(2));
+    const dy = Number((80 + (700 - dh) / 2).toFixed(2));
+
+    objs.set(imgId, [
+      enc(
+        `<< /Type /XObject /Subtype /Image /Width ${w} /Height ${hPx} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${pg.jpegBytes.byteLength} >>\nstream\n`
+      ),
+      pg.jpegBytes,
+      enc('\nendstream'),
+    ]);
+    const drawOps = enc(
+      `BT /F1 10 Tf 42 806 Td (${esc(pg.caption || `Attachment Page #${i + 1}`)}) Tj ET\nq ${dw} 0 0 ${dh} ${dx} ${dy} cm /Im0 Do Q`
+    );
+    objs.set(cntId, [enc(`<< /Length ${drawOps.byteLength} >>\nstream\n`), drawOps, enc('\nendstream')]);
+    objs.set(pageId, [
+      enc(
+        `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> /XObject << /Im0 ${imgId} 0 R >> >> /Contents ${cntId} 0 R >>`
+      ),
+    ]);
+    pageIds.push(pageId);
+  }
+
+  objs.set(2, [enc(`<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(' ')}] /Count ${pageIds.length} >>`)]);
+  objs.set(1, [enc('<< /Type /Catalog /Pages 2 0 R >>')]);
+
+  const chunks = [];
+  let cursor = 0;
+  const push = (u8) => {
+    chunks.push(u8);
+    cursor += u8.byteLength;
+  };
+  push(new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34, 0x0a]));
+  const totalCount = nextId;
+  const offsets = new Array(totalCount).fill(0);
+  for (const id of Array.from(objs.keys()).sort((a, b) => a - b)) {
+    offsets[id] = cursor;
+    push(enc(`${id} 0 obj\n`));
+    for (const part of objs.get(id)) push(part);
+    push(enc('\nendobj\n'));
+  }
+  const xrefPos = cursor;
+  const xref = ['xref', `0 ${totalCount}`, '0000000000 65535 f '];
+  for (let i = 1; i < totalCount; i++) {
+    xref.push(`${String(offsets[i] || 0).padStart(10, '0')} 00000 n `);
+  }
+  xref.push('trailer', `<< /Size ${totalCount} /Root 1 0 R >>`, 'startxref', String(xrefPos), '%%EOF\n');
+  push(enc(xref.join('\n')));
+
+  const out = new Uint8Array(cursor);
+  let p = 0;
+  for (const c of chunks) {
+    out.set(c, p);
+    p += c.byteLength;
+  }
+  return { pdfBytes: out, pageCount: pageIds.length };
+}
+
+async function rasterizeImageFileForPdf(file, applyIdMask, maskPreset = 'RESIDENT_CARD') {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error(`이미지 로드 실패: ${file.name}`));
+      el.src = url;
+    });
+    const maxDim = 1080;
+    const scale = Math.min(1, maxDim / Math.max(img.naturalWidth || 800, img.naturalHeight || 600));
+    const w = Math.max(240, Math.round((img.naturalWidth || 800) * scale));
+    const hPx = Math.max(160, Math.round((img.naturalHeight || 600) * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = hPx;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, w, hPx);
+    ctx.drawImage(img, 0, 0, w, hPx);
+
+    const isIdOrRegisterPhoto =
+      /신분증|주민등록|운전면허|외국인등록|여권|등본|초본|가족관계|(?:^|[-_\s.])id(?:[-_\s.]|$)/i.test(file.name);
+    const isNonIdDocPhoto = !isIdOrRegisterPhoto && /통장|계좌|bank|계약서|contract|자격증/i.test(file.name);
+    const shouldRedact = Boolean(applyIdMask && !isNonIdDocPhoto);
+    if (shouldRedact) {
+      const rect =
+        maskPreset === 'DRIVER_LICENSE'
+          ? [0.34, 0.24, 0.56, 0.16]
+          : maskPreset === 'WIDE_CENTER'
+            ? [0.1, 0.28, 0.82, 0.34]
+            : [0.38, 0.39, 0.5, 0.14];
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(
+        Math.round(w * rect[0]),
+        Math.round(hPx * rect[1]),
+        Math.round(w * rect[2]),
+        Math.round(hPx * rect[3])
+      );
+      ctx.fillStyle = '#ffffff';
+      ctx.font = `bold ${Math.max(12, Math.round(hPx * 0.038))}px sans-serif`;
+      ctx.fillText(
+        '******* (표준영역 가림막 — 육안확인 필요)',
+        Math.round(w * (rect[0] + 0.02)),
+        Math.round(hPx * (rect[1] + rect[3] * 0.58))
+      );
+    }
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.78)';
+    ctx.fillRect(0, hPx - 28, w, 28);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.fillText('[MODULAR HR 인사기록 증빙 사본 · 목적 외 이용 금지]', 12, hPx - 10);
+
+    const jpegBytes = dataUrlToUint8Array(canvas.toDataURL('image/jpeg', 0.8));
+    return {
+      width: w,
+      height: hPx,
+      jpegBytes,
+      redacted: shouldRedact,
+      nonIdDoc: isNonIdDocPhoto,
+      caption: `Image Attachment: ${file.name}${shouldRedact ? ' (Area Masked - Unverified)' : ' (Image Merged)'}`,
+    };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+function buildSyntheticSampleJpegPages(sampleObj, applyIdMask) {
+  const cards = [
+    {
+      caption: 'Page 2 - Resident ID Photo Copy (Back Digits Auto-Masked)',
+      heading: '[신분증 촬영 사본 · 주민번호 뒷자리 자동 가림 처리됨]',
+      isIdCard: true,
+      lines: [
+        sampleObj.fileNames?.[0] || '주민등록증_사본.jpg',
+        applyIdMask ? '주민등록번호 : ****** - ******* (개인정보보호법 제24조의2 비식별 완료)' : '비식별 권고',
+        '인사기록카드 본인확인 및 4대보험 취득신고 증빙 전용',
+      ],
+    },
+    {
+      caption: 'Page 3 - Signed Standard Labor Contract & Privacy Consent',
+      heading: '[표준 근로계약서 및 개인정보 수집·이용 동의서 편철본]',
+      isIdCard: false,
+      lines: [
+        sampleObj.fileNames?.[1] || '표준근로계약서.pdf',
+        '근로기준법 제17조 서면명시 및 제42조 퇴직 후 3년 법정보존 대상',
+      ],
+    },
+    {
+      caption: 'Page 4 - Worker Bankbook & National Technical License Copy',
+      heading: '[본인명의 급여통장 사본 (제43조 직접불 확인) · 자격증 사본]',
+      isIdCard: false,
+      lines: [
+        sampleObj.fileNames?.[2] || '급여통장사본.png',
+        '계좌 중간번호 마스킹 및 국가기술자격 이력(제20조 제5호) 등재 완료',
+      ],
+    },
+  ];
+  return cards.map((c) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 760;
+    canvas.height = 420;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#f8fafc';
+    ctx.fillRect(0, 0, 760, 420);
+    ctx.strokeStyle = '#1e3a8a';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(18, 18, 724, 384);
+    ctx.fillStyle = '#0f172a';
+    ctx.font = 'bold 20px sans-serif';
+    ctx.fillText(c.heading, 42, 74);
+    ctx.font = '16px sans-serif';
+    c.lines.forEach((ln, idx) => {
+      ctx.fillText(ln, 42, 130 + idx * 42);
+    });
+    const redacted = Boolean(applyIdMask && c.isIdCard);
+    if (applyIdMask) {
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(42, 270, 340, 44);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 15px sans-serif';
+      ctx.fillText('고유식별번호 뒷자리 비식별 가림 처리됨', 58, 298);
+    }
+    return {
+      width: 760,
+      height: 420,
+      jpegBytes: dataUrlToUint8Array(canvas.toDataURL('image/jpeg', 0.8)),
+      redacted,
+      nonIdDoc: !c.isIdCard,
+      caption: c.caption,
+    };
+  });
+}
+
+async function inflatePdfStreamBrowserSafe(slice, maxBytes = 262_144) {
+  if (typeof DecompressionStream !== 'function') return null;
+  for (const fmt of ['deflate', 'deflate-raw']) {
+    try {
+      const ds = new DecompressionStream(fmt);
+      const writer = ds.writable.getWriter();
+      const reader = ds.readable.getReader();
+      writer.write(slice).catch(() => {});
+      writer.close().catch(() => {});
+      const parts = [];
+      let total = 0;
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        if (value) {
+          if (total + value.byteLength > maxBytes) {
+            await reader.cancel().catch(() => {});
+            break;
+          }
+          total += value.byteLength;
+          parts.push(value);
+        }
+      }
+      if (parts.length > 0) {
+        const merged = new Uint8Array(total);
+        let off = 0;
+        for (const p of parts) {
+          merged.set(p, off);
+          off += p.byteLength;
+        }
+        return merged;
+      }
+    } catch {
+      // try next deflate mode
+    }
+  }
+  return null;
+}
+
+function decodeHexTokenBrowser(hexRaw, cmap) {
+  const clean = String(hexRaw || '').replace(/\s+/g, '');
+  if (!clean || clean.length % 2 !== 0) return '';
+  if (/^feff/i.test(clean) && clean.length >= 8 && clean.length % 4 === 0) {
+    let u = '';
+    for (let i = 4; i < clean.length; i += 4) {
+      const cp = parseInt(clean.slice(i, i + 4), 16);
+      if (cp > 0) u += String.fromCodePoint(cp);
+    }
+    return u;
+  }
+  if (cmap.size > 0 && clean.length % 4 === 0) {
+    let mapped = '';
+    let hits = 0;
+    for (let i = 0; i < clean.length; i += 4) {
+      const g = clean.slice(i, i + 4).toUpperCase();
+      if (cmap.has(g)) {
+        mapped += cmap.get(g);
+        hits++;
+      } else {
+        const code = parseInt(g, 16);
+        if (code >= 0x20 && code <= 0xd7ff) mapped += String.fromCharCode(code);
+      }
+    }
+    if (hits > 0) return mapped;
+  }
+  const bytes = new Uint8Array(clean.length / 2);
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
+  }
+  return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+}
+
+function truncateUtf8Safe(str, maxJsonBytes = 24_000) {
+  const s = String(str || '').replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+  const enc = new TextEncoder();
+  if (enc.encode(JSON.stringify(s)).byteLength <= maxJsonBytes) return s;
+  let lo = 0;
+  let hi = s.length;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (enc.encode(JSON.stringify(s.slice(0, mid))).byteLength <= maxJsonBytes) lo = mid;
+    else hi = mid - 1;
+  }
+  return s.slice(0, lo);
+}
+
+async function extractPdfTextFallbackBrowser(uint8) {
+  if (uint8.byteLength > 5 * 1024 * 1024) {
+    throw new Error('업로드된 PDF 파일 크기가 허용 한도(5MB)를 초과했습니다.');
+  }
+  const latin1 = new TextDecoder('latin1').decode(uint8);
+  if (!latin1.startsWith('%PDF-')) {
+    return truncateUtf8Safe(new TextDecoder('utf-8', { fatal: false }).decode(uint8), 22_000);
+  }
+  const streams = [];
+  const nonStreamParts = [];
+  const cmap = new Map();
+  let pos = 0;
+  let count = 0;
+  let scanAttempts = 0;
+  let totalInflated = 0;
+  while (count < 40 && scanAttempts < 400 && totalInflated < 1_048_576) {
+    const sIdx = latin1.indexOf('stream', pos);
+    if (sIdx < 0) break;
+    scanAttempts++;
+    let bStart = sIdx + 6;
+    if (latin1[bStart] === '\r' && latin1[bStart + 1] === '\n') bStart += 2;
+    else if (latin1[bStart] === '\n' || latin1[bStart] === '\r') bStart += 1;
+    else {
+      pos = sIdx + 6;
+      continue;
+    }
+    const winStart = Math.max(pos, sIdx - 2048);
+    const relDict = latin1.slice(winStart, sIdx).lastIndexOf('<<');
+    const dStart = relDict >= 0 ? winStart + relDict : sIdx;
+    if (nonStreamParts.length < 20 && dStart > pos) {
+      nonStreamParts.push(latin1.slice(pos, Math.min(dStart, pos + 8192)));
+    }
+    const dict = latin1.slice(dStart, sIdx);
+    const eIdx = latin1.indexOf('endstream', bStart);
+    if (eIdx < 0) break;
+    pos = eIdx + 9;
+    count++;
+    if (/\/Subtype\s*\/Image\b|\/Length1\b|\/Type\s*\/XRef\b/.test(dict)) {
+      continue;
+    }
+    const slice = uint8.subarray(bStart, eIdx);
+    let sText = '';
+    if (/\/FlateDecode\b/.test(dict)) {
+      const inf = await inflatePdfStreamBrowserSafe(slice);
+      if (inf) {
+        totalInflated += inf.byteLength;
+        sText = new TextDecoder('latin1').decode(inf);
+      }
+    } else if (!/\/DCTDecode\b|\/JPXDecode\b/.test(dict)) {
+      sText = new TextDecoder('latin1').decode(slice.subarray(0, 131_072));
+    }
+    if (sText) {
+      const capped = sText.slice(0, 131_072);
+      const decodeHexUnitsLocal = (hStr, addOff = 0) => {
+        const pad = hStr.length % 4 === 0 ? hStr : hStr.padStart(Math.ceil(hStr.length / 4) * 4, '0');
+        let res = '';
+        for (let i = 0; i < pad.length; i += 4) {
+          const isLast = i + 4 >= pad.length;
+          const u16 = (parseInt(pad.slice(i, i + 4), 16) + (isLast ? addOff : 0)) & 0xffff;
+          if (u16 > 0) res += String.fromCharCode(u16);
+        }
+        return res;
+      };
+      let cPos = 0;
+      while (cPos < capped.length && cmap.size < 8192) {
+        const bIdx = capped.indexOf('beginbfchar', cPos);
+        if (bIdx < 0) break;
+        const ceIdx = capped.indexOf('endbfchar', bIdx + 11);
+        if (ceIdx < 0) break;
+        for (const p of capped.slice(bIdx + 11, ceIdx).matchAll(/<([0-9A-Fa-f]{1,8})>\s*<([0-9A-Fa-f]{1,32})>/g)) {
+          if (cmap.size >= 8192) break;
+          const uni = decodeHexUnitsLocal(p[2], 0);
+          if (uni) cmap.set(p[1].toUpperCase().padStart(4, '0'), uni);
+        }
+        cPos = ceIdx + 9;
+      }
+      cPos = 0;
+      while (cPos < capped.length && cmap.size < 8192) {
+        const bIdx = capped.indexOf('beginbfrange', cPos);
+        if (bIdx < 0) break;
+        const ceIdx = capped.indexOf('endbfrange', bIdx + 12);
+        if (ceIdx < 0) break;
+        for (const r of capped.slice(bIdx + 12, ceIdx).matchAll(/<([0-9A-Fa-f]{1,8})>\s*<([0-9A-Fa-f]{1,8})>\s*<([0-9A-Fa-f]{1,16})>/g)) {
+          if (cmap.size >= 8192) break;
+          const st = parseInt(r[1], 16);
+          const ed = Math.min(st + 256, parseInt(r[2], 16));
+          for (let c = st; c <= ed && cmap.size < 8192; c++) {
+            const uni = decodeHexUnitsLocal(r[3], c - st);
+            if (uni) cmap.set(c.toString(16).toUpperCase().padStart(4, '0'), uni);
+          }
+        }
+        cPos = ceIdx + 10;
+      }
+      streams.push(capped);
+    }
+  }
+  if (pos < latin1.length && nonStreamParts.length < 20) {
+    nonStreamParts.push(latin1.slice(pos, Math.min(latin1.length, pos + 16_384)));
+  }
+
+  const lines = [];
+  const scanContentSinglePass = (rawSrc) => {
+    const src = rawSrc.length > 131_072 ? rawSrc.slice(0, 131_072) : rawSrc;
+    const len = src.length;
+    let cur = '';
+    let inArray = false;
+    let arrBuf = '';
+    let pending = null;
+    let fromArr = false;
+    let i = 0;
+    while (i < len) {
+      const ch = src[i];
+      if (ch === ' ' || ch === '\t' || ch === '\r' || ch === '\n' || ch === '\f') {
+        i++;
+        continue;
+      }
+      if (ch === '%') {
+        while (i < len && src[i] !== '\n' && src[i] !== '\r') i++;
+        continue;
+      }
+      if (ch === '[') {
+        inArray = true;
+        arrBuf = '';
+        pending = null;
+        i++;
+        continue;
+      }
+      if (ch === ']') {
+        inArray = false;
+        pending = arrBuf;
+        fromArr = true;
+        arrBuf = '';
+        i++;
+        continue;
+      }
+      if (ch === '(') {
+        i++;
+        let lit = '';
+        let depth = 1;
+        while (i < len && depth > 0) {
+          const c = src[i++];
+          if (c === '\\') {
+            if (i < len) {
+              const esc = src[i++];
+              if (/[0-7]/.test(esc)) {
+                let oct = esc;
+                if (/[0-7]/.test(src[i] || '')) oct += src[i++];
+                if (/[0-7]/.test(src[i] || '')) oct += src[i++];
+                if (lit.length < 4096) lit += String.fromCharCode(parseInt(oct, 8));
+              } else if (lit.length < 4096) {
+                lit += esc === 'n' ? '\n' : esc === 'r' ? '\r' : esc === 't' ? '\t' : esc;
+              }
+            }
+          } else if (c === '(') {
+            depth++;
+            if (lit.length < 4096) lit += c;
+          } else if (c === ')') {
+            depth--;
+            if (depth > 0 && lit.length < 4096) lit += c;
+          } else if (lit.length < 4096) {
+            lit += c;
+          }
+        }
+        if (depth === 0) {
+          if (inArray) {
+            if (arrBuf.length < 8192) arrBuf += lit;
+          } else {
+            pending = lit;
+            fromArr = false;
+          }
+        } else {
+          pending = null;
+        }
+        continue;
+      }
+      if (ch === '<') {
+        if (src[i + 1] === '<') {
+          i += 2;
+          pending = null;
+          continue;
+        }
+        i++;
+        const hStart = i;
+        while (i < len && src[i] !== '>') i++;
+        if (i < len && src[i] === '>') {
+          const hSlice = src.slice(hStart, Math.min(i, hStart + 8192));
+          i++;
+          if (/^[0-9A-Fa-f\s]+$/.test(hSlice)) {
+            const dec = decodeHexTokenBrowser(hSlice, cmap);
+            if (inArray) {
+              if (arrBuf.length < 8192) arrBuf += dec;
+            } else {
+              pending = dec;
+              fromArr = false;
+            }
+          } else {
+            pending = null;
+          }
+        } else {
+          pending = null;
+        }
+        continue;
+      }
+      if (ch === '>' && src[i + 1] === '>') {
+        i += 2;
+        pending = null;
+        continue;
+      }
+      if (ch === "'" || ch === '"') {
+        if (pending !== null && !fromArr) cur += pending;
+        pending = null;
+        i++;
+        continue;
+      }
+      const tStart = i;
+      while (
+        i < len &&
+        src[i] !== ' ' &&
+        src[i] !== '\t' &&
+        src[i] !== '\r' &&
+        src[i] !== '\n' &&
+        src[i] !== '\f' &&
+        src[i] !== '(' &&
+        src[i] !== ')' &&
+        src[i] !== '<' &&
+        src[i] !== '>' &&
+        src[i] !== '[' &&
+        src[i] !== ']' &&
+        src[i] !== '%' &&
+        src[i] !== "'" &&
+        src[i] !== '"'
+      ) {
+        i++;
+      }
+      if (i === tStart) {
+        i++;
+        pending = null;
+        continue;
+      }
+      const tok = src.slice(tStart, i);
+      if (tok === 'Tj') {
+        if (pending !== null && !fromArr) cur += pending;
+        pending = null;
+      } else if (tok === 'TJ') {
+        if (pending !== null && fromArr) cur += pending;
+        pending = null;
+      } else if (tok === 'ET' || tok === 'Td' || tok === 'TD' || tok === 'T*') {
+        pending = null;
+        if (cur.trim()) {
+          lines.push(cur.trim());
+          cur = '';
+        }
+      } else if (!/^[+-]?\d/.test(tok)) {
+        pending = null;
+      }
+    }
+    if (cur.trim()) lines.push(cur.trim());
+  };
+  for (const s of streams) scanContentSinglePass(s);
+  if (lines.length === 0 && nonStreamParts.length > 0) {
+    scanContentSinglePass(nonStreamParts.join('\n').slice(0, 65_536));
+  }
+  return truncateUtf8Safe(lines.join('\n'), 24_000);
+}
+
+function setMergedPdfDownloadBlob(pdfBytes) {
+  if (appState.rosterMergedPdfBlobUrl) {
+    URL.revokeObjectURL(appState.rosterMergedPdfBlobUrl);
+    appState.rosterMergedPdfBlobUrl = '';
+  }
+  if (pdfBytes && pdfBytes.byteLength > 0) {
+    const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+    appState.rosterMergedPdfBlobUrl = URL.createObjectURL(blob);
+  }
+}
+
+function openStatutoryForm16PrintSheet(snapshot, targetRows, triggerEl = null) {
+  const company = snapshot.company;
+  const rows = targetRows && targetRows.length > 0 ? targetRows : [];
+  if (rows.length === 0) {
+    showBanner('인쇄할 법정 근로자명부 대상 직원이 없습니다.', true);
+    return;
+  }
+
+  const cards = rows.map((r) =>
+    h(
+      'div',
+      { className: 'print-individual-card' },
+      h(
+        'h3',
+        { className: 'print-sheet-title-main' },
+        `[별지 제16호 서식] 근 로 자 명 부 — No.${r.rowNo} ${r.displayName} (${r.empCode})`
+      ),
+      h(
+        'p',
+        { className: 'print-sheet-meta-sub' },
+        `${company.companyName} (사업자등록번호: ${company.bizRegNo}) | 근로기준법 제41조·제42조 (퇴직일로부터 3년 법정보존)`
+      ),
+      h(
+        'table',
+        { className: 'print-sign-table', 'aria-label': `${r.displayName} 법정 근로자명부` },
+        h(
+          'tbody',
+          {},
+          h(
+            'tr',
+            {},
+            h('th', { scope: 'row' }, '① 성명 · 국적'),
+            h('td', {}, `${r.displayName} (${r.nationality})`),
+            h('th', { scope: 'row' }, '② 성별'),
+            h('td', {}, r.gender || '미기재'),
+            h('th', { scope: 'row' }, '③ 생년월일'),
+            h('td', {}, `${r.birthDate || '-'} (${r.maskedBirthOrId})`)
+          ),
+          h(
+            'tr',
+            {},
+            h('th', { scope: 'row' }, '④ 주소 · 연락처'),
+            h('td', { colspan: '5' }, `${r.address || '미기재'} | 연락처: ${r.maskedPhone || '미기재'}${r.emergencyContact ? ` | 비상연락망: ${r.emergencyContact}` : ''}`)
+          ),
+          h(
+            'tr',
+            {},
+            h('th', { scope: 'row' }, '⑥ 종사 업무 · 부서'),
+            h('td', { colspan: '3' }, `[${r.deptName} · ${r.jobTitle}] ${r.jobDuties || '미기재'}`),
+            h('th', { scope: 'row' }, '고용형태'),
+            h('td', {}, r.workerCategoryLabel)
+          ),
+          h(
+            'tr',
+            {},
+            h('th', { scope: 'row' }, '⑦ 고용 · 계약기간'),
+            h(
+              'td',
+              { colspan: '3' },
+              `고용일 ${r.hireDate}${r.contractEndDate ? ` ~ 만료일 ${r.contractEndDate}` : ' (기간 정함 없음)'}${r.renewalDate ? ` / 갱신일 ${r.renewalDate}` : ''}`
+            ),
+            h('th', { scope: 'row' }, '소정근로 · 기준급여'),
+            h('td', {}, `주 ${r.weeklyHours}h · ${fmtWon(r.referencePay)}`)
+          ),
+          h(
+            'tr',
+            {},
+            h('th', { scope: 'row' }, '⑤ 이력 · 자격면허'),
+            h(
+              'td',
+              { colspan: '3' },
+              `${r.qualifications.length > 0 ? r.qualifications.join(', ') : '해당없음'} / ${r.careerSummary || '직무·안전보건교육 이수'}`
+            ),
+            h('th', { scope: 'row' }, '급여계좌 · 4대보험'),
+            h(
+              'td',
+              {},
+              `${r.bankName ? `${r.bankName} ${r.maskedAccountNo}` : '계좌 미확인'} / ${r.socialInsuranceSummary}`
+            )
+          ),
+          h(
+            'tr',
+            {},
+            h('th', { scope: 'row' }, '증빙 PDF 편철'),
+            h(
+              'td',
+              { colspan: '3' },
+              r.dossierAttachments.length > 0
+                ? r.dossierAttachments.map((a) => `${a.fileName}(${a.pageCount}p)`).join(', ')
+                : '미연결'
+            ),
+            h('th', { scope: 'row' }, '⑧ 퇴직일 · 사유'),
+            h('td', {}, '재직 중 (퇴직 시 자동기재)')
+          )
+        )
+      )
+    )
+  );
+
+  const paper = h('div', { className: 'print-sheet-paper' }, ...cards);
+  openPrintSheetModal({
+    title: `법정 근로자명부 (별지 제16호 서식 · 총 ${rows.length}명)`,
+    subtitle: '근로기준법 제41조 · 시행령 제20조 필수 기재사항 전수 반영 A4 출력 양식',
+    paperNode: paper,
+    triggerEl,
+  });
+}
+
+function openWorkerRegistryModal(empCode = null, subView = 'CARD', triggerEl = null) {
+  const modal = document.getElementById('worker-registry-modal');
+  const attModal = document.getElementById('att-calendar-modal');
+  const leaveModal = document.getElementById('leave-detail-modal');
+  const modPopup = document.getElementById('module-popup-modal');
+  if (!modal || !appState.snapshot) return;
+  if (attModal && !attModal.hidden) closeAttCalendarModal(false);
+  if (leaveModal && !leaveModal.hidden) closeLeaveDetailModal(false);
+
+  if (modal.hidden) {
+    appState.lastFocusedBeforeRosterModal = triggerEl || document.activeElement;
+    appState.lastRosterModalSelector = empCode
+      ? `[data-roster-open-emp="${CSS.escape(empCode)}"]`
+      : '#btn-open-dossier-studio';
+  }
+  if (empCode) {
+    appState.rosterModalActiveEmpCode = empCode;
+    appState.rosterDossierTargetEmp = empCode;
+  }
+  appState.rosterModalSubView = subView === 'DOSSIER' ? 'DOSSIER' : 'CARD';
+  if (subView === 'DOSSIER' && empCode) {
+    appState.rosterDossierMode = 'UPDATE_SELECTED';
+  }
+
+  renderWorkerRegistryModalContent(appState.snapshot);
+
+  setBackgroundInert(true);
+  if (modPopup && !modPopup.hidden) {
+    modPopup.inert = true;
+    modPopup.setAttribute('aria-hidden', 'true');
+  }
+  modal.hidden = false;
+  modal.inert = false;
+  modal.removeAttribute('aria-hidden');
+  document.getElementById('worker-registry-close-btn')?.focus();
+}
+
+function closeWorkerRegistryModal(restoreFocus = true) {
+  const modal = document.getElementById('worker-registry-modal');
+  const modPopup = document.getElementById('module-popup-modal');
+  if (!modal || modal.hidden) return;
+  modal.hidden = true;
+  if (modPopup && !modPopup.hidden) {
+    modPopup.inert = false;
+    modPopup.removeAttribute('aria-hidden');
+  } else {
+    setBackgroundInert(false);
+  }
+  if (restoreFocus) {
+    const prev = appState.lastFocusedBeforeRosterModal;
+    if (
+      prev &&
+      prev !== document.body &&
+      prev.isConnected &&
+      !prev.closest('[hidden]') &&
+      typeof prev.focus === 'function'
+    ) {
+      prev.focus();
+      return;
+    }
+    const fallback =
+      (appState.lastRosterModalSelector && document.querySelector(appState.lastRosterModalSelector)) ||
+      document.getElementById('btn-open-dossier-studio') ||
+      document.getElementById('main-workspace');
+    fallback?.focus();
+  }
+}
+
+function renderWorkerRegistryModalContent(snapshot) {
+  const bodyEl = document.getElementById('worker-registry-modal-body');
+  const titleEl = document.getElementById('worker-registry-modal-title');
+  const subEl = document.getElementById('worker-registry-modal-subtitle');
+  const printBtn = document.getElementById('worker-registry-print-btn');
+  const reg = snapshot.operationsSuite?.orgAndAssignments?.workerRegistry;
+  if (!bodyEl || !reg) return;
+
+  const rows = reg.rows || [];
+  const activeRow =
+    rows.find((r) => r.empCode === appState.rosterModalActiveEmpCode) || rows[0] || null;
+  if (activeRow) {
+    appState.rosterModalActiveEmpCode = activeRow.empCode;
+  }
+  if (!rows.some((r) => r.empCode === appState.rosterDossierTargetEmp)) {
+    appState.rosterDossierTargetEmp = activeRow ? activeRow.empCode : '';
+  }
+
+  if (titleEl) {
+    titleEl.textContent =
+      appState.rosterModalSubView === 'DOSSIER'
+        ? 'PDF · 신분증 사진 · 근로계약서 · 통장사본 → 단일 PDF 병합 & 직원 명부 자동 정리'
+        : activeRow
+          ? `No.${activeRow.rowNo} ${activeRow.empCode} ${activeRow.displayName} — 법정 근로자명부 카드 (별지 제16호)`
+          : '법정 근로자명부 카드';
+  }
+  if (subEl) {
+    subEl.textContent =
+      appState.rosterModalSubView === 'DOSSIER'
+        ? '주민등록번호 뒷자리 자동 비식별 마스킹(개인정보보호법 제24조의2) · 채용절차법 제4조의3 금지항목 자동배제 · 전 메뉴 실시간 동기화'
+        : '근로기준법 제41조(근로자명부) · 시행령 제20조 필수 기재사항 · 제41조② 변경 시 지체 없는 정정이력 관리';
+  }
+  if (printBtn) {
+    printBtn.onclick = (e) => {
+      openStatutoryForm16PrintSheet(
+        snapshot,
+        activeRow ? [activeRow] : rows.filter((r) => r.statutoryRosterTarget),
+        e.currentTarget
+      );
+    };
+  }
+
+  const modeSwitchBar = h(
+    'div',
+    { className: 'roster-modal-tabs' },
+    h(
+      'button',
+      {
+        type: 'button',
+        id: 'btn-switch-card-subview',
+        className: appState.rosterModalSubView === 'CARD' ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm',
+        'aria-pressed': String(appState.rosterModalSubView === 'CARD'),
+        onClick: () => {
+          appState.rosterModalSubView = 'CARD';
+          renderWorkerRegistryModalContent(snapshot);
+          document.getElementById('btn-switch-card-subview')?.focus();
+        },
+      },
+      '1. 법정 근로자명부 상세카드 · 정정이력 (별지 제16호)'
+    ),
+    h(
+      'button',
+      {
+        type: 'button',
+        id: 'btn-switch-dossier-subview',
+        className: appState.rosterModalSubView === 'DOSSIER' ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm',
+        'aria-pressed': String(appState.rosterModalSubView === 'DOSSIER'),
+        onClick: () => {
+          appState.rosterModalSubView = 'DOSSIER';
+          renderWorkerRegistryModalContent(snapshot);
+          document.getElementById('btn-switch-dossier-subview')?.focus();
+        },
+      },
+      '2. PDF · 신분증사진 · 계약서 연결 → 단일 PDF 병합 & 자동정리'
+    )
+  );
+
+  if (appState.rosterModalSubView === 'DOSSIER') {
+    const samples = reg.sampleDossiers || [];
+    if (!appState.rosterDossierDraft) {
+      appState.rosterDossierDraft = {
+        fileNames: [],
+        rawText: '',
+        extracted: {},
+        classifiedDocs: [],
+        blindLawWarnings: [],
+        pdfSha256: '',
+        pageCount: 0,
+        byteSize: 0,
+        mergedFileName: '',
+        idBackMasked: true,
+      };
+    }
+    const dDraft = appState.rosterDossierDraft;
+
+    const runPreviewParse = async (
+      { rawText, fileNames, pdfBase64 = '', jpegPages = [], idBackMasked = true },
+      triggerBtn = null
+    ) => {
+      const safeRaw = truncateUtf8Safe(rawText, 26_000);
+      const { parsed } = await apiPost(
+        '/api/roster/parse-preview',
+        {
+          rawText: safeRaw,
+          fileNames,
+          pdfBase64,
+        },
+        triggerBtn
+      );
+      const workerTag =
+        appState.rosterDossierMode === 'UPDATE_SELECTED'
+          ? appState.rosterDossierTargetEmp || 'EMP'
+          : parsed.extracted.displayName || 'NEW';
+      const mergedPdf = createClientMergedPdf14Bytes({
+        titleAscii: `MODULAR HR Statutory Dossier Binder`,
+        summaryAsciiLines: [
+          `Mode          : ${appState.rosterDossierMode}`,
+          `Source Files  : ${(fileNames || []).length} file(s)`,
+          `Doc Types     : ${parsed.classifiedDocs.map((d) => d.code).join(', ')}`,
+          `ID Masking    : ${idBackMasked ? 'Resident ID back digits redacted (PIPA Art. 24-2)' : 'Standard'}`,
+          `Blind Hiring  : ${parsed.blindLawWarnings.length} prohibited field(s) stripped (FHP Act Art. 4-3)`,
+        ],
+        jpegPages,
+      });
+      const pdfSha256 = await computeSha256HexBrowser(mergedPdf.pdfBytes);
+      setMergedPdfDownloadBlob(mergedPdf.pdfBytes);
+
+      const idTargetImages = jpegPages.filter((p) => !p.nonIdDoc);
+      const hasIdImages = idTargetImages.length > 0;
+      const allIdImagesRedacted = hasIdImages && idTargetImages.every((p) => p.redacted);
+      const userVerified = Boolean(dDraft.idBackMaskUserVerified && allIdImagesRedacted);
+      const idMaskStatus = hasIdImages
+        ? userVerified
+          ? 'USER_VERIFIED'
+          : allIdImagesRedacted
+            ? 'AREA_UNVERIFIED'
+            : 'NONE'
+        : parsed.rrnAutoMasked
+          ? 'TEXT_MASKED'
+          : 'NONE';
+      appState.rosterDossierDraft = {
+        fileNames,
+        jpegPages,
+        rawText: parsed.sanitizedPreviewText || rawText,
+        extracted: { ...parsed.extracted },
+        touchedKeys: [],
+        classifiedDocs: parsed.classifiedDocs,
+        blindLawWarnings: parsed.blindLawWarnings,
+        pdfSha256,
+        pageCount: mergedPdf.pageCount,
+        byteSize: mergedPdf.pdfBytes.byteLength,
+        mergedFileName: `통합인사증빙_${String(workerTag).replace(/\s+/g, '_')}.pdf`,
+        idMaskStatus,
+        idBackMasked: idMaskStatus === 'USER_VERIFIED' || idMaskStatus === 'TEXT_MASKED',
+        idBackMaskUserVerified: userVerified,
+        maskPreset: dDraft.maskPreset || 'RESIDENT_CARD',
+        maskCheckboxChecked: idBackMasked,
+      };
+      renderWorkerRegistryModalContent(snapshot);
+      document.getElementById('btn-commit-dossier-roster')?.focus();
+    };
+
+    const maskChk = h('input', {
+      id: 'chk-dossier-id-mask',
+      type: 'checkbox',
+      checked: dDraft.maskCheckboxChecked !== false,
+      onChange: (e) => {
+        dDraft.maskCheckboxChecked = e.currentTarget.checked;
+      },
+    });
+    const maskPresetSel = h(
+      'select',
+      {
+        id: 'dossier-mask-preset',
+        className: 'month-input-box',
+        'aria-label': '신분증 사진 가림막 영역 프리셋 선택',
+        onChange: (e) => {
+          dDraft.maskPreset = e.currentTarget.value;
+        },
+      },
+      h(
+        'option',
+        { value: 'RESIDENT_CARD', selected: (dDraft.maskPreset || 'RESIDENT_CARD') === 'RESIDENT_CARD' },
+        '가림 위치: 주민등록증 표준(우측 중앙)'
+      ),
+      h(
+        'option',
+        { value: 'DRIVER_LICENSE', selected: dDraft.maskPreset === 'DRIVER_LICENSE' },
+        '가림 위치: 운전면허증(상단 우측)'
+      ),
+      h(
+        'option',
+        { value: 'WIDE_CENTER', selected: dDraft.maskPreset === 'WIDE_CENTER' },
+        '가림 위치: 세로촬영 · 등본 광역가림(중앙폭 82%)'
+      )
+    );
+
+    const fileInput = h('input', {
+      id: 'roster-dossier-file-input',
+      type: 'file',
+      className: 'visually-hidden-input',
+      multiple: true,
+      accept: '.pdf,.jpg,.jpeg,.png,.webp,.txt',
+      onChange: async (e) => {
+        const inputEl = e.currentTarget;
+        const labelEl = inputEl.closest('label');
+        const files = Array.from(inputEl.files || []).slice(0, 10);
+        inputEl.value = '';
+        if (files.length === 0) return;
+        const labelSpan = labelEl?.querySelector('span');
+        const origLabelText = labelSpan ? labelSpan.textContent : '';
+        inputEl.disabled = true;
+        inputEl.setAttribute('aria-busy', 'true');
+        labelEl?.setAttribute('aria-busy', 'true');
+        if (labelSpan) labelSpan.textContent = '⏳ 사진·PDF 병합 및 항목 추출 중...';
+        try {
+          const addedNames = files.map((f) => f.name);
+          const textParts = dDraft.rawText ? [dDraft.rawText] : [];
+          const addedJpegPages = [];
+          let smallPdfBase64 = '';
+
+          for (const f of files) {
+            const lower = f.name.toLowerCase();
+            if (f.type.startsWith('image/') || /\.(jpg|jpeg|png|webp)$/.test(lower)) {
+              const page = await rasterizeImageFileForPdf(f, maskChk.checked, maskPresetSel.value);
+              addedJpegPages.push(page);
+            } else if (lower.endsWith('.pdf') || f.type === 'application/pdf') {
+              const u8 = new Uint8Array(await f.arrayBuffer());
+              const curBytes = new TextEncoder().encode(textParts.join('\n')).byteLength;
+              if (!smallPdfBase64 && u8.byteLength <= 18_000 && curBytes < 14_000) {
+                smallPdfBase64 = uint8ToBase64(u8);
+              } else {
+                const txt = await extractPdfTextFallbackBrowser(u8);
+                if (txt) textParts.push(txt);
+              }
+            } else {
+              textParts.push(truncateUtf8Safe(await f.text(), 18_000));
+            }
+          }
+          const combinedFileNames = [...(dDraft.fileNames || []), ...addedNames].slice(0, 15);
+          const combinedJpegPages = [...(dDraft.jpegPages || []), ...addedJpegPages].slice(0, 12);
+          await runPreviewParse({
+            rawText: truncateUtf8Safe(textParts.filter(Boolean).join('\n'), 26_000),
+            fileNames: combinedFileNames,
+            pdfBase64: smallPdfBase64,
+            jpegPages: combinedJpegPages,
+            idBackMasked: maskChk.checked,
+          });
+          showBanner(
+            `누적 ${combinedFileNames.length}개 파일(사진·PDF)이 단일 인사증빙 PDF(${appState.rosterDossierDraft.pageCount}p)로 결합되고 명부 항목이 추출되었습니다.`
+          );
+        } catch (err) {
+          showBanner(err.message, true);
+        } finally {
+          inputEl.disabled = false;
+          inputEl.removeAttribute('aria-busy');
+          labelEl?.removeAttribute('aria-busy');
+          if (labelSpan && origLabelText) labelSpan.textContent = origLabelText;
+        }
+      },
+    });
+
+    const ex = dDraft.extracted || {};
+    const bindField = (id, label, key, type = 'text', placeholder = '') =>
+      h(
+        'div',
+        { className: 'field' },
+        h('label', { for: id }, label),
+        h('input', {
+          id,
+          type,
+          value: Array.isArray(ex[key]) ? ex[key].join(', ') : String(ex[key] ?? ''),
+          placeholder,
+          onInput: (ev) => {
+            ex[key] = ev.currentTarget.value;
+            if (!Array.isArray(dDraft.touchedKeys)) dDraft.touchedKeys = [];
+            if (!dDraft.touchedKeys.includes(key)) dDraft.touchedKeys.push(key);
+          },
+        })
+      );
+
+    const dossierBox = h(
+      'div',
+      {},
+      h(
+        'div',
+        { className: 'ops-inline-form mb-6' },
+        h(
+          'div',
+          { className: 'field' },
+          h('label', { for: 'dossier-mode-select' }, '명부 반영 방식'),
+          h(
+            'select',
+            {
+              id: 'dossier-mode-select',
+              onChange: (e) => {
+                appState.rosterDossierMode = e.currentTarget.value;
+                renderWorkerRegistryModalContent(snapshot);
+                document.getElementById('dossier-mode-select')?.focus();
+              },
+            },
+            h(
+              'option',
+              { value: 'NEW_WORKER', selected: appState.rosterDossierMode === 'NEW_WORKER' },
+              '신규 직원 자동 등록 (사번 자동부여 + 근태·연차·급여 동시 생성)'
+            ),
+            h(
+              'option',
+              { value: 'UPDATE_SELECTED', selected: appState.rosterDossierMode === 'UPDATE_SELECTED' },
+              '기존 직원 선택 보완 (누락된 법정 명부항목 채움 + 제41조② 정정이력 기록)'
+            )
+          )
+        ),
+        appState.rosterDossierMode === 'UPDATE_SELECTED'
+          ? h(
+              'div',
+              { className: 'field' },
+              h('label', { for: 'dossier-target-emp-select' }, '보완할 대상 직원 선택'),
+              h(
+                'select',
+                {
+                  id: 'dossier-target-emp-select',
+                  disabled: rows.length === 0,
+                  onChange: (e) => {
+                    appState.rosterDossierTargetEmp = e.currentTarget.value;
+                    renderWorkerRegistryModalContent(snapshot);
+                    document.getElementById('dossier-target-emp-select')?.focus();
+                  },
+                },
+                ...(rows.length === 0
+                  ? [h('option', { value: '' }, '보완할 재직 직원 없음')]
+                  : rows.map((r) =>
+                      h(
+                        'option',
+                        { value: r.empCode, selected: r.empCode === appState.rosterDossierTargetEmp },
+                        `No.${r.rowNo} ${r.empCode} ${r.displayName} (${r.isStatutoryComplete ? '완비' : `미비 ${r.missingStatutoryFields.length}건`})`
+                      )
+                    ))
+              )
+            )
+          : null
+      ),
+      h(
+        'div',
+        { className: 'roster-dropzone code-diff-box' },
+        h(
+          'div',
+          { className: 'flex-between-wrap' },
+          h(
+            'div',
+            { className: 'step-pill-group' },
+            h('label', { className: 'file-upload-label', for: 'roster-dossier-file-input' }, h('span', {}, '📁 PDF · 신분증사진 · 통장사본 · 계약서 다중 선택'), fileInput),
+            ...samples.map((smp) =>
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'btn btn-secondary btn-sm',
+                  dataset: { dossierSampleId: smp.sampleId },
+                  onClick: async (e) => {
+                    const btn = e.currentTarget;
+                    try {
+                      appState.rosterDossierMode = smp.mode;
+                      if (smp.mode === 'UPDATE_SELECTED') {
+                        const incRow =
+                          rows.find((r) => r.empCode === 'EMP-202') ||
+                          rows.find((r) => r.statutoryRosterTarget && !r.isStatutoryComplete) ||
+                          rows[0];
+                        if (incRow) appState.rosterDossierTargetEmp = incRow.empCode;
+                      }
+                      const synthPages = buildSyntheticSampleJpegPages(smp, maskChk.checked);
+                      await runPreviewParse(
+                        {
+                          rawText: smp.rawText,
+                          fileNames: smp.fileNames,
+                          jpegPages: synthPages,
+                          idBackMasked: maskChk.checked,
+                        },
+                        btn
+                      );
+                      showBanner(`[${smp.label}] 사진·계약서가 단일 PDF로 병합되고 법정 명부 항목이 자동 추출되었습니다.`);
+                    } catch (err) {
+                      showBanner(err.message, true);
+                    }
+                  },
+                },
+                smp.sampleId === 'NEW_HIRE_FULL_PACK'
+                  ? '샘플 1 · 신규입사(신분증+계약서+통장 PDF 자동등록)'
+                  : '샘플 2 · 기존직원 누락서류 PDF 자동보완'
+              )
+            ),
+            (dDraft.fileNames && dDraft.fileNames.length > 0) || dDraft.rawText
+              ? h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'btn btn-secondary btn-sm',
+                    onClick: () => {
+                      appState.rosterDossierDraft = null;
+                      setMergedPdfDownloadBlob(null);
+                      renderWorkerRegistryModalContent(snapshot);
+                    },
+                  },
+                  '첨부 초기화'
+                )
+              : null
+          ),
+          appState.rosterMergedPdfBlobUrl && dDraft.pageCount > 0
+            ? h(
+                'a',
+                {
+                  href: appState.rosterMergedPdfBlobUrl,
+                  download: dDraft.mergedFileName || '통합인사증빙.pdf',
+                  className: 'btn btn-secondary btn-sm',
+                },
+                `⬇ 병합된 통합 PDF 다운로드 (${dDraft.pageCount}p)`
+              )
+            : null
+        ),
+        h(
+          'div',
+          { className: 'step-pill-group' },
+          h(
+            'label',
+            { className: 'check-label', for: 'chk-dossier-id-mask' },
+            maskChk,
+            h(
+              'span',
+              {},
+              '신분증·등본 촬영본 표준영역 가림막 덧칠 및 목적 외 이용금지 워터마크 적용'
+            )
+          ),
+          maskPresetSel
+        ),
+        (dDraft.jpegPages || []).some((p) => p.redacted)
+          ? h(
+              'label',
+              { className: 'check-label', for: 'chk-dossier-mask-verified' },
+              h('input', {
+                id: 'chk-dossier-mask-verified',
+                type: 'checkbox',
+                checked: Boolean(dDraft.idBackMaskUserVerified),
+                onChange: (ev) => {
+                  const ok = ev.currentTarget.checked;
+                  dDraft.idBackMaskUserVerified = ok;
+                  dDraft.idMaskStatus = ok ? 'USER_VERIFIED' : 'AREA_UNVERIFIED';
+                  dDraft.idBackMasked = ok;
+                },
+              }),
+              h(
+                'span',
+                {},
+                '병합된 PDF 다운로드본에서 주민등록번호 뒷자리가 실제로 완전히 가려졌음을 육안 확인했습니다 (미체크 시 "표준영역 가림(미검증)"으로 정직 기록)'
+              )
+            )
+          : null,
+        dDraft.classifiedDocs?.length > 0
+          ? h(
+              'div',
+              { className: 'step-pill-group' },
+              h('span', { className: 'tag tag-blue' }, `단일 PDF 병합 준비: ${dDraft.mergedFileName} (${dDraft.pageCount}페이지 · SHA-256 ${dDraft.pdfSha256.slice(0, 10)}...)`),
+              ...dDraft.classifiedDocs.map((c) => h('span', { className: 'tag tag-green' }, `✓ ${c.label}`))
+            )
+          : null,
+        ...(dDraft.blindLawWarnings || []).map((wMsg) =>
+          h('div', { className: 'eval-alert-item sev-MEDIUM' }, wMsg)
+        )
+      ),
+      h(
+        'div',
+        { className: 'ops-section-block' },
+        h(
+          'div',
+          { className: 'ops-section-head' },
+          h('strong', { className: 'ops-section-title' }, '추출 원문 / OCR 텍스트 확인 (직접 붙여넣기 가능 — 주민번호·연락처 자동 마스킹)'),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'btn btn-secondary btn-sm',
+              onClick: async (e) => {
+                try {
+                  await runPreviewParse(
+                    {
+                      rawText: dDraft.rawText || '',
+                      fileNames: dDraft.fileNames || [],
+                      jpegPages: dDraft.jpegPages || [],
+                      idBackMasked: maskChk.checked,
+                    },
+                    e.currentTarget
+                  );
+                  showBanner('입력 텍스트로부터 법정 근로자명부 항목을 다시 추출했습니다.');
+                } catch (err) {
+                  showBanner(err.message, true);
+                }
+              },
+            },
+            '원문 다시 분석'
+          )
+        ),
+        h('textarea', {
+          id: 'dossier-raw-textarea',
+          'aria-label': '인사서류 추출 원문 및 직접 입력란',
+          rows: '4',
+          className: 'full-width',
+          placeholder: '신분증·근로계약서·통장사본·이력서 내용을 붙여넣거나 위에서 PDF·사진 파일을 선택하면 자동으로 항목이 분류됩니다.',
+          value: dDraft.rawText || '',
+          onInput: (e) => {
+            dDraft.rawText = e.currentTarget.value;
+          },
+        }),
+        h(
+          'div',
+          { className: 'roster-grid-3 mt-12' },
+          bindField('dos-name', '① 성명 (필수)', 'displayName', 'text', '예: 강태양'),
+          h(
+            'div',
+            { className: 'field' },
+            h('label', { for: 'dos-gender' }, '② 성별'),
+            h(
+              'select',
+              {
+                id: 'dos-gender',
+                onChange: (ev) => {
+                  ex.gender = ev.currentTarget.value;
+                },
+              },
+              h('option', { value: '', selected: !ex.gender }, '미기재'),
+              h('option', { value: '남', selected: ex.gender === '남' }, '남'),
+              h('option', { value: '여', selected: ex.gender === '여' }, '여')
+            )
+          ),
+          bindField('dos-birth', '③ 생년월일 (YYYY-MM-DD)', 'birthDate', 'date'),
+          ...(appState.rosterDossierMode === 'NEW_WORKER'
+            ? [bindField('dos-dept', '소속 부서', 'deptName', 'text', '예: 설비자동화팀')]
+            : []),
+          bindField('dos-title', '직위 · 직급', 'jobTitle', 'text', '예: 대리'),
+          bindField('dos-duties', '⑥ 종사하는 업무의 종류', 'jobDuties', 'text', '구체적 담당 직무'),
+          ...(appState.rosterDossierMode === 'NEW_WORKER'
+            ? [
+                bindField('dos-hire', '⑦ 고용(입사) 연월일', 'hireDate', 'date'),
+                bindField('dos-end', '계약만료일 (기간제인 경우)', 'contractEndDate', 'date'),
+                bindField('dos-pay', '월 기본급 / 계약금(원)', 'baseMonthlyPay', 'number'),
+              ]
+            : [
+                bindField('dos-renew', '⑦ 고용갱신 연월일', 'renewalDate', 'date'),
+                bindField('dos-end', '계약만료일 (기간제인 경우)', 'contractEndDate', 'date'),
+              ]),
+          bindField('dos-phone', '휴대전화 (자동마스킹)', 'maskedPhone', 'text', '010-****-0000'),
+          bindField('dos-bank', '급여 은행명 (제43조 직접불)', 'bankName', 'text', '예: 신한은행'),
+          bindField('dos-acct', '계좌번호 (자동마스킹)', 'maskedAccountNo', 'text', '110-****-0000'),
+          bindField('dos-qual', '⑤ 자격 · 면허 (쉼표 구분)', 'qualifications', 'text', '예: 전기기능사, 산업안전기사'),
+          bindField('dos-career', '⑤ 주요 경력 · 교육이력', 'careerSummary', 'text', '주요 경력 요약'),
+          bindField('dos-addr', '④ 거주지 주소', 'address', 'text', '도로명 주소')
+        ),
+        h(
+          'div',
+          { className: 'mt-12' },
+          h(
+            'button',
+            {
+              type: 'button',
+              id: 'btn-commit-dossier-roster',
+              className: 'btn btn-primary full-width',
+              disabled: appState.rosterDossierMode === 'UPDATE_SELECTED' && !appState.rosterDossierTargetEmp,
+              onClick: async (e) => {
+                const res = await runOpsAction(
+                  {
+                    actionType: 'INGEST_WORKER_DOSSIER_TO_ROSTER',
+                    mode: appState.rosterDossierMode,
+                    targetEmpCode:
+                      appState.rosterDossierMode === 'UPDATE_SELECTED'
+                        ? appState.rosterDossierTargetEmp
+                        : undefined,
+                    rawText: truncateUtf8Safe(dDraft.rawText || '', 26_000),
+                    fileNames: dDraft.fileNames || [],
+                    overrides: ex,
+                    clearedKeys: Array.isArray(dDraft.touchedKeys)
+                      ? dDraft.touchedKeys.filter((k) => String(ex[k] ?? '').trim() === '')
+                      : [],
+                    binderMeta: {
+                      binderTitle:
+                        dDraft.classifiedDocs?.length > 0
+                          ? `통합 인사증빙 PDF (${dDraft.classifiedDocs.map((c) => c.label).join(' · ')})`
+                          : '통합 인사증빙 PDF',
+                      fileName: dDraft.mergedFileName || '',
+                      pageCount: dDraft.pageCount || 1,
+                      byteSize: dDraft.byteSize || 2048,
+                      pdfSha256: dDraft.pdfSha256 || '',
+                      idMaskStatus: dDraft.idMaskStatus || (dDraft.idBackMasked ? 'USER_VERIFIED' : 'NONE'),
+                      idBackMasked: Boolean(dDraft.idBackMasked),
+                    },
+                  },
+                  e.currentTarget
+                );
+                if (res?.result?.empCode) {
+                  appState.rosterModalActiveEmpCode = res.result.empCode;
+                  appState.rosterDossierTargetEmp = res.result.empCode;
+                  appState.rosterModalSubView = 'CARD';
+                  appState.rosterDossierDraft = null;
+                  setMergedPdfDownloadBlob(null);
+                  if (appState.snapshot) {
+                    renderWorkerRegistryModalContent(appState.snapshot);
+                  }
+                }
+              },
+            },
+            appState.rosterDossierMode === 'NEW_WORKER'
+              ? '통합 증빙 PDF 연결 · 신규 직원 명부 자동 등록 (전 메뉴 동시 반영)'
+              : `[${appState.rosterDossierTargetEmp || '미선택'}] 통합 증빙 PDF 연결 · 법정 근로자명부 자동 정리 반영`
+          )
+        )
+      )
+    );
+
+    bodyEl.replaceChildren(modeSwitchBar, dossierBox);
+    return;
+  }
+
+  // 1. 법정 근로자명부 상세카드 (CARD 뷰)
+  if (!activeRow) {
+    bodyEl.replaceChildren(modeSwitchBar, h('div', { className: 'empty-state' }, '등록된 직원이 없습니다.'));
+    return;
+  }
+
+  const empSelectBar = h(
+    'div',
+    { className: 'flex-between-wrap mb-6' },
+    h(
+      'div',
+      { className: 'step-pill-group' },
+      h('label', { for: 'roster-modal-emp-select', className: 'font-extrabold' }, '명부 열람 대상 직원:'),
+      h(
+        'select',
+        {
+          id: 'roster-modal-emp-select',
+          className: 'month-input-box',
+          onChange: (e) => {
+            appState.rosterModalActiveEmpCode = e.currentTarget.value;
+            appState.rosterDossierTargetEmp = e.currentTarget.value;
+            renderWorkerRegistryModalContent(snapshot);
+            document.getElementById('roster-modal-emp-select')?.focus();
+          },
+        },
+        ...rows.map((r) =>
+          h(
+            'option',
+            { value: r.empCode, selected: r.empCode === activeRow.empCode },
+            `No.${r.rowNo} ${r.empCode} ${r.displayName} (${r.deptName} · ${r.rosterClassificationBadge})`
+          )
+        )
+      ),
+      h(
+        'span',
+        {
+          className: !activeRow.statutoryRosterTarget
+            ? 'tag tag-gray'
+            : activeRow.isStatutoryComplete
+              ? 'tag tag-green'
+              : 'tag tag-amber',
+        },
+        !activeRow.statutoryRosterTarget
+          ? activeRow.rosterClassificationBadge
+          : activeRow.isStatutoryComplete
+            ? '법정 9대 기재항목 100% 완비 ✓'
+            : `법정 필수 보완필요 (${activeRow.missingStatutoryFields.join(', ')})`
+      )
+    ),
+    h(
+      'div',
+      { className: 'step-pill-group' },
+      h(
+        'button',
+        {
+          type: 'button',
+          className: 'btn btn-primary btn-sm',
+          onClick: () => {
+            appState.rosterDossierMode = 'UPDATE_SELECTED';
+            appState.rosterDossierTargetEmp = activeRow.empCode;
+            appState.rosterModalSubView = 'DOSSIER';
+            renderWorkerRegistryModalContent(snapshot);
+          },
+        },
+        '+ 이 직원에 PDF · 신분증사진 연결'
+      ),
+      h(
+        'button',
+        {
+          type: 'button',
+          className: 'btn btn-secondary btn-sm',
+          onClick: () => {
+            closeWorkerRegistryModal(false);
+            openWorkerInOnboardingStudio(activeRow.empCode);
+          },
+        },
+        '입사 3종 계약·동의서 서명창'
+      )
+    )
+  );
+
+  const advisoryNodes = [
+    ...(activeRow.missingStatutoryFields.length > 0
+      ? [
+          h(
+            'div',
+            { className: 'eval-alert-item sev-HIGH mb-6' },
+            `[근로기준법 시행령 제20조 필수기재 누락] ${activeRow.missingStatutoryFields.join(', ')} 항목을 입력하거나 신분증·계약서 PDF를 연결해 자동 채움 처리해 주세요.`
+          ),
+        ]
+      : []),
+    ...activeRow.legalAdvisories.map((msg) =>
+      h('div', { className: 'eval-alert-item sev-MEDIUM mb-6' }, msg)
+    ),
+  ];
+
+  const editForm = h(
+    'form',
+    {
+      className: 'ops-section-block',
+      onSubmit: async (e) => {
+        e.preventDefault();
+        const f = e.currentTarget;
+        const val = (name) => f.querySelector(`[name="${name}"]`)?.value ?? '';
+        await runOpsAction(
+          {
+            actionType: 'UPDATE_WORKER_ROSTER_PROFILE',
+            empCode: activeRow.empCode,
+            displayName: val('displayName'),
+            gender: val('gender'),
+            birthDate: val('birthDate'),
+            hireDate: val('hireDate'),
+            contractEndDate: val('contractEndDate'),
+            renewalDate: val('renewalDate'),
+            deptName: val('deptName'),
+            jobTitle: val('jobTitle'),
+            jobDuties: val('jobDuties'),
+            address: val('address'),
+            maskedPhone: val('maskedPhone'),
+            emergencyContact: val('emergencyContact'),
+            bankName: val('bankName'),
+            maskedAccountNo: val('maskedAccountNo'),
+            qualifications: val('qualifications'),
+            careerSummary: val('careerSummary'),
+            nationality: val('nationality'),
+            visaType: val('visaType'),
+            visaExpiryDate: val('visaExpiryDate'),
+            dailyUsedDays:
+              activeRow.workerCategory === 'DAILY' ? Number(val('dailyUsedDays') || 0) : undefined,
+          },
+          f.querySelector('button[type="submit"]')
+        );
+        document.getElementById('roster-modal-emp-select')?.focus();
+      },
+    },
+    h(
+      'div',
+      { className: 'ops-section-head' },
+      h('strong', { className: 'ops-section-title' }, '법정 근로자명부 기재사항 (근로기준법 제41조 · 시행령 제20조 제1~9호)'),
+      h('span', { className: 'cell-dept-name' }, '저장 시 제41조 제2항 변경·정정 이력이 자동 기록됩니다.')
+    ),
+    h(
+      'div',
+      { className: 'roster-grid-3' },
+      h('div', { className: 'field' }, h('label', { for: 'rm-name' }, '① 성명'), h('input', { id: 'rm-name', name: 'displayName', type: 'text', value: activeRow.displayName })),
+      h(
+        'div',
+        { className: 'field' },
+        h('label', { for: 'rm-gender' }, '② 성별'),
+        h(
+          'select',
+          { id: 'rm-gender', name: 'gender' },
+          h('option', { value: '', selected: !activeRow.gender }, '미기재'),
+          h('option', { value: '남', selected: activeRow.gender === '남' }, '남'),
+          h('option', { value: '여', selected: activeRow.gender === '여' }, '여')
+        )
+      ),
+      h('div', { className: 'field' }, h('label', { for: 'rm-birth' }, `③ 생년월일 (${activeRow.maskedBirthOrId})`), h('input', { id: 'rm-birth', name: 'birthDate', type: 'date', value: activeRow.birthDate })),
+      h('div', { className: 'field' }, h('label', { for: 'rm-dept' }, '소속 부서'), h('input', { id: 'rm-dept', name: 'deptName', type: 'text', value: activeRow.deptName })),
+      h('div', { className: 'field' }, h('label', { for: 'rm-title' }, '직위 · 직급'), h('input', { id: 'rm-title', name: 'jobTitle', type: 'text', value: activeRow.jobTitle })),
+      h('div', { className: 'field' }, h('label', { for: 'rm-duties' }, '⑥ 종사하는 업무의 종류'), h('input', { id: 'rm-duties', name: 'jobDuties', type: 'text', value: activeRow.jobDuties, placeholder: '구체적 담당 업무 기재' })),
+      h('div', { className: 'field' }, h('label', { for: 'rm-hire' }, '⑦ 고용(입사) 연월일'), h('input', { id: 'rm-hire', name: 'hireDate', type: 'date', value: activeRow.hireDate })),
+      h('div', { className: 'field' }, h('label', { for: 'rm-cend' }, '계약만료일 (기간제)'), h('input', { id: 'rm-cend', name: 'contractEndDate', type: 'date', value: activeRow.contractEndDate })),
+      h('div', { className: 'field' }, h('label', { for: 'rm-renew' }, '고용갱신 연월일'), h('input', { id: 'rm-renew', name: 'renewalDate', type: 'date', value: activeRow.renewalDate })),
+      h('div', { className: 'field' }, h('label', { for: 'rm-addr' }, '④ 거주지 주소'), h('input', { id: 'rm-addr', name: 'address', type: 'text', value: activeRow.address })),
+      h('div', { className: 'field' }, h('label', { for: 'rm-phone' }, '휴대전화 (마스킹)'), h('input', { id: 'rm-phone', name: 'maskedPhone', type: 'text', value: activeRow.maskedPhone, placeholder: '010-****-0000' })),
+      h('div', { className: 'field' }, h('label', { for: 'rm-emerg' }, '비상 연락망'), h('input', { id: 'rm-emerg', name: 'emergencyContact', type: 'text', value: activeRow.emergencyContact })),
+      h('div', { className: 'field' }, h('label', { for: 'rm-bank' }, '급여 은행 (제43조 직접불)'), h('input', { id: 'rm-bank', name: 'bankName', type: 'text', value: activeRow.bankName })),
+      h('div', { className: 'field' }, h('label', { for: 'rm-acct' }, '급여 계좌번호 (중간 마스킹)'), h('input', { id: 'rm-acct', name: 'maskedAccountNo', type: 'text', value: activeRow.maskedAccountNo })),
+      h('div', { className: 'field' }, h('label', { for: 'rm-qual' }, '⑤ 자격 · 면허 (쉼표 구분)'), h('input', { id: 'rm-qual', name: 'qualifications', type: 'text', value: activeRow.qualifications.join(', ') })),
+      h('div', { className: 'field' }, h('label', { for: 'rm-career' }, '⑤ 주요 이력 · 교육사항'), h('input', { id: 'rm-career', name: 'careerSummary', type: 'text', value: activeRow.careerSummary })),
+      h('div', { className: 'field' }, h('label', { for: 'rm-nat' }, '국적'), h('input', { id: 'rm-nat', name: 'nationality', type: 'text', value: activeRow.nationality })),
+      h('div', { className: 'field' }, h('label', { for: 'rm-visa' }, '외국인 체류자격 (예: E-7, E-9)'), h('input', { id: 'rm-visa', name: 'visaType', type: 'text', value: activeRow.visaType })),
+      h('div', { className: 'field' }, h('label', { for: 'rm-visa-exp' }, '체류기간 만료일'), h('input', { id: 'rm-visa-exp', name: 'visaExpiryDate', type: 'date', value: activeRow.visaExpiryDate })),
+      activeRow.workerCategory === 'DAILY'
+        ? h(
+            'div',
+            { className: 'field' },
+            h('label', { for: 'rm-daily-days' }, '일용 누적 사용일수 (30일 이상 시 명부 필수)'),
+            h('input', {
+              id: 'rm-daily-days',
+              name: 'dailyUsedDays',
+              type: 'number',
+              min: '0',
+              max: '365',
+              value: String(activeRow.dailyUsedDays || 0),
+            })
+          )
+        : null
+    ),
+    h(
+      'div',
+      { className: 'mt-12' },
+      h('button', { type: 'submit', className: 'btn btn-primary' }, '법정 근로자명부 저장 · 제41조② 정정이력 기록')
+    )
+  );
+
+  const attachmentsBlock = h(
+    'div',
+    { className: 'ops-section-block' },
+    h(
+      'div',
+      { className: 'ops-section-head' },
+      h('strong', { className: 'ops-section-title' }, `연결된 개인정보 · 신분증 · 계약서 증빙 편철대장 (${activeRow.dossierAttachments.length}건)`),
+      h('span', { className: 'tag tag-blue' }, '제42조 3년 보존 증빙목록 · 원본 병합PDF 로컬 보관 권장')
+    ),
+    activeRow.dossierAttachments.length === 0
+      ? h('div', { className: 'empty-state' }, '연결된 증빙 PDF가 없습니다. 상단 [+ 이 직원에 PDF · 신분증사진 연결] 버튼으로 신분증·계약서·통장 사진을 한 번에 연결하세요.')
+      : h(
+          'div',
+          {},
+          ...activeRow.dossierAttachments.map((att) =>
+            h(
+              'div',
+              { className: 'roster-attachment-card' },
+              h(
+                'div',
+                {},
+                h('div', { className: 'font-extrabold' }, `${att.binderTitle} (${att.fileName})`),
+                h(
+                  'div',
+                  { className: 'cell-dept-name' },
+                  `편철일 ${att.uploadedAt} · ${att.pageCount}페이지 · 증빙 해시(SHA-256) ${att.pdfSha256.slice(0, 16)}... · ${
+                    att.idMaskStatus === 'USER_VERIFIED'
+                      ? '사용자 육안확인 마스킹 완료'
+                      : att.idMaskStatus === 'AREA_UNVERIFIED'
+                        ? '표준영역 가림(미검증 — 다운로드 확인 필수)'
+                        : att.idBackMasked
+                          ? '텍스트 주민번호 비식별 마스킹 완료'
+                          : '일반문서'
+                  }`
+                ),
+                h(
+                  'div',
+                  { className: 'step-pill-group mt-6' },
+                  ...(att.docKinds || []).map((dk) => h('span', { className: 'tag tag-green' }, dk.label))
+                )
+              ),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'btn btn-secondary btn-sm',
+                  onClick: async (e) => {
+                    if (
+                      !window.confirm(
+                        '근로기준법 제42조(계약서류 3년 보존) 대상 증빙일 수 있습니다. 해당 통합 증빙 PDF 연결을 해제하시겠습니까?'
+                      )
+                    ) {
+                      return;
+                    }
+                    await runOpsAction(
+                      {
+                        actionType: 'DELETE_WORKER_DOSSIER_ATTACHMENT',
+                        empCode: activeRow.empCode,
+                        binderId: att.binderId,
+                      },
+                      e.currentTarget
+                    );
+                    document.getElementById('roster-modal-emp-select')?.focus();
+                  },
+                },
+                '연결 해제'
+              )
+            )
+          )
+        )
+  );
+
+  const changeLogBlock = h(
+    'div',
+    { className: 'ops-section-block' },
+    h(
+      'div',
+      { className: 'ops-section-head' },
+      h('strong', { className: 'ops-section-title' }, `근로기준법 제41조 제2항 기재사항 변경 · 정정 이력 (${activeRow.registryChangeLogs.length}건)`),
+      h('span', { className: 'cell-dept-name' }, '인사발령·계약갱신·서류연결 시 자동 적재')
+    ),
+    activeRow.registryChangeLogs.length === 0
+      ? h('div', { className: 'cell-dept-name' }, '최초 입사 등재 이후 변경·정정 내역이 없습니다.')
+      : h(
+          'ul',
+          { className: 'step-list' },
+          ...activeRow.registryChangeLogs.map((lg) =>
+            h('li', {}, `[${lg.changedAt}] ${lg.category} — ${lg.summary}`)
+          )
+        ),
+    h(
+      'details',
+      { className: 'details-card' },
+      h('summary', {}, '별지 제16호 서식 『법정 근로자명부』 텍스트 전문 미리보기'),
+      h('pre', { className: 'doc-paper-box' }, activeRow.statutoryForm16Body)
+    )
+  );
+
+  bodyEl.replaceChildren(modeSwitchBar, empSelectBar, ...advisoryNodes, editForm, attachmentsBlock, changeLogBlock);
+}
+
 function renderOpsOrgTab(snapshot) {
   const wrap = document.getElementById('ops-org-container');
   if (!wrap || !snapshot.operationsSuite) return;
-  const allWorkers = snapshot.workers || [];
-  const regularWorkers = allWorkers.filter(
+  const reg = snapshot.operationsSuite.orgAndAssignments?.workerRegistry;
+  const allRows = reg?.rows || [];
+  const regularWorkers = allRows.filter(
     (w) => w.workerCategory !== 'DAILY' && w.workerCategory !== 'BIZ_33'
   );
-  const visibleWorkers = applyStarFilter(allWorkers);
-
-  const catLabels = {
-    REGULAR: '정규직',
-    FIXED_TERM: '기간제',
-    PART_TIME: '단시간',
-    DAILY: '일용직',
-    BIZ_33: '3.3% 사업소득',
+  const visibleRows = applyStarFilter(allRows);
+  const sum = reg?.summary || {
+    totalRosterCount: allRows.length,
+    statutoryTargetCount: regularWorkers.length,
+    completeCount: 0,
+    incompleteCount: 0,
+    completionRatePct: 100,
+    pdfLinkedCount: 0,
+    contractor33Count: 0,
+    dailyExemptCount: 0,
+    retainedAlumniCount: 0,
   };
+
+  const kpiStrip = h(
+    'div',
+    { className: 'roster-kpi-strip code-diff-box' },
+    h(
+      'div',
+      { className: 'roster-kpi-card' },
+      h('span', { className: 'roster-kpi-label' }, '법정 근로자명부 완비율 (시행령 제20조 9호)'),
+      h(
+        'strong',
+        { className: 'roster-kpi-val' },
+        `${sum.completeCount} / ${sum.statutoryTargetCount}명 완비 (${sum.completionRatePct}%)`
+      ),
+      h(
+        'span',
+        { className: sum.incompleteCount > 0 ? 'tag tag-amber' : 'tag tag-green' },
+        sum.incompleteCount > 0 ? `필수기재 보완필요 ${sum.incompleteCount}명` : '전원 법정 필수항목 완비 ✓'
+      )
+    ),
+    h(
+      'div',
+      { className: 'roster-kpi-card' },
+      h('span', { className: 'roster-kpi-label' }, '신분증 · 계약서 · 통장 통합PDF 연결'),
+      h('strong', { className: 'roster-kpi-val' }, `${sum.pdfLinkedCount} / ${sum.totalRosterCount}명 연결됨`),
+      h('span', { className: 'tag tag-blue' }, '주민번호 텍스트 비식별 · 병합 PDF 해시 기록')
+    ),
+    h(
+      'div',
+      { className: 'roster-kpi-card' },
+      h('span', { className: 'roster-kpi-label' }, '작성예외 · 비근로자 법정 분리'),
+      h(
+        'strong',
+        { className: 'roster-kpi-val' },
+        `일용예외 ${sum.dailyExemptCount}명 · 3.3% 분리 ${sum.contractor33Count}명`
+      ),
+      h('span', { className: 'tag tag-gray' }, '시행령 제21조(30일미만) · 위장도급 혼재 방지')
+    ),
+    h(
+      'div',
+      { className: 'roster-kpi-card' },
+      h('span', { className: 'roster-kpi-label' }, '퇴직자 명부 3년 법정보존 (제42조)'),
+      h('strong', { className: 'roster-kpi-val' }, `${sum.retainedAlumniCount}명 보존 중`),
+      h('span', { className: 'tag tag-blue' }, '미작성·미보존 시 500만 원 이하 과태료')
+    )
+  );
 
   const assignForm = h(
     'form',
@@ -4094,7 +5899,7 @@ function renderOpsOrgTab(snapshot) {
     h(
       'div',
       { className: 'field' },
-      h('label', { for: 'asg-emp-select' }, '발령 대상 직원'),
+      h('label', { for: 'asg-emp-select' }, '발령 대상 직원 (제41조② 자동정정 연동)'),
       h(
         'select',
         { id: 'asg-emp-select', name: 'asgEmp', disabled: regularWorkers.length === 0 },
@@ -4129,93 +5934,204 @@ function renderOpsOrgTab(snapshot) {
       { className: 'field' },
       h(
         'button',
-        { type: 'submit', className: 'btn btn-primary full-width', disabled: regularWorkers.length === 0 },
-        '발령 적용'
+        { type: 'submit', className: 'btn btn-secondary full-width', disabled: regularWorkers.length === 0 },
+        '발령 적용 · 명부 정정'
+      )
+    )
+  );
+
+  const lawReviewDetails = h(
+    'details',
+    { className: 'details-card' },
+    h(
+      'summary',
+      {},
+      '⚖ 법정 근로자명부 전수 법률 검토 기준 (근로기준법 제41조·제42조·시행령 제20~22조·개인정보보호법·채용절차법 10대 준수항목)'
+    ),
+    h(
+      'div',
+      { className: 'roster-law-grid' },
+      ...(reg?.legalChecklist || []).map((item) =>
+        h(
+          'div',
+          { className: 'roster-law-card' },
+          h('div', { className: 'tag tag-blue mb-6' }, item.clause),
+          h('div', { className: 'font-extrabold mb-6' }, item.title),
+          h('div', { className: 'cell-dept-name' }, item.requirement)
+        )
       )
     )
   );
 
   const rosterAndCertSection = h(
     'div',
-    { className: 'ops-section-block' },
+    { className: 'ops-section-block code-diff-box' },
     h(
       'div',
       { className: 'ops-section-head' },
-      h('h3', { className: 'ops-section-title' }, '직원 명부 (전 메뉴 번호 · 사번 동기화)'),
-      renderRosterSyncControls(allWorkers, renderOpsOrgTab)
+      h(
+        'div',
+        { className: 'step-pill-group' },
+        h('h3', { className: 'ops-section-title' }, '법정 근로자명부 · 인사증빙 PDF 통합관리 (전 메뉴 번호 · 사번 동기화)'),
+        h('span', { className: 'code-diff-pill' }, '변경됨 · 직원 클릭 시 별지 제16호 팝업 + 사진·계약서 단일PDF 자동정리')
+      ),
+      h(
+        'div',
+        { className: 'step-pill-group' },
+        h(
+          'button',
+          {
+            type: 'button',
+            id: 'btn-open-dossier-studio',
+            className: 'btn btn-primary btn-sm',
+            onClick: (e) => {
+              appState.rosterDossierMode = 'NEW_WORKER';
+              openWorkerRegistryModal(null, 'DOSSIER', e.currentTarget);
+            },
+          },
+          '+ PDF · 신분증사진 연결 → 직원 자동등록·정리'
+        ),
+        h(
+          'button',
+          {
+            type: 'button',
+            id: 'btn-print-all-roster',
+            className: 'btn btn-secondary btn-sm',
+            onClick: (e) => {
+              const checkedTargets = allRows.filter((r) => r.checked);
+              const targets =
+                checkedTargets.length > 0
+                  ? checkedTargets
+                  : allRows.filter((r) => r.statutoryRosterTarget);
+              openStatutoryForm16PrintSheet(snapshot, targets, e.currentTarget);
+            },
+          },
+          '법정 근로자명부(별지 제16호) 인쇄'
+        ),
+        renderRosterSyncControls(allRows, renderOpsOrgTab)
+      )
     ),
+    kpiStrip,
+    lawReviewDetails,
     assignForm,
     h(
       'div',
       { className: 'table-scroll-wrap' },
       h(
         'table',
-        { className: 'payroll-table', 'aria-label': '직원 명부' },
+        { className: 'payroll-table', 'aria-label': '법정 직원 명부' },
         h(
           'thead',
           {},
           h(
             'tr',
             {},
-            renderMasterSelectHeaderTh(allWorkers, '직원 명부'),
-            h('th', { scope: 'col' }, '사번 · 이름'),
-            h('th', { scope: 'col' }, '부서 · 고용구분'),
-            h('th', { scope: 'col' }, '상태'),
+            renderMasterSelectHeaderTh(allRows, '직원 명부'),
+            h('th', { scope: 'col' }, '사번 · 성명 · 성별/생년'),
+            h('th', { scope: 'col' }, '부서 · 종사업무(제6호)'),
+            h('th', { scope: 'col' }, '고용/계약기간(제7호) · 급여계좌'),
+            h('th', { scope: 'col' }, '법정명부 판정 · 증빙PDF'),
             h('th', { scope: 'col', className: 'num' }, '기준 급여'),
-            h('th', { scope: 'col' }, '서류 · 명세서')
+            h('th', { scope: 'col' }, '명부카드 · 서류')
           )
         ),
         h(
           'tbody',
           {},
-          visibleWorkers.length === 0
+          visibleRows.length === 0
             ? [
                 h(
                   'tr',
                   {},
                   h(
                     'td',
-                    { colspan: '6' },
-                    allWorkers.length === 0 ? '등록된 직원이 없습니다.' : '표시할 별표(★) 직원이 없습니다.'
+                    { colspan: '7' },
+                    allRows.length === 0 ? '등록된 직원이 없습니다.' : '표시할 별표(★) 직원이 없습니다.'
                   )
                 ),
               ]
-            : visibleWorkers.map((w) => {
-                const refPay =
-                  w.baseMonthlyPay || w.contractFee || (w.dailyWage || 0) * (w.dailyWorkDays || 0);
-                return h(
+            : visibleRows.map((w) =>
+                h(
                   'tr',
                   {},
                   renderMasterMarkTd(w),
                   h(
                     'td',
-                    { 'data-label': '사번 · 이름' },
+                    { 'data-label': '사번 · 성명 · 성별/생년' },
                     h('div', { className: 'cell-emp-code' }, w.empCode),
-                    h('div', { className: 'breakable-name' }, w.displayName)
-                  ),
-                  h(
-                    'td',
-                    { 'data-label': '부서 · 고용구분' },
-                    h('div', {}, w.deptName),
+                    h(
+                      'button',
+                      {
+                        type: 'button',
+                        className: 'roster-name-btn breakable-name',
+                        onClick: (e) => openWorkerRegistryModal(w.empCode, 'CARD', e.currentTarget),
+                      },
+                      w.displayName
+                    ),
                     h(
                       'div',
                       { className: 'cell-dept-name' },
-                      `${catLabels[w.workerCategory] || w.workerCategory} · ${w.jobTitle || '담당'}`
+                      `${w.gender || '성별미기재'} · ${w.birthDate || w.maskedBirthOrId}`
                     )
                   ),
                   h(
                     'td',
-                    { 'data-label': '상태' },
+                    { 'data-label': '부서 · 종사업무(제6호)' },
+                    h('div', { className: 'font-extrabold' }, `${w.deptName || '미배정'} · ${w.jobTitle || '직위미기재'}`),
+                    h('div', { className: 'cell-dept-name' }, w.jobDuties || '종사업무 미기재 (보완필요)'),
+                    h('div', { className: 'cell-dept-name' }, w.workerCategoryLabel)
+                  ),
+                  h(
+                    'td',
+                    { 'data-label': '고용/계약기간(제7호) · 급여계좌' },
                     h(
-                      'span',
-                      { className: (w.unpaidLeaveDays || 0) > 0 ? 'tag tag-amber' : 'tag tag-green' },
-                      (w.unpaidLeaveDays || 0) > 0 ? `휴직 (${w.unpaidLeaveDays}일)` : '재직'
-                    )
+                      'div',
+                      {},
+                      `고용 ${w.hireDate || '미기재'}${w.contractEndDate ? ` ~ ${w.contractEndDate}` : ''}`
+                    ),
+                    h(
+                      'div',
+                      { className: 'cell-dept-name' },
+                      w.bankName ? `${w.bankName} ${w.maskedAccountNo}` : '급여통장 사본 미연결'
+                    ),
+                    w.visaType
+                      ? h('span', { className: 'tag tag-blue' }, `체류 ${w.visaType}`)
+                      : null
                   ),
-                  h('td', { className: 'num', 'data-label': '기준 급여' }, fmtWon(refPay)),
                   h(
                     'td',
-                    { 'data-label': '서류 · 명세서' },
+                    { 'data-label': '법정명부 판정 · 증빙PDF' },
+                    h(
+                      'div',
+                      { className: 'step-pill-group' },
+                      h(
+                        'span',
+                        {
+                          className: !w.statutoryRosterTarget
+                            ? 'tag tag-gray'
+                            : w.isStatutoryComplete
+                              ? 'tag tag-green'
+                              : 'tag tag-amber',
+                        },
+                        !w.statutoryRosterTarget
+                          ? w.rosterClassificationBadge
+                          : w.isStatutoryComplete
+                            ? '법정 9항목 완비 ✓'
+                            : `보완 (${w.missingStatutoryFields.length}건)`
+                      ),
+                      h(
+                        'span',
+                        { className: w.dossierAttachments.length > 0 ? 'tag tag-blue' : 'tag tag-gray' },
+                        w.dossierAttachments.length > 0
+                          ? `통합PDF ${w.dossierAttachments.length}건`
+                          : '증빙PDF 없음'
+                      )
+                    )
+                  ),
+                  h('td', { className: 'num', 'data-label': '기준 급여' }, fmtWon(w.referencePay)),
+                  h(
+                    'td',
+                    { 'data-label': '명부카드 · 서류' },
                     h(
                       'div',
                       { className: 'step-pill-group' },
@@ -4224,9 +6140,19 @@ function renderOpsOrgTab(snapshot) {
                         {
                           type: 'button',
                           className: 'btn btn-primary btn-sm',
+                          dataset: { rosterOpenEmp: w.empCode },
+                          onClick: (e) => openWorkerRegistryModal(w.empCode, 'CARD', e.currentTarget),
+                        },
+                        '명부카드 · PDF증빙'
+                      ),
+                      h(
+                        'button',
+                        {
+                          type: 'button',
+                          className: 'btn btn-secondary btn-sm',
                           onClick: () => openWorkerInOnboardingStudio(w.empCode),
                         },
-                        '입사 3종 서식 · 서명'
+                        '입사 3종 서명'
                       ),
                       w.workerCategory !== 'BIZ_33'
                         ? h(
@@ -4251,8 +6177,8 @@ function renderOpsOrgTab(snapshot) {
                       )
                     )
                   )
-                );
-              })
+                )
+              )
         )
       )
     )
@@ -5989,11 +7915,1245 @@ function renderOpsLeaveTab(snapshot) {
   }
 }
 
+function renderEvalRoleBar(studio) {
+  const roles = [
+    { key: 'CONSULTANT', label: '컨설턴트 (전체 모듈 조립)' },
+    { key: 'HR_ADMIN', label: '회사 관리자 (예산·보정·확정)' },
+    { key: 'EVALUATOR', label: '평가자 (팀장·동료 채점)' },
+    { key: 'EMPLOYEE', label: '직원 (목표·자기평가·통지)' },
+  ];
+  return h(
+    'div',
+    { className: 'eval-role-bar code-diff-box' },
+    h(
+      'div',
+      {},
+      h('strong', {}, `대상 고객사: ${studio.clientProfile.clientName}`),
+      h(
+        'div',
+        { className: 'muted-hint' },
+        `활성 모듈 ${studio.catalogStats.enabledModulesCount}/${studio.catalogStats.totalModules}개 · 직무역량 ${studio.catalogStats.selectedCompCount}문항 · KPI ${studio.catalogStats.selectedKpiCount}개 · 가중치(성과 ${studio.params.kpiWeightPct}% / 역량 ${studio.params.compWeightPct}% / 다면 ${studio.params.peerWeightPct}%)`
+      )
+    ),
+    h(
+      'div',
+      { className: 'eval-role-pills' },
+      ...roles.map((r) =>
+        h(
+          'button',
+          {
+            type: 'button',
+            'aria-pressed': String(studio.activeRoleView === r.key),
+            className: studio.activeRoleView === r.key ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm',
+            onClick: (e) => runOpsAction({ actionType: 'EVAL_SET_ROLE_VIEW', role: r.key }, e.currentTarget),
+          },
+          r.label
+        )
+      )
+    )
+  );
+}
+
+function renderEvalBuilderTab(snapshot) {
+  const wrap = document.getElementById('eval-builder-container');
+  const studio = snapshot.operationsSuite?.evaluationAndReward?.studio;
+  if (!wrap || !studio) return;
+
+  const prof = studio.clientProfile;
+  const enabledSet = new Set(studio.enabledModules);
+  const clientNameIn = h('input', { id: 'eval-client-name-in', type: 'text', value: prof.clientName });
+  const industrySel = h(
+    'select',
+    { id: 'eval-industry-sel' },
+    ...[
+      'IT·웹·통신업',
+      '제조·화학업',
+      '판매·유통업',
+      '서비스업',
+      '의료·제약·복지업',
+      '교육업',
+      '건설업',
+      '미디어·디자인업',
+      '은행·금융업',
+      '기관·협회',
+    ].map((ind) => h('option', { value: ind, selected: prof.industry === ind }, ind))
+  );
+  const sizeSel = h(
+    'select',
+    { id: 'eval-size-sel' },
+    ...['100인미만', '100인이상'].map((sz) => h('option', { value: sz, selected: prof.sizeBand === sz }, sz))
+  );
+  const cultureSel = h(
+    'select',
+    { id: 'eval-culture-sel' },
+    ...[
+      { v: 'AGILE', l: '애자일·성장·OKR 중심' },
+      { v: 'STABLE', l: '안정·숙련·호봉/근속 중심' },
+      { v: 'STRUCTURED', l: '직무급·일터혁신 체계 중심' },
+      { v: 'PERFORMANCE', l: '매출·커미션·고성과 차등 중심' },
+      { v: 'COLLABORATIVE', l: '전문직·다면피드백 협업 중심' },
+      { v: 'FAIRNESS', l: '공공·노조·공정성·절차 중심' },
+    ].map((c) => h('option', { value: c.v, selected: prof.cultureType === c.v }, c.l))
+  );
+  const unionChk = h('input', { id: 'eval-union-chk', type: 'checkbox', checked: prof.hasUnion });
+
+  const diagSection = h(
+    'div',
+    { className: 'ops-section-block code-diff-box' },
+    h(
+      'div',
+      { className: 'ops-section-head' },
+      h('h3', { className: 'ops-section-title' }, '1. 고객사 기업 진단 · 맞춤 평가보상 프리셋 추천'),
+      h('span', { className: 'code-diff-pill' }, '변경됨')
+    ),
+    h(
+      'div',
+      { className: 'eval-form-grid' },
+      h('label', { className: 'field-group' }, h('span', {}, '고객사(회사)명'), clientNameIn),
+      h('label', { className: 'field-group' }, h('span', {}, '산업(업종)'), industrySel),
+      h('label', { className: 'field-group' }, h('span', {}, '규모'), sizeSel),
+      h('label', { className: 'field-group' }, h('span', {}, '조직문화·지향점'), cultureSel),
+      h(
+        'label',
+        { className: 'checkbox-inline' },
+        unionChk,
+        h('span', {}, '노조·노사협의회(집단동의 필요)')
+      ),
+      h(
+        'button',
+        {
+          type: 'button',
+          id: 'btn-eval-auto-diagnose',
+          className: 'btn btn-primary btn-sm',
+          onClick: (e) =>
+            runOpsAction(
+              {
+                actionType: 'EVAL_APPLY_DIAGNOSTIC_PRESET',
+                clientName: clientNameIn.value,
+                industry: industrySel.value,
+                sizeBand: sizeSel.value,
+                cultureType: cultureSel.value,
+                hasUnion: unionChk.checked,
+              },
+              e.currentTarget
+            ),
+        },
+        '조건 진단 · 최적 모듈 자동 추천 적용'
+      )
+    ),
+    h(
+      'div',
+      { className: 'eval-preset-grid' },
+      ...studio.catalog.presets.map((p) => {
+        const isAct = prof.activePresetId === p.id;
+        return h(
+          'div',
+          { className: isAct ? 'eval-preset-card is-active' : 'eval-preset-card' },
+          h(
+            'div',
+            {},
+            h('strong', {}, p.name),
+            h('p', { className: 'eval-module-desc' }, p.tagline),
+            h(
+              'div',
+              { className: 'step-pill-group' },
+              h('span', { className: 'tag tag-blue' }, `모듈 ${p.modules.length}개`),
+              h('span', { className: 'tag tag-gray' }, `${p.weights.kpi}/${p.weights.competency}/${p.weights.peer}`)
+            )
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              'aria-pressed': String(isAct),
+              className: isAct ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm',
+              onClick: (e) =>
+                runOpsAction(
+                  {
+                    actionType: 'EVAL_APPLY_DIAGNOSTIC_PRESET',
+                    presetId: p.id,
+                    clientName: clientNameIn.value,
+                  },
+                  e.currentTarget
+                ),
+            },
+            isAct ? '현재 적용 중 ✓' : '이 프리셋으로 일괄 조립'
+          )
+        );
+      })
+    )
+  );
+
+  // 가중치 및 보상 파라미터
+  const kpiWIn = h('input', { type: 'number', min: '0', max: '100', value: String(studio.params.kpiWeightPct) });
+  const compWIn = h('input', { type: 'number', min: '0', max: '100', value: String(studio.params.compWeightPct) });
+  const peerWIn = h('input', { type: 'number', min: '0', max: '100', value: String(studio.params.peerWeightPct) });
+  const capIn = h('input', { type: 'number', step: '0.1', min: '0', max: '30', value: String(studio.params.annualBudgetCapPct) });
+  const psPoolIn = h('input', { type: 'number', step: '1000000', min: '0', value: String(studio.params.psPoolAmount) });
+
+  const paramSection = h(
+    'div',
+    { className: 'ops-section-block' },
+    h('h3', { className: 'ops-section-title' }, '2. 평가 가중치 · 인건비 예산 상한 · PS/성과배분 재원'),
+    h(
+      'div',
+      { className: 'eval-form-grid' },
+      h('label', { className: 'field-group' }, h('span', {}, '성과(KPI/OKR) 가중치(%)'), kpiWIn),
+      h('label', { className: 'field-group' }, h('span', {}, '역량/숙련 가중치(%)'), compWIn),
+      h('label', { className: 'field-group' }, h('span', {}, '360° 다면 가중치(%)'), peerWIn),
+      h('label', { className: 'field-group' }, h('span', {}, '인상 예산 상한(%)'), capIn),
+      h('label', { className: 'field-group' }, h('span', {}, 'PS 초과이익 배분풀(원)'), psPoolIn),
+      h(
+        'button',
+        {
+          type: 'button',
+          className: 'btn btn-primary btn-sm',
+          onClick: (e) =>
+            runOpsAction(
+              {
+                actionType: 'EVAL_UPDATE_PARAMS',
+                clientName: clientNameIn.value,
+                kpiWeightPct: Number(kpiWIn.value),
+                compWeightPct: Number(compWIn.value),
+                peerWeightPct: Number(peerWIn.value),
+                annualBudgetCapPct: Number(capIn.value),
+                psPoolAmount: Number(psPoolIn.value),
+              },
+              e.currentTarget
+            ),
+        },
+        '가중치·예산 저장'
+      )
+    )
+  );
+
+  // 6대 레이어 33개 모듈 조립기
+  const layersSection = h(
+    'div',
+    { className: 'ops-section-block' },
+    h(
+      'div',
+      { className: 'ops-section-head' },
+      h('h3', { className: 'ops-section-title' }, '3. 대한민국 전체 평가·보상 6대 레이어 33개 모듈 조립기'),
+      h('span', { className: 'tag tag-blue' }, `고객사 탑재 중: ${enabledSet.size} / ${studio.catalog.modules.length}개`)
+    ),
+    ...studio.catalog.layers.map((layer) => {
+      const mods = studio.catalog.modules.filter((m) => m.layer === layer.id);
+      return h(
+        'div',
+        { className: 'eval-layer-section' },
+        h('strong', {}, `${layer.name} (${mods.filter((m) => enabledSet.has(m.code)).length}/${mods.length})`),
+        h('p', { className: 'eval-module-desc' }, layer.desc),
+        h(
+          'div',
+          { className: 'eval-module-grid' },
+          ...mods.map((m) => {
+            const on = enabledSet.has(m.code);
+            return h(
+              'div',
+              { className: on ? 'eval-module-card is-enabled' : 'eval-module-card' },
+              h(
+                'div',
+                { className: 'eval-module-card-head' },
+                h(
+                  'div',
+                  {},
+                  h('div', { className: 'eval-module-name' }, m.name),
+                  h('span', { className: 'tag tag-gray' }, `${m.code} · ${m.origin}`)
+                ),
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: on ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm',
+                    'aria-pressed': String(on),
+                    onClick: (e) =>
+                      runOpsAction(
+                        { actionType: 'EVAL_TOGGLE_MODULE', moduleCode: m.code, enabled: !on },
+                        e.currentTarget
+                      ),
+                  },
+                  on ? '탑재 ON' : '미포함'
+                )
+              ),
+              h('p', { className: 'eval-module-desc' }, m.summary),
+              h('div', { className: 'muted-hint' }, `적합: ${m.bestFor}`),
+              h('div', { className: 'muted-hint' }, `⚖️ ${m.legalRiskTag}`)
+            );
+          })
+        )
+      );
+    })
+  );
+
+  // 노동법 가드레일 진단 + 국내 HR SaaS 비교
+  const legalSection = h(
+    'div',
+    { className: 'ops-section-block' },
+    h(
+      'div',
+      { className: 'ops-section-head' },
+      h('h3', { className: 'ops-section-title' }, '4. 푸른노무법인 노동법 가드레일 자동 진단'),
+      h(
+        'span',
+        { className: studio.legalGuardrails.highRiskCount > 0 ? 'tag tag-amber' : 'tag tag-green' },
+        `고위험 ${studio.legalGuardrails.highRiskCount} · 주의 ${studio.legalGuardrails.mediumRiskCount}`
+      )
+    ),
+    h(
+      'div',
+      { className: 'eval-alert-list' },
+      ...studio.legalGuardrails.alerts.map((al) =>
+        h(
+          'div',
+          { className: `eval-alert-item sev-${al.severity}` },
+          h('strong', {}, `[${al.lawRef}] ${al.title}`),
+          h('p', { className: 'eval-module-desc' }, al.detail),
+          h('div', { className: 'muted-hint' }, `👉 권고 조치: ${al.actionHint}`)
+        )
+      )
+    )
+  );
+
+  const benchSection = h(
+    'details',
+    { className: 'details-card' },
+    h('summary', {}, '국내 주요 HR 평가·보상 SaaS 및 방법론 비교 매트릭스 (7종)'),
+    h(
+      'div',
+      { className: 'table-scroll-wrap' },
+      h(
+        'table',
+        { className: 'payroll-table', 'aria-label': '국내 주요 HR 평가·보상 SaaS 및 방법론 비교 매트릭스' },
+        h(
+          'thead',
+          {},
+          h(
+            'tr',
+            {},
+            h('th', { scope: 'col' }, '프로그램 / 방법론'),
+            h('th', { scope: 'col' }, '분류'),
+            h('th', { scope: 'col' }, '핵심 강점'),
+            h('th', { scope: 'col' }, '한계 · 보완점')
+          )
+        ),
+        h(
+          'tbody',
+          {},
+          ...studio.catalog.benchmarks.map((b) =>
+            h(
+              'tr',
+              {},
+              h('td', { 'data-label': '프로그램 / 방법론' }, b.vendor),
+              h('td', { 'data-label': '분류' }, b.category),
+              h('td', { 'data-label': '핵심 강점' }, b.strengths),
+              h('td', { 'data-label': '한계 · 보완점' }, b.gap)
+            )
+          )
+        )
+      )
+    )
+  );
+
+  wrap.replaceChildren(
+    renderEvalRoleBar(studio),
+    diagSection,
+    paramSection,
+    layersSection,
+    legalSection,
+    benchSection
+  );
+}
+
+function renderEvalGaingeTab(snapshot) {
+  const wrap = document.getElementById('eval-gainge-container');
+  const studio = snapshot.operationsSuite?.evaluationAndReward?.studio;
+  if (!wrap || !studio) return;
+
+  const subViews = [
+    { key: 'COMP_400', label: `직무역량 문항 (${studio.catalogStats.totalCompItems})` },
+    { key: 'KPI_200', label: `직무별 KPI (${studio.catalogStats.totalKpiItems})` },
+    { key: 'SAL_200', label: `산업·규모별 연봉 (${studio.catalogStats.totalSalaryTables})` },
+    { key: 'HOBONG_25', label: '가인지 25호봉 시뮬레이터' },
+    { key: 'OKR_360', label: 'OKR 10종 · 역량 갭 · 360° 피드백' },
+  ];
+
+  const nav = h(
+    'div',
+    { className: 'eval-sub-nav' },
+    ...subViews.map((sv) =>
+      h(
+        'button',
+        {
+          type: 'button',
+          'aria-pressed': String(appState.evalGaingeView === sv.key),
+          className: appState.evalGaingeView === sv.key ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm',
+          onClick: () => {
+            appState.evalGaingeView = sv.key;
+            renderEvalGaingeTab(snapshot);
+          },
+        },
+        sv.label
+      )
+    )
+  );
+
+  const prevActive = document.activeElement;
+  const wasSearchFocused = prevActive && prevActive.id === 'eval-gainge-search';
+  const prevCaret = wasSearchFocused && typeof prevActive.selectionStart === 'number'
+    ? prevActive.selectionStart
+    : null;
+
+  const searchInput = h('input', {
+    id: 'eval-gainge-search',
+    type: 'text',
+    'aria-label': '가인지 라이브러리 키워드 검색',
+    placeholder: '키워드 검색 (직무·지표·세부업종...)',
+    value: appState.evalSearchText,
+    onInput: (e) => {
+      appState.evalSearchText = e.currentTarget.value;
+      renderEvalGaingeTab(snapshot);
+    },
+  });
+
+  const q = appState.evalSearchText.trim().toLowerCase();
+  const bodyBlocks = [];
+
+  if (appState.evalGaingeView === 'COMP_400') {
+    const selectedSet = new Set(studio.selectedCompetencyIds);
+    const roles = ['전체', ...studio.catalog.compRoles];
+    const roleSel = h(
+      'select',
+      {
+        'aria-label': '직무역량 직무 필터',
+        onChange: (e) => {
+          appState.evalCompRoleFilter = e.currentTarget.value;
+          renderEvalGaingeTab(snapshot);
+        },
+      },
+      ...roles.map((r) => h('option', { value: r, selected: appState.evalCompRoleFilter === r }, r))
+    );
+    const filtered = studio.catalog.compItems.filter(
+      (c) =>
+        (appState.evalCompRoleFilter === '전체' || c.role === appState.evalCompRoleFilter) &&
+        (!q || c.title.toLowerCase().includes(q) || c.definition.toLowerCase().includes(q) || c.role.toLowerCase().includes(q))
+    );
+    const roleTargets = appState.evalCompRoleFilter !== '전체'
+      ? studio.catalog.compItems.filter((c) => c.role === appState.evalCompRoleFilter)
+      : [];
+    const allRoleSelected = roleTargets.length > 0 && roleTargets.every((c) => selectedSet.has(c.id));
+    bodyBlocks.push(
+      h(
+        'div',
+        { className: 'ops-section-block code-diff-box' },
+        h(
+          'div',
+          { className: 'ops-section-head' },
+          h('h3', { className: 'ops-section-title' }, `가인지컨설팅그룹 직무별 평가문항리스트 (${filtered.length}/${studio.catalog.compItems.length}문항)`),
+          h(
+            'div',
+            { className: 'step-pill-group' },
+            roleSel,
+            searchInput,
+            appState.evalCompRoleFilter !== '전체'
+              ? h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: allRoleSelected ? 'btn btn-secondary btn-sm' : 'btn btn-primary btn-sm',
+                    onClick: (e) =>
+                      runOpsAction(
+                        {
+                          actionType: 'EVAL_TOGGLE_COMPETENCY_ITEM',
+                          roleBulk: appState.evalCompRoleFilter,
+                          include: !allRoleSelected,
+                        },
+                        e.currentTarget
+                      ),
+                  },
+                  allRoleSelected ? `${appState.evalCompRoleFilter} 전체 해제` : `${appState.evalCompRoleFilter} 전체 편입`
+                )
+              : null
+          )
+        ),
+        h(
+          'div',
+          { className: 'table-scroll-wrap' },
+          h(
+            'table',
+            { className: 'payroll-table', 'aria-label': '가인지 직무별 평가문항 목록' },
+            h(
+              'thead',
+              {},
+              h(
+                'tr',
+                {},
+                h('th', { scope: 'col' }, '편입'),
+                h('th', { scope: 'col' }, '직무'),
+                h('th', { scope: 'col' }, '역량 항목'),
+                h('th', { scope: 'col' }, '사전적 정의'),
+                h('th', { scope: 'col' }, '행동기반 평가 기준')
+              )
+            ),
+            h(
+              'tbody',
+              {},
+              ...(filtered.length === 0
+                ? [h('tr', {}, h('td', { colspan: '5' }, '조건에 맞는 직무역량 평가문항이 없습니다.'))]
+                : filtered.map((c) => {
+                    const inc = selectedSet.has(c.id);
+                    return h(
+                      'tr',
+                      {},
+                      h(
+                        'td',
+                        { 'data-label': '편입' },
+                        h(
+                          'button',
+                          {
+                            type: 'button',
+                            'aria-pressed': String(inc),
+                            className: inc ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm',
+                            onClick: (e) =>
+                              runOpsAction(
+                                { actionType: 'EVAL_TOGGLE_COMPETENCY_ITEM', itemId: c.id, include: !inc },
+                                e.currentTarget
+                              ),
+                          },
+                          inc ? '편입 ✓' : '담기'
+                        )
+                      ),
+                      h('td', { 'data-label': '직무' }, c.role),
+                      h('td', { 'data-label': '역량 항목' }, `${c.no}. ${c.title}`),
+                      h('td', { 'data-label': '사전적 정의' }, c.definition),
+                      h('td', { 'data-label': '행동기반 평가 기준' }, c.criteria)
+                    );
+                  }))
+            )
+          )
+        )
+      )
+    );
+  } else if (appState.evalGaingeView === 'KPI_200') {
+    const selectedSet = new Set(studio.selectedKpiIds);
+    const roles = ['전체', ...studio.catalog.kpiRoles];
+    const roleSel = h(
+      'select',
+      {
+        'aria-label': '직무별 KPI 직무 필터',
+        onChange: (e) => {
+          appState.evalKpiRoleFilter = e.currentTarget.value;
+          renderEvalGaingeTab(snapshot);
+        },
+      },
+      ...roles.map((r) => h('option', { value: r, selected: appState.evalKpiRoleFilter === r }, r))
+    );
+    const filtered = studio.catalog.kpiItems.filter(
+      (k) =>
+        (appState.evalKpiRoleFilter === '전체' || k.role === appState.evalKpiRoleFilter) &&
+        (!q || k.name.toLowerCase().includes(q) || k.definition.toLowerCase().includes(q) || k.role.toLowerCase().includes(q))
+    );
+    const roleTargets = appState.evalKpiRoleFilter !== '전체'
+      ? studio.catalog.kpiItems.filter((k) => k.role === appState.evalKpiRoleFilter)
+      : [];
+    const allRoleSelected = roleTargets.length > 0 && roleTargets.every((k) => selectedSet.has(k.id));
+    bodyBlocks.push(
+      h(
+        'div',
+        { className: 'ops-section-block code-diff-box' },
+        h(
+          'div',
+          { className: 'ops-section-head' },
+          h('h3', { className: 'ops-section-title' }, `가인지 직무별 KPI 샘플 (${filtered.length}/${studio.catalog.kpiItems.length}지표)`),
+          h(
+            'div',
+            { className: 'step-pill-group' },
+            roleSel,
+            searchInput,
+            appState.evalKpiRoleFilter !== '전체'
+              ? h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: allRoleSelected ? 'btn btn-secondary btn-sm' : 'btn btn-primary btn-sm',
+                    onClick: (e) =>
+                      runOpsAction(
+                        {
+                          actionType: 'EVAL_TOGGLE_KPI_ITEM',
+                          roleBulk: appState.evalKpiRoleFilter,
+                          include: !allRoleSelected,
+                        },
+                        e.currentTarget
+                      ),
+                  },
+                  allRoleSelected ? `${appState.evalKpiRoleFilter} 일괄 해제` : `${appState.evalKpiRoleFilter} 일괄 편입`
+                )
+              : null
+          )
+        ),
+        h(
+          'div',
+          { className: 'table-scroll-wrap' },
+          h(
+            'table',
+            { className: 'payroll-table', 'aria-label': '가인지 직무별 KPI 샘플 목록' },
+            h(
+              'thead',
+              {},
+              h(
+                'tr',
+                {},
+                h('th', { scope: 'col' }, '편입'),
+                h('th', { scope: 'col' }, '직무'),
+                h('th', { scope: 'col' }, '핵심 성과지표명'),
+                h('th', { scope: 'col' }, '정의'),
+                h('th', { scope: 'col' }, '산출식')
+              )
+            ),
+            h(
+              'tbody',
+              {},
+              ...(filtered.length === 0
+                ? [h('tr', {}, h('td', { colspan: '5' }, '조건에 맞는 KPI 지표가 없습니다.'))]
+                : filtered.map((k) => {
+                    const inc = selectedSet.has(k.id);
+                    return h(
+                      'tr',
+                      {},
+                      h(
+                        'td',
+                        { 'data-label': '편입' },
+                        h(
+                          'button',
+                          {
+                            type: 'button',
+                            'aria-pressed': String(inc),
+                            className: inc ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm',
+                            onClick: (e) =>
+                              runOpsAction(
+                                { actionType: 'EVAL_TOGGLE_KPI_ITEM', itemId: k.id, include: !inc },
+                                e.currentTarget
+                              ),
+                          },
+                          inc ? '편입 ✓' : '담기'
+                        )
+                      ),
+                      h('td', { 'data-label': '직무' }, k.role),
+                      h('td', { 'data-label': '핵심 성과지표명' }, k.name),
+                      h('td', { 'data-label': '정의' }, k.definition),
+                      h('td', { 'data-label': '산출식' }, k.formula)
+                    );
+                  }))
+            )
+          )
+        )
+      )
+    );
+  } else if (appState.evalGaingeView === 'SAL_200') {
+    const industries = ['전체', ...new Set(studio.catalog.salarySheets.map((s) => s.industry))];
+    const indSel = h(
+      'select',
+      {
+        'aria-label': '연봉테이블 산업 필터',
+        onChange: (e) => {
+          appState.evalSalaryIndustryFilter = e.currentTarget.value;
+          renderEvalGaingeTab(snapshot);
+        },
+      },
+      ...industries.map((ind) => h('option', { value: ind, selected: appState.evalSalaryIndustryFilter === ind }, ind))
+    );
+    const szSel = h(
+      'select',
+      {
+        'aria-label': '연봉테이블 규모 필터',
+        onChange: (e) => {
+          appState.evalSalarySizeFilter = e.currentTarget.value;
+          renderEvalGaingeTab(snapshot);
+        },
+      },
+      ...['전체', '100인미만', '100인이상'].map((sz) => h('option', { value: sz, selected: appState.evalSalarySizeFilter === sz }, sz))
+    );
+    const filtered = studio.catalog.salaryTablesSummary.filter(
+      (t) =>
+        (appState.evalSalaryIndustryFilter === '전체' || t.industry === appState.evalSalaryIndustryFilter) &&
+        (appState.evalSalarySizeFilter === '전체' || t.sizeBand === appState.evalSalarySizeFilter) &&
+        (!q || t.subIndustry.toLowerCase().includes(q) || t.region.toLowerCase().includes(q))
+    );
+    const curSal = studio.selectedSalaryTable;
+    bodyBlocks.push(
+      h(
+        'div',
+        { className: 'ops-section-block code-diff-box' },
+        h(
+          'h3',
+          { className: 'ops-section-title' },
+          `현재 채택된 벤치마크: ${curSal.industry} · ${curSal.subIndustry} (${curSal.sizeBand}, 지역 ${curSal.region}, 평균 ${curSal.avgSalary})`
+        ),
+        h(
+          'div',
+          { className: 'table-scroll-wrap' },
+          h(
+            'table',
+            { className: 'payroll-table', 'aria-label': '채택된 벤치마크 직무·직급별 연봉 매트릭스' },
+            h(
+              'thead',
+              {},
+              h(
+                'tr',
+                {},
+                h('th', { scope: 'col' }, '직무(단위: 만원)'),
+                ...studio.catalog.salaryGrades.map((g) => h('th', { scope: 'col', className: 'num' }, g))
+              )
+            ),
+            h(
+              'tbody',
+              {},
+              ...curSal.matrix.map((row) =>
+                h(
+                  'tr',
+                  {},
+                  h('td', { 'data-label': '직무(단위: 만원)' }, row.job),
+                  ...row.pay.map((v, gIdx) =>
+                    h(
+                      'td',
+                      { className: 'num', 'data-label': studio.catalog.salaryGrades[gIdx] || `직급 ${gIdx + 1}` },
+                      v === null ? '-' : String(v)
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      ),
+      h(
+        'div',
+        { className: 'ops-section-block' },
+        h(
+          'div',
+          { className: 'ops-section-head' },
+          h('h3', { className: 'ops-section-title' }, `산업·규모별 연봉테이블 200선 (${filtered.length}개 조회)`),
+          h('div', { className: 'step-pill-group' }, indSel, szSel, searchInput)
+        ),
+        h(
+          'div',
+          { className: 'table-scroll-wrap' },
+          h(
+            'table',
+            { className: 'payroll-table', 'aria-label': '산업·규모별 연봉테이블 200선 목록' },
+            h(
+              'thead',
+              {},
+              h(
+                'tr',
+                {},
+                h('th', { scope: 'col' }, '채택'),
+                h('th', { scope: 'col' }, '산업'),
+                h('th', { scope: 'col' }, '규모'),
+                h('th', { scope: 'col' }, '세부 업종'),
+                h('th', { scope: 'col' }, '지역'),
+                h('th', { scope: 'col' }, '매출'),
+                h('th', { scope: 'col' }, '직원수'),
+                h('th', { scope: 'col' }, '평균연봉')
+              )
+            ),
+            h(
+              'tbody',
+              {},
+              ...(filtered.length === 0
+                ? [h('tr', {}, h('td', { colspan: '8' }, '조건에 맞는 연봉테이블이 없습니다.'))]
+                : filtered.map((t) => {
+                    const isSel = curSal.id === t.id;
+                    return h(
+                      'tr',
+                      {},
+                      h(
+                        'td',
+                        { 'data-label': '채택' },
+                        h(
+                          'button',
+                          {
+                            type: 'button',
+                            'aria-pressed': String(isSel),
+                            className: isSel ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm',
+                            onClick: (e) =>
+                              runOpsAction({ actionType: 'EVAL_SELECT_SALARY_TABLE', tableId: t.id }, e.currentTarget),
+                          },
+                          isSel ? '채택 중 ✓' : '벤치마크 적용'
+                        )
+                      ),
+                      h('td', { 'data-label': '산업' }, t.industry),
+                      h('td', { 'data-label': '규모' }, t.sizeBand),
+                      h('td', { 'data-label': '세부 업종' }, t.subIndustry),
+                      h('td', { 'data-label': '지역' }, t.region),
+                      h('td', { 'data-label': '매출' }, t.revenue),
+                      h('td', { 'data-label': '직원수' }, t.headcount),
+                      h('td', { 'data-label': '평균연봉' }, t.avgSalary)
+                    );
+                  }))
+            )
+          )
+        )
+      )
+    );
+  } else if (appState.evalGaingeView === 'HOBONG_25') {
+    bodyBlocks.push(
+      h(
+        'div',
+        { className: 'ops-section-block code-diff-box' },
+        h('h3', { className: 'ops-section-title' }, '가인지컨설팅그룹 직급별 25호봉 급여테이블 자동 세팅기'),
+        h(
+          'div',
+          { className: 'table-scroll-wrap' },
+          h(
+            'table',
+            { className: 'payroll-table', 'aria-label': '직급별 호봉 인상률 및 체류년수 설정' },
+            h(
+              'thead',
+              {},
+              h(
+                'tr',
+                {},
+                h('th', { scope: 'col' }, '직급'),
+                h('th', { scope: 'col', className: 'num' }, '초임(만원·사원)'),
+                h('th', { scope: 'col', className: 'num' }, '표준체류년수'),
+                h('th', { scope: 'col', className: 'num' }, '일반인상률(%)'),
+                h('th', { scope: 'col', className: 'num' }, '승진인상률(%)'),
+                h('th', { scope: 'col' }, '즉시 반영')
+              )
+            ),
+            h(
+              'tbody',
+              {},
+              ...studio.hobongConfig.map((rk, idx) => {
+                const entryIn = h('input', {
+                  type: 'number',
+                  'aria-label': `${rk.rank} 초임(만원)`,
+                  value: String(rk.entryPayManwon || 0),
+                  disabled: idx !== 0,
+                });
+                const stdIn = h('input', {
+                  type: 'number',
+                  min: '1',
+                  max: '10',
+                  'aria-label': `${rk.rank} 표준체류년수`,
+                  value: String(rk.stdYears),
+                });
+                const normIn = h('input', {
+                  type: 'number',
+                  step: '0.5',
+                  'aria-label': `${rk.rank} 일반인상률(%)`,
+                  value: String((rk.normalRate * 100).toFixed(1)),
+                });
+                const promIn = h('input', {
+                  type: 'number',
+                  step: '0.5',
+                  'aria-label': `${rk.rank} 승진인상률(%)`,
+                  value: String(((rk.promoRate || 0) * 100).toFixed(1)),
+                });
+                return h(
+                  'tr',
+                  {},
+                  h('td', { 'data-label': '직급' }, rk.rank),
+                  h('td', { className: 'num', 'data-label': '초임(만원·사원)' }, idx === 0 ? entryIn : '-'),
+                  h('td', { className: 'num', 'data-label': '표준체류년수' }, stdIn),
+                  h('td', { className: 'num', 'data-label': '일반인상률(%)' }, normIn),
+                  h('td', { className: 'num', 'data-label': '승진인상률(%)' }, promIn),
+                  h(
+                    'td',
+                    { 'data-label': '즉시 반영' },
+                    h(
+                      'button',
+                      {
+                        type: 'button',
+                        className: 'btn btn-secondary btn-sm',
+                        onClick: (e) =>
+                          runOpsAction(
+                            {
+                              actionType: 'EVAL_UPDATE_HOBONG_CONFIG',
+                              rankIndex: idx,
+                              entryPayManwon: idx === 0 ? Number(entryIn.value) : undefined,
+                              stdYears: Number(stdIn.value),
+                              normalRatePct: Number(normIn.value),
+                              promoRatePct: Number(promIn.value),
+                            },
+                            e.currentTarget
+                          ),
+                      },
+                      '재계산'
+                    )
+                  )
+                );
+              })
+            )
+          )
+        ),
+        h(
+          'div',
+          { className: 'table-scroll-wrap' },
+          h(
+            'table',
+            { className: 'payroll-table', 'aria-label': '25호봉 급여테이블 시뮬레이션 결과' },
+            h(
+              'thead',
+              {},
+              h(
+                'tr',
+                {},
+                h('th', { scope: 'col' }, '호봉'),
+                h('th', { scope: 'col' }, '직급'),
+                h('th', { scope: 'col' }, '체류년차'),
+                h('th', { scope: 'col', className: 'num' }, '기준연봉(만원)'),
+                h('th', { scope: 'col', className: 'num' }, '월 환산 기본급'),
+                h('th', { scope: 'col', className: 'num' }, '인상률'),
+                h('th', { scope: 'col' }, '비고')
+              )
+            ),
+            h(
+              'tbody',
+              {},
+              ...studio.hobongTable.map((r) =>
+                h(
+                  'tr',
+                  {},
+                  h('td', { 'data-label': '호봉' }, String(r.step)),
+                  h('td', { 'data-label': '직급' }, r.rank),
+                  h('td', { 'data-label': '체류년차' }, `${r.stayYear}년차`),
+                  h('td', { className: 'num', 'data-label': '기준연봉(만원)' }, r.annualPayManwon.toLocaleString('ko-KR')),
+                  h('td', { className: 'num', 'data-label': '월 환산 기본급' }, fmtWon(r.monthlyEstWon)),
+                  h('td', { className: 'num', 'data-label': '인상률' }, `${r.raiseRatePct}%`),
+                  h('td', { 'data-label': '비고' }, r.note || '-')
+                )
+              )
+            )
+          )
+        )
+      )
+    );
+  } else {
+    // OKR 10종 + 역량 자기vs리더 갭 + 360 다면피드백
+    const cs = studio.competencySummary;
+    const objIn = h('input', { type: 'text', placeholder: '분기 Objective 입력' });
+    const deptIn = h('input', { type: 'text', placeholder: '부서명 (예: 영업팀)' });
+    const krIn = h('input', { type: 'text', placeholder: '핵심 결과(KR 1)' });
+    const confIn = h('input', { type: 'number', min: '1', max: '10', value: '8' });
+
+    const rosterWorkers = snapshot.workers || [];
+    const peerTargetSel = h(
+      'select',
+      {},
+      ...(rosterWorkers.length > 0
+        ? rosterWorkers.map((w) => h('option', { value: w.empCode }, `${w.empCode} · ${w.displayName}`))
+        : [h('option', { value: 'EMP-201' }, 'EMP-201')])
+    );
+    const peerRoleSel = h(
+      'select',
+      {},
+      ...['동료(협업부서)', '직속 팀장', '부하·팀원'].map((rl) => h('option', { value: rl }, rl))
+    );
+    const peerKeepIn = h('input', { type: 'text', placeholder: '유지·확장할 강점(Keep)' });
+    const peerTryIn = h('input', { type: 'text', placeholder: '보완·시도할 점(Try)' });
+
+    bodyBlocks.push(
+      h(
+        'div',
+        { className: 'ops-section-block code-diff-box' },
+        h('h3', { className: 'ops-section-title' }, '가인지 역량평가 결과지 (자기평가 vs 리더평가 갭 자동 분석)'),
+        h(
+          'div',
+          { className: 'step-pill-group' },
+          h('span', { className: 'tag tag-green' }, `강점 역량: ${cs.strengths.join(', ')}`),
+          h('span', { className: 'tag tag-amber' }, `약점 역량: ${cs.weaknesses.join(', ')}`),
+          h('span', { className: 'tag tag-blue' }, `셀프피드백 필요: ${cs.selfFeedbackNeeded.join(', ') || '없음'}`)
+        ),
+        h(
+          'div',
+          { className: 'table-scroll-wrap' },
+          h(
+            'table',
+            { className: 'payroll-table', 'aria-label': '역량평가 자기평가 대비 리더평가 갭 분석' },
+            h(
+              'thead',
+              {},
+              h(
+                'tr',
+                {},
+                h('th', { scope: 'col' }, '구분'),
+                h('th', { scope: 'col' }, '역량영역'),
+                h('th', { scope: 'col' }, '문항'),
+                h('th', { scope: 'col' }, '자기(1~5)'),
+                h('th', { scope: 'col' }, '리더(1~5)'),
+                h('th', { scope: 'col', className: 'num' }, '평균 · 갭')
+              )
+            ),
+            h(
+              'tbody',
+              {},
+              ...cs.items.map((q) =>
+                h(
+                  'tr',
+                  {},
+                  h('td', { 'data-label': '구분' }, q.group),
+                  h('td', { 'data-label': '역량영역' }, q.domain),
+                  h('td', { 'data-label': '문항' }, q.question),
+                  h(
+                    'td',
+                    { 'data-label': '자기(1~5)' },
+                    h(
+                      'select',
+                      {
+                        'aria-label': `${q.domain} 자기평가 점수`,
+                        onChange: (e) =>
+                          runOpsAction(
+                            { actionType: 'EVAL_UPDATE_COMPETENCY_SCORE', itemId: q.id, selfScore: Number(e.currentTarget.value) },
+                            e.currentTarget
+                          ),
+                      },
+                      [1, 2, 3, 4, 5].map((n) => h('option', { value: n, selected: q.selfScore === n }, String(n)))
+                    )
+                  ),
+                  h(
+                    'td',
+                    { 'data-label': '리더(1~5)' },
+                    h(
+                      'select',
+                      {
+                        'aria-label': `${q.domain} 리더평가 점수`,
+                        onChange: (e) =>
+                          runOpsAction(
+                            { actionType: 'EVAL_UPDATE_COMPETENCY_SCORE', itemId: q.id, leaderScore: Number(e.currentTarget.value) },
+                            e.currentTarget
+                          ),
+                      },
+                      [1, 2, 3, 4, 5].map((n) => h('option', { value: n, selected: q.leaderScore === n }, String(n)))
+                    )
+                  ),
+                  h('td', { className: 'num', 'data-label': '평균 · 갭' }, `평균 ${q.avgScore} (갭 ${q.gap >= 0 ? '+' : ''}${q.gap})`)
+                )
+              )
+            )
+          )
+        )
+      ),
+      h(
+        'div',
+        { className: 'ops-section-block' },
+        h('h3', { className: 'ops-section-title' }, '가인지 OKR 실행 보드 · 주간 스프린트 & AAR 회고'),
+        h(
+          'div',
+          { className: 'eval-form-grid' },
+          h('label', { className: 'field-group' }, h('span', {}, '팀/부서'), deptIn),
+          h('label', { className: 'field-group' }, h('span', {}, 'Objective'), objIn),
+          h('label', { className: 'field-group' }, h('span', {}, 'Key Result'), krIn),
+          h('label', { className: 'field-group' }, h('span', {}, '자신감(1~10)'), confIn),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'btn btn-primary btn-sm',
+              onClick: (e) =>
+                runOpsAction(
+                  {
+                    actionType: 'EVAL_SAVE_OKR_ITEM',
+                    deptName: deptIn.value || '전사 공통',
+                    objective: objIn.value,
+                    kr1: krIn.value,
+                    confidence: Number(confIn.value),
+                  },
+                  e.currentTarget
+                ),
+            },
+            'OKR 등록'
+          )
+        ),
+        h(
+          'div',
+          { className: 'table-scroll-wrap' },
+          h(
+            'table',
+            { className: 'payroll-table', 'aria-label': '가인지 OKR 실행 보드' },
+            h(
+              'thead',
+              {},
+              h(
+                'tr',
+                {},
+                h('th', { scope: 'col' }, '부서'),
+                h('th', { scope: 'col' }, 'Objective'),
+                h('th', { scope: 'col' }, '핵심 결과(KR)'),
+                h('th', { scope: 'col' }, '자신감'),
+                h('th', { scope: 'col' }, 'AAR 회고')
+              )
+            ),
+            h(
+              'tbody',
+              {},
+              ...(studio.okrObjectives.length === 0
+                ? [h('tr', {}, h('td', { colspan: '5' }, '등록된 OKR 목표가 없습니다.'))]
+                : studio.okrObjectives.map((o) =>
+                    h(
+                      'tr',
+                      {},
+                      h('td', { 'data-label': '부서' }, o.deptName),
+                      h('td', { 'data-label': 'Objective' }, o.objective),
+                      h('td', { 'data-label': '핵심 결과(KR)' }, (o.krs || []).map((kr) => `${kr.title} (${kr.current}/${kr.target}${kr.unit || ''})`).join(' · ')),
+                      h('td', { 'data-label': '자신감' }, `${o.confidence}/10`),
+                      h('td', { 'data-label': 'AAR 회고' }, o.aarNote || '-')
+                    )
+                  ))
+            )
+          )
+        )
+      ),
+      h(
+        'div',
+        { className: 'ops-section-block' },
+        h('h3', { className: 'ops-section-title' }, '가인지 360° 다면피드백 (Keep · Try 동료 코칭)'),
+        h(
+          'div',
+          { className: 'eval-form-grid' },
+          h('label', { className: 'field-group' }, h('span', {}, '피평가자'), peerTargetSel),
+          h('label', { className: 'field-group' }, h('span', {}, '평가자 관계'), peerRoleSel),
+          h('label', { className: 'field-group' }, h('span', {}, '강점(Keep)'), peerKeepIn),
+          h('label', { className: 'field-group' }, h('span', {}, '보완(Try)'), peerTryIn),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'btn btn-primary btn-sm',
+              onClick: (e) =>
+                runOpsAction(
+                  {
+                    actionType: 'EVAL_SAVE_PEER_REVIEW',
+                    targetEmpCode: peerTargetSel.value,
+                    reviewerRole: peerRoleSel.value,
+                    keepText: peerKeepIn.value || '-',
+                    tryText: peerTryIn.value || '-',
+                  },
+                  e.currentTarget
+                ),
+            },
+            '360° 피드백 등록'
+          )
+        ),
+        h(
+          'div',
+          { className: 'table-scroll-wrap' },
+          h(
+            'table',
+            { className: 'payroll-table', 'aria-label': '360도 다면피드백 기록' },
+            h(
+              'thead',
+              {},
+              h(
+                'tr',
+                {},
+                h('th', { scope: 'col' }, '대상 사번'),
+                h('th', { scope: 'col' }, '평가자 관계'),
+                h('th', { scope: 'col' }, '강점(Keep)'),
+                h('th', { scope: 'col' }, '보완(Try)'),
+                h('th', { scope: 'col' }, '작성일')
+              )
+            ),
+            h(
+              'tbody',
+              {},
+              ...((studio.peerReviews || []).length === 0
+                ? [h('tr', {}, h('td', { colspan: '5' }, '등록된 360° 다면피드백이 없습니다.'))]
+                : (studio.peerReviews || []).map((pr) =>
+                    h(
+                      'tr',
+                      {},
+                      h('td', { 'data-label': '대상 사번' }, pr.targetEmpCode),
+                      h('td', { 'data-label': '평가자 관계' }, pr.reviewerRole),
+                      h('td', { 'data-label': '강점(Keep)' }, pr.keepText || '-'),
+                      h('td', { 'data-label': '보완(Try)' }, pr.tryText || '-'),
+                      h('td', { 'data-label': '작성일' }, pr.createdAt || '-')
+                    )
+                  ))
+            )
+          )
+        )
+      )
+    );
+  }
+
+  wrap.replaceChildren(renderEvalRoleBar(studio), nav, ...bodyBlocks);
+  if (wasSearchFocused) {
+    const nextSearch = document.getElementById('eval-gainge-search');
+    if (nextSearch) {
+      nextSearch.focus();
+      if (prevCaret !== null && typeof nextSearch.setSelectionRange === 'function') {
+        nextSearch.setSelectionRange(prevCaret, prevCaret);
+      }
+    }
+  }
+}
+
 function renderOpsEvalTab(snapshot) {
   const wrap = document.getElementById('ops-eval-container');
   if (!wrap || !snapshot.operationsSuite) return;
   const ev = snapshot.operationsSuite.evaluationAndReward;
+  const studio = ev.studio;
   const visibleEval = applyStarFilter(ev.board);
+  const bnb = studio?.budgetAndNineBox;
+
+  const summaryKpi = bnb
+    ? h(
+        'div',
+        { className: 'ops-section-block code-diff-box' },
+        h(
+          'div',
+          { className: 'ops-section-head' },
+          h('h3', { className: 'ops-section-title' }, '평가 등급 분포 · 9-Box 인재 매트릭스 · 인건비 예산 시뮬레이션'),
+          h(
+            'span',
+            { className: bnb.overBudget ? 'tag tag-amber' : 'tag tag-green' },
+            `평균 인상률 ${bnb.avgRaisePct}% / 상한 ${studio.params.annualBudgetCapPct}% (${bnb.overBudget ? '예산 초과 주의' : '예산 내 안정'})`
+          )
+        ),
+        h(
+          'div',
+          { className: 'step-pill-group' },
+          ...['S', 'A', 'B', 'C', 'D'].map((g) =>
+            h(
+              'span',
+              { className: 'tag tag-gray' },
+              `${g}: ${bnb.gradeCounts[g]}명 (${bnb.actualPct[g]}% / 쿼터 ${bnb.quotaMap[g]}%)`
+            )
+          ),
+          h('span', { className: 'tag tag-blue' }, `연간 기본급 증액 ${fmtWon(bnb.annualBaseIncrease)}`),
+          h('span', { className: 'tag tag-blue' }, `성과급 + PS풀 ${fmtWon(bnb.totalBonusSum + bnb.psPool)}`)
+        ),
+        h(
+          'div',
+          { className: 'eval-ninebox-grid' },
+          ...[
+            { k: 'LOW_HIGH', t: '고성과 · 저역량 (성과 유지·역량 코칭)', cls: '' },
+            { k: 'MID_HIGH', t: '고성과 · 중역량 (핵심 주력 인재)', cls: 'is-star' },
+            { k: 'HIGH_HIGH', t: '고성과 · 고역량 (핵심 스타·승진 후보)', cls: 'is-star' },
+            { k: 'LOW_MID', t: '중성과 · 저역량 (직무 적합성 점검)', cls: '' },
+            { k: 'MID_MID', t: '중성과 · 중역량 (안정 기여 그룹)', cls: '' },
+            { k: 'HIGH_MID', t: '중성과 · 고역량 (차기 리더 육성)', cls: '' },
+            { k: 'LOW_LOW', t: '저성과 · 저역량 (PIP·집중 개선 대상)', cls: 'is-risk' },
+            { k: 'MID_LOW', t: '저성과 · 중역량 (목표 재조정·코칭)', cls: 'is-risk' },
+            { k: 'HIGH_LOW', t: '저성과 · 고역량 (역할 재배치 검토)', cls: '' },
+          ].map((box) => {
+            const members = bnb.nineBox[box.k] || [];
+            return h(
+              'div',
+              { className: `eval-ninebox-cell ${box.cls}` },
+              h('div', { className: 'eval-ninebox-title' }, `${box.t} (${members.length}명)`),
+              h(
+                'div',
+                { className: 'muted-hint' },
+                members.length ? members.map((m) => `${m.displayName}(${m.grade})`).join(', ') : '해당 인원 없음'
+              )
+            );
+          })
+        )
+      )
+    : null;
 
   const section = h(
     'div',
@@ -6001,7 +9161,7 @@ function renderOpsEvalTab(snapshot) {
     h(
       'div',
       { className: 'ops-section-head' },
-      h('h3', { className: 'ops-section-title' }, '인사평가 · 급여 반영'),
+      h('h3', { className: 'ops-section-title' }, '인사평가 · 캘리브레이션 · 급여 반영'),
       h(
         'div',
         { className: 'step-pill-group' },
@@ -6032,7 +9192,7 @@ function renderOpsEvalTab(snapshot) {
             renderMasterSelectHeaderTh(ev.board, '인사평가 · 급여 반영'),
             h('th', { scope: 'col' }, '사번 · 이름 · 부서'),
             h('th', { scope: 'col', className: 'num' }, 'KPI / 역량'),
-            h('th', { scope: 'col' }, '평가등급'),
+            h('th', { scope: 'col' }, '평가등급 · 보정'),
             h('th', { scope: 'col', className: 'num' }, '권고 인상률 · 기본급'),
             h('th', { scope: 'col', className: 'num' }, '성과급'),
             h('th', { scope: 'col' }, '연동 상태')
@@ -6127,7 +9287,171 @@ function renderOpsEvalTab(snapshot) {
     )
   );
 
-  wrap.replaceChildren(section);
+  wrap.replaceChildren(...[studio ? renderEvalRoleBar(studio) : null, summaryKpi, section].filter(Boolean));
+}
+
+function downloadTextBlob(filename, content, mimeType) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function renderEvalExportTab(snapshot) {
+  const wrap = document.getElementById('eval-export-container');
+  const studio = snapshot.operationsSuite?.evaluationAndReward?.studio;
+  if (!wrap || !studio) return;
+
+  const presetTextarea = h('textarea', {
+    id: 'eval-preset-json-input',
+    className: 'eval-code-textarea',
+    'aria-label': '기존 고객사 프리셋 JSON 입력',
+    placeholder: '여기에 고객사 프리셋 JSON을 붙여넣어 다른 고객사 설정으로 즉시 전환할 수 있습니다.',
+  });
+
+  const handleExport = async (kind, triggerEl) => {
+    try {
+      const res = await apiPost('/api/eval-reward/export-package', {}, triggerEl);
+      const pkg = res.package;
+      appState.evalLastExportPkg = pkg;
+      if (res.snapshot) updateSnapshot(res.snapshot);
+      if (kind === 'HTML') {
+        downloadTextBlob(pkg.filename, pkg.html, 'text/html;charset=utf-8');
+        showBanner(`[${pkg.summary.clientName}] 독립 실행 웹 패키지(${pkg.filename}) 다운로드 완료`);
+      } else if (kind === 'JSON') {
+        downloadTextBlob(pkg.presetFilename, pkg.configJson, 'application/json;charset=utf-8');
+        showBanner(`[${pkg.summary.clientName}] 고객사 프리셋(${pkg.presetFilename}) 저장 완료`);
+      } else {
+        openModalWithText(
+          `[${pkg.summary.clientName}] 독립 패키지 추출 요약`,
+          `탑재 모듈 ${pkg.summary.enabledModulesCount}개 · 역량 ${pkg.summary.selectedCompetencyCount}문항 · KPI ${pkg.summary.selectedKpiCount}개`,
+          pkg.configJson,
+          triggerEl
+        );
+      }
+    } catch (err) {
+      showBanner(`패키지 추출 오류: ${err.message}`, true);
+    }
+  };
+
+  const section = h(
+    'div',
+    { className: 'ops-section-block code-diff-box' },
+    h(
+      'div',
+      { className: 'ops-section-head' },
+      h('h3', { className: 'ops-section-title' }, '고객사 맞춤 독립 실행 웹 패키지(.html) & 프리셋 추출기'),
+      h('span', { className: 'code-diff-pill' }, '변경됨')
+    ),
+    h(
+      'p',
+      { className: 'sim-desc' },
+      '지금 선택한 모듈·가인지 직무문항·KPI·연봉/호봉테이블만 빼내, 서버나 인터넷 없이 고객사 담당자·평가자·직원이 바로 실행해 쓸 수 있는 단일 웹 애플리케이션(.html)과 재활용 프리셋(.json)을 생성합니다.'
+    ),
+    h(
+      'div',
+      { className: 'eval-alert-item sev-MEDIUM' },
+      h('strong', {}, '보안 · 개인정보 안내: 독립 실행 패키지(.html)는 인사관리자·평가자 내부 시뮬레이션 배포용입니다.'),
+      h(
+        'p',
+        { className: 'eval-module-desc' },
+        '포함 옵션에 직원별 기본급·평가등급 시뮬레이션을 포함할 경우 전체 대상자 급여가 파일에 내장되므로, 일반 직원에게 직접 배포할 때는 "제도·문항·테이블만(급여·실명 제외)" 모드로 추출하세요.'
+      )
+    ),
+    h(
+      'div',
+      { className: 'step-pill-group' },
+      h('span', { className: 'tag tag-blue' }, `고객사: ${studio.clientProfile.clientName}`),
+      h('span', { className: 'tag tag-green' }, `선택 모듈 ${studio.enabledModules.length}개`),
+      h('span', { className: 'tag tag-gray' }, `편입 역량문항 ${studio.selectedCompetencyItems.length}개`),
+      h('span', { className: 'tag tag-gray' }, `편입 KPI ${studio.selectedKpiItems.length}개`),
+      h('span', { className: 'tag tag-gray' }, `벤치마크 ${studio.selectedSalaryTable.subIndustry}`)
+    ),
+    h(
+      'div',
+      { className: 'workplace-compact-actions' },
+      h(
+        'button',
+        {
+          type: 'button',
+          id: 'btn-eval-export-html',
+          className: 'btn btn-primary btn-sm',
+          onClick: (e) => handleExport('HTML', e.currentTarget),
+        },
+        '관리자용 전체 패키지(.html) 다운로드'
+      ),
+      h(
+        'button',
+        {
+          type: 'button',
+          id: 'btn-eval-export-html-tpl',
+          className: 'btn btn-secondary btn-sm',
+          onClick: async (e) => {
+            const triggerEl = e.currentTarget;
+            try {
+              const res = await apiPost('/api/eval-reward/export-package', { templateOnly: true }, triggerEl);
+              const pkg = res.package;
+              downloadTextBlob(pkg.filename, pkg.html, 'text/html;charset=utf-8');
+              showBanner(`[${pkg.summary.clientName}] 제도·문항·테이블 전용 패키지(급여/실명 제외) 다운로드 완료`);
+            } catch (err) {
+              showBanner(`패키지 추출 오류: ${err.message}`, true);
+            }
+          },
+        },
+        '직원/공용(급여·실명 제외) 패키지(.html)'
+      ),
+      h(
+        'button',
+        {
+          type: 'button',
+          id: 'btn-eval-export-json',
+          className: 'btn btn-secondary btn-sm',
+          onClick: (e) => handleExport('JSON', e.currentTarget),
+        },
+        '컨설턴트용 프리셋(.json) 저장'
+      ),
+      h(
+        'button',
+        {
+          type: 'button',
+          id: 'btn-eval-preview-pkg',
+          className: 'btn btn-secondary btn-sm',
+          onClick: (e) => handleExport('PREVIEW', e.currentTarget),
+        },
+        '추출 JSON 미리보기'
+      )
+    ),
+    h(
+      'div',
+      { className: 'eval-layer-section' },
+      h('strong', {}, '기존 고객사 프리셋(JSON) 불러오기'),
+      presetTextarea,
+      h(
+        'button',
+        {
+          type: 'button',
+          id: 'btn-eval-import-json',
+          className: 'btn btn-secondary btn-sm',
+          onClick: (e) => {
+            try {
+              const parsed = JSON.parse(presetTextarea.value);
+              runOpsAction({ actionType: 'EVAL_IMPORT_CLIENT_CONFIG', config: parsed }, e.currentTarget);
+            } catch (err) {
+              showBanner(`JSON 파싱 오류: ${err.message}`, true);
+            }
+          },
+        },
+        '붙여넣은 프리셋 복원 적용'
+      )
+    )
+  );
+
+  wrap.replaceChildren(renderEvalRoleBar(studio), section);
 }
 
 function renderOpsDisciplineTab(snapshot) {
@@ -7735,6 +11059,7 @@ function openPrintSheetModal({ title, subtitle, paperNode, triggerEl = null }) {
   const titleEl = document.getElementById('print-sheet-title');
   const subEl = document.getElementById('print-sheet-subtitle');
   const bodyEl = document.getElementById('print-sheet-body');
+  const rosterModal = document.getElementById('worker-registry-modal');
   const modPopup = document.getElementById('module-popup-modal');
   if (!modal || !bodyEl) return;
 
@@ -7746,6 +11071,10 @@ function openPrintSheetModal({ title, subtitle, paperNode, triggerEl = null }) {
   bodyEl.replaceChildren(paperNode);
 
   setBackgroundInert(true);
+  if (rosterModal && !rosterModal.hidden) {
+    rosterModal.inert = true;
+    rosterModal.setAttribute('aria-hidden', 'true');
+  }
   if (modPopup && !modPopup.hidden) {
     modPopup.inert = true;
     modPopup.setAttribute('aria-hidden', 'true');
@@ -7758,10 +11087,14 @@ function openPrintSheetModal({ title, subtitle, paperNode, triggerEl = null }) {
 
 function closePrintSheetModal(restoreFocus = true) {
   const modal = document.getElementById('print-sheet-modal');
+  const rosterModal = document.getElementById('worker-registry-modal');
   const modPopup = document.getElementById('module-popup-modal');
   if (!modal || modal.hidden) return;
   modal.hidden = true;
-  if (modPopup && !modPopup.hidden) {
+  if (rosterModal && !rosterModal.hidden) {
+    rosterModal.inert = false;
+    rosterModal.removeAttribute('aria-hidden');
+  } else if (modPopup && !modPopup.hidden) {
     modPopup.inert = false;
     modPopup.removeAttribute('aria-hidden');
   } else {
@@ -7777,6 +11110,8 @@ function closePrintSheetModal(restoreFocus = true) {
       typeof prev.focus === 'function'
     ) {
       prev.focus();
+    } else if (rosterModal && !rosterModal.hidden) {
+      document.getElementById('worker-registry-print-btn')?.focus();
     }
   }
 }
@@ -10463,7 +13798,10 @@ function updateSnapshot(snapshot) {
   renderOpsOrgTab(snapshot);
   renderOpsAttendanceTab(snapshot);
   renderOpsLeaveTab(snapshot);
+  renderEvalBuilderTab(snapshot);
+  renderEvalGaingeTab(snapshot);
   renderOpsEvalTab(snapshot);
+  renderEvalExportTab(snapshot);
   renderOpsDisciplineTab(snapshot);
   renderLmcDashboardTab(snapshot);
   renderWorkRulesTab(snapshot);
@@ -10485,6 +13823,18 @@ function updateSnapshot(snapshot) {
   const leaveModal = document.getElementById('leave-detail-modal');
   if (leaveModal && !leaveModal.hidden) {
     renderLeaveDetailModalContent(snapshot);
+  }
+  const rosterModal = document.getElementById('worker-registry-modal');
+  if (rosterModal && !rosterModal.hidden) {
+    const activeEl = document.activeElement;
+    const skipForPeerTyping =
+      appState.isBackgroundPeerRefresh === true &&
+      activeEl &&
+      rosterModal.contains(activeEl) &&
+      (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'SELECT');
+    if (!skipForPeerTyping) {
+      renderWorkerRegistryModalContent(snapshot);
+    }
   }
 }
 
@@ -10643,6 +13993,10 @@ function switchTab(tabKey, focusTabBtn = false) {
   const prtModal = document.getElementById('print-sheet-modal');
   if (prtModal && !prtModal.hidden) {
     closePrintSheetModal(false);
+  }
+  const rosterModal = document.getElementById('worker-registry-modal');
+  if (rosterModal && !rosterModal.hidden) {
+    closeWorkerRegistryModal(false);
   }
   setMobileSidebarOpen(false);
   syncActiveNavigationState(tabKey, focusTabBtn);
@@ -11272,12 +14626,20 @@ function bindEvents() {
     }
   });
 
+  document.getElementById('worker-registry-close-btn')?.addEventListener('click', () => {
+    closeWorkerRegistryModal(true);
+  });
+  document.getElementById('worker-registry-modal')?.addEventListener('click', (e) => {
+    if (e.target.id === 'worker-registry-modal') closeWorkerRegistryModal(true);
+  });
+
   document.addEventListener('keydown', (e) => {
     const docModal = document.getElementById('doc-modal');
     const attModal = document.getElementById('att-calendar-modal');
     const leaveModal = document.getElementById('leave-detail-modal');
     const rcpModal = document.getElementById('recipient-sign-modal');
     const prtModal = document.getElementById('print-sheet-modal');
+    const rosterModal = document.getElementById('worker-registry-modal');
     const modPopup = document.getElementById('module-popup-modal');
     const sidebar = document.getElementById('left-sidebar');
     const activeModal =
@@ -11287,13 +14649,15 @@ function bindEvents() {
           ? rcpModal
           : prtModal && !prtModal.hidden
             ? prtModal
-            : attModal && !attModal.hidden
-              ? attModal
-              : leaveModal && !leaveModal.hidden
-                ? leaveModal
-                : modPopup && !modPopup.hidden
-                  ? modPopup
-                  : null;
+            : rosterModal && !rosterModal.hidden
+              ? rosterModal
+              : attModal && !attModal.hidden
+                ? attModal
+                : leaveModal && !leaveModal.hidden
+                  ? leaveModal
+                  : modPopup && !modPopup.hidden
+                    ? modPopup
+                    : null;
     if (!activeModal) {
       if (e.key === 'Escape' && sidebar?.getAttribute('data-sidebar-open') === 'true') {
         e.preventDefault();
@@ -11308,6 +14672,7 @@ function bindEvents() {
       if (activeModal === docModal) closeModal();
       else if (activeModal === rcpModal) closeRecipientSignModal(true);
       else if (activeModal === prtModal) closePrintSheetModal(true);
+      else if (activeModal === rosterModal) closeWorkerRegistryModal(true);
       else if (activeModal === attModal) closeAttCalendarModal(true);
       else if (activeModal === leaveModal) closeLeaveDetailModal(true);
       else closeModuleDetailPopup(true);
@@ -11540,7 +14905,12 @@ async function connectPcLiveSyncStream() {
       if (!res.ok) return;
       const payload = await res.json();
       appState.csrfToken = payload.csrfToken;
-      updateSnapshot(payload.snapshot);
+      appState.isBackgroundPeerRefresh = true;
+      try {
+        updateSnapshot(payload.snapshot);
+      } finally {
+        appState.isBackgroundPeerRefresh = false;
+      }
     } catch {
       // ignore transient refresh failure
     }

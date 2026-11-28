@@ -2,7 +2,7 @@
  * 사업장 상시근로자 수 다중 산정기 및 규모×업종별 노동법 의무 자동 프로비저닝 엔진
  */
 
-import { INDUSTRIES, LAW_BASELINE, MODULE_CATALOG } from './labor-rules.mjs?v=b13536e9ae42';
+import { INDUSTRIES, LAW_BASELINE, MODULE_CATALOG } from './labor-rules.mjs?v=8f0f4f241d19';
 
 const SCALE_THRESHOLDS = Object.freeze([5, 10, 30, 50, 100, 300, 500, 1000]);
 

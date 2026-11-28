@@ -3,7 +3,7 @@
  * 및 취업규칙 개정(개별 메일·알림톡 발송 / 열람확인 / 본인서명 / 과반수 동의서 자동취합 / 오프라인 인쇄양식) 엔진
  */
 
-import crypto from './browser-crypto-shim.mjs?v=b13536e9ae42';
+import crypto from './browser-crypto-shim.mjs?v=8f0f4f241d19';
 
 function badRequest(message) {
   const err = new Error(message);
