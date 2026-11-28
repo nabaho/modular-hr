@@ -1125,6 +1125,14 @@ body {
   margin-bottom: 6px;
 }
 
+.mt-12 {
+  margin-top: 12px;
+}
+
+.mb-14 {
+  margin-bottom: 14px;
+}
+
 .mb-4-bold {
   font-weight: 800;
   margin-bottom: 4px;
@@ -1689,7 +1697,9 @@ body {
 }
 
 #att-calendar-modal,
-#leave-detail-modal {
+#leave-detail-modal,
+#recipient-sign-modal,
+#print-sheet-modal {
   z-index: 1450;
 }
 
@@ -2346,6 +2356,8 @@ body {
 
 .month-input-box {
   min-height: 40px;
+  max-width: 100%;
+  min-width: 0;
   padding: 6px 10px;
   border-radius: 8px;
   border: 1px solid var(--border-strong);
@@ -3038,6 +3050,237 @@ body {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+/* ==========================================================================
+   규모별 법정 체크리스트 · 노사협의회 녹음/서명취합 대시보드 · 취업규칙 동의 · A4 프린트 서명양식
+   ========================================================================== */
+
+.major-nav-btn[hidden] {
+  display: none !important;
+}
+
+.scale-trigger-banner-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.scale-trigger-card {
+  padding: 16px 18px;
+  border-radius: 12px;
+  border: 1.5px solid var(--border-strong);
+  background: var(--surface-subtle);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.scale-trigger-card.is-enabled {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.rec-studio-box {
+  padding: 16px 18px;
+  border-radius: 12px;
+  border: 1.5px solid var(--border-strong);
+  background: var(--surface-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.rec-live-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 800;
+  background: var(--badge-red-bg);
+  color: var(--badge-red-text);
+}
+
+.clause-compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 8px;
+  margin-bottom: 14px;
+}
+
+@media (max-width: 680px) {
+  .clause-compare-table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+.clause-compare-table th,
+.clause-compare-table td {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  vertical-align: top;
+  text-align: left;
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+
+.clause-compare-table th {
+  background: var(--surface-subtle);
+  font-weight: 800;
+  color: var(--text);
+}
+
+.consent-progress-bar-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  margin-bottom: 14px;
+}
+
+.details-card {
+  margin-top: 12px;
+  margin-bottom: 14px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-subtle);
+}
+
+.details-card summary {
+  cursor: pointer;
+  font-weight: 800;
+  font-size: 0.92rem;
+  color: var(--text);
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+}
+
+/* 오프라인 인쇄(A4 자필서명 양식) 전용 페이퍼 */
+.print-sheet-paper {
+  background: #ffffff;
+  color: #0f172a;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 28px 32px;
+  max-width: 1040px;
+  margin: 0 auto;
+  overflow-x: auto;
+  font-size: 0.86rem;
+  line-height: 1.55;
+}
+
+.print-sheet-title-main {
+  margin: 0 0 6px;
+  font-size: 1.32rem;
+  font-weight: 800;
+  text-align: center;
+  color: #0f172a;
+}
+
+.print-sheet-meta-sub {
+  margin: 0 0 18px;
+  text-align: center;
+  font-size: 0.83rem;
+  color: #334155;
+  padding-bottom: 12px;
+  border-bottom: 2px solid #0f172a;
+}
+
+.print-sign-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 12px;
+  margin-bottom: 18px;
+}
+
+.print-sign-table th,
+.print-sign-table td {
+  border: 1px solid #334155;
+  padding: 9px 10px;
+  text-align: left;
+  vertical-align: middle;
+  color: #0f172a;
+  background: #ffffff;
+  font-size: 0.82rem;
+}
+
+.print-sign-table th {
+  background: #f1f5f9;
+  font-weight: 800;
+}
+
+.print-wet-sign-box {
+  min-width: 128px;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 8px;
+  color: #475569;
+  font-size: 0.78rem;
+}
+
+.print-individual-card {
+  border: 1.5px solid #0f172a;
+  padding: 20px 22px;
+  margin-bottom: 20px;
+  page-break-inside: avoid;
+  background: #ffffff;
+  color: #0f172a;
+}
+
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+  .skip-link,
+  #sidebar-backdrop,
+  #app-shell,
+  #floating-toast,
+  #module-popup-modal,
+  #att-calendar-modal,
+  #leave-detail-modal,
+  #recipient-sign-modal,
+  #doc-modal,
+  .no-print {
+    display: none !important;
+  }
+  #print-sheet-modal {
+    position: static !important;
+    inset: auto !important;
+    background: transparent !important;
+    padding: 0 !important;
+    display: block !important;
+  }
+  .print-modal-dialog {
+    width: 100% !important;
+    max-height: none !important;
+    border: none !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+  }
+  .print-sheet-scroll {
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+  .print-sheet-paper {
+    border: none !important;
+    padding: 0 !important;
+    max-width: none !important;
+  }
 }
 
 

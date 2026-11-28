@@ -43,10 +43,10 @@ function getTransport() {
   transportReadyPromise = (async () => {
     if (typeof SharedWorker === 'function') {
       try {
-        const workerUrl = new URL('./virtual-server-worker.mjs?v=31adf206a0bc', import.meta.url);
+        const workerUrl = new URL('./virtual-server-worker.mjs?v=b13536e9ae42', import.meta.url);
         const sw = new SharedWorker(workerUrl, {
           type: 'module',
-          name: `modular-hr-shared-31adf206a0bc:${APP_BASE_PATH || '/'}`,
+          name: `modular-hr-shared-b13536e9ae42:${APP_BASE_PATH || '/'}`,
         });
         sharedPortRef = sw.port;
         const pending = new Map();
@@ -96,7 +96,7 @@ function getTransport() {
       }
     }
 
-    const mod = await import('./virtual-server-worker.mjs?v=31adf206a0bc');
+    const mod = await import('./virtual-server-worker.mjs?v=b13536e9ae42');
     return {
       sendApi(payload) {
         return mod.invokeDirectInTab(payload);

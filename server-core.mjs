@@ -4,33 +4,33 @@
  * - 엄격한 입력 스키마 검증(Boolean/Number/Enum/실재 날짜 검증), CSP 헤더, 64KB 413 응답 보장
  */
 
-import http from './engine/virtual-http-shim.mjs?v=31adf206a0bc';
-import crypto from './engine/browser-crypto-shim.mjs?v=31adf206a0bc';
+import http from './engine/virtual-http-shim.mjs?v=b13536e9ae42';
+import crypto from './engine/browser-crypto-shim.mjs?v=b13536e9ae42';
 // 정적 자산 서빙은 GitHub Pages CDN이 담당하며 server-core.mjs는 /api/* 전용으로 구동됨
 
-import { INDUSTRIES, LAW_BASELINE } from './engine/labor-rules.mjs?v=31adf206a0bc';
+import { INDUSTRIES, LAW_BASELINE } from './engine/labor-rules.mjs?v=b13536e9ae42';
 import {
   VALID_STATUTORY_TASK_IDS,
   assertValidIsoDate,
   provisionWorkplaceSystem,
-} from './engine/compliance-provisioner.mjs?v=31adf206a0bc';
+} from './engine/compliance-provisioner.mjs?v=b13536e9ae42';
 import {
   VALID_RESIGN_REASONS,
   computeEmployeePayrollLine,
   computeOffboardingSettlement,
   validateJobPosting,
-} from './engine/lifecycle-payroll.mjs?v=31adf206a0bc';
+} from './engine/lifecycle-payroll.mjs?v=b13536e9ae42';
 import {
   VALID_DOC_TEMPLATES,
   generateStatutoryDocument,
   maskInlinePiiText,
-} from './engine/document-generator.mjs?v=31adf206a0bc';
-import { buildWorkerBindingKey, createMobileHub } from './engine/mobile-auth-realtime.mjs?v=31adf206a0bc';
+} from './engine/document-generator.mjs?v=b13536e9ae42';
+import { buildWorkerBindingKey, createMobileHub } from './engine/mobile-auth-realtime.mjs?v=b13536e9ae42';
 import {
   SAMPLE_INGESTION_BUNDLES,
   listSampleIngestionBundles,
   stageMultiDocumentBundle,
-} from './engine/document-ingestion.mjs?v=31adf206a0bc';
+} from './engine/document-ingestion.mjs?v=b13536e9ae42';
 import {
   buildOffboardedWorkerRecord,
   createInitialOffboardedWorkers,
@@ -41,12 +41,12 @@ import {
   refreshOffboardedLifecycle,
   summarizeOffboardedRegistry,
   updateOffboardedChecklist,
-} from './engine/offboarding-registry.mjs?v=31adf206a0bc';
+} from './engine/offboarding-registry.mjs?v=b13536e9ae42';
 import {
   createOperationsSuiteManager,
   DEFAULT_POLICY_SETTINGS,
   normalizePolicySettings,
-} from './engine/hr-operations-suite.mjs?v=31adf206a0bc';
+} from './engine/hr-operations-suite.mjs?v=b13536e9ae42';
 
 const PUBLIC_DIR = '/';
 const MAX_BODY_BYTES = 64 * 1024;
@@ -1412,6 +1412,83 @@ export function createAppServer(options = {}) {
           return;
         }
 
+        // ============================================================
+        // 개별 수신자(노사위원 / 근로자) 최소권한 토큰 기반 확인·전자서명 라우터 (/api/public-sign/*)
+        // - 전체 급여·인사 스냅샷 노출 없이 해당 수신자의 회의록 또는 취업규칙 개정안만 검증·서명 처리
+        // ============================================================
+        if (pathname === '/api/public-sign/inspect' || pathname === '/api/public-sign/submit') {
+          if (req.method !== 'POST') {
+            sendJson(res, 405, { error: 'Method Not Allowed' });
+            return;
+          }
+          if (!isAllowedOrigin(req, boundPort)) {
+            sendJson(res, 403, { error: 'Forbidden Cross-Origin request' });
+            return;
+          }
+          const pubHeaderCsrf = req.headers['x-csrf-token'];
+          if (!verifyCsrfToken(pubHeaderCsrf, csrfToken)) {
+            sendJson(res, 403, { error: 'Invalid or missing CSRF token' });
+            return;
+          }
+          const pubBody = await readJsonBody(req);
+
+          if (pathname === '/api/public-sign/inspect') {
+            const prevOpsBk = opsSuite.exportPersistenceState();
+            const targetView = opsSuite.inspectPublicSignTarget(pubBody, { state });
+            try {
+              persistValidatedState();
+            } catch (saveErr) {
+              opsSuite.restorePersistenceState(prevOpsBk);
+              throw saveErr;
+            }
+            sendJson(res, 200, { target: targetView });
+            return;
+          }
+
+          if (pathname === '/api/public-sign/submit') {
+            const prevAuditBk = structuredClone(state.auditLogs);
+            const prevOpsBk = opsSuite.exportPersistenceState();
+            let submitRes;
+            try {
+              submitRes = opsSuite.submitPublicSignTarget(pubBody, {
+                state,
+                appendAudit,
+              });
+            } catch (submitErr) {
+              if (submitErr && submitErr.persistSecurityMutation === true) {
+                try {
+                  persistValidatedState();
+                } catch {
+                  state.auditLogs = prevAuditBk;
+                  opsSuite.restorePersistenceState(prevOpsBk);
+                  const storageErr = new Error(
+                    '상태 저장소 기록 장애로 본인확인 검증이 일시 중단되었습니다. 잠시 후 다시 시도해 주세요.'
+                  );
+                  storageErr.statusCode = 503;
+                  throw storageErr;
+                }
+              }
+              throw submitErr;
+            }
+            try {
+              persistValidatedState();
+            } catch (saveErr) {
+              state.auditLogs = prevAuditBk;
+              opsSuite.restorePersistenceState(prevOpsBk);
+              throw saveErr;
+            }
+            mobileHub.pushRealtimeNotification({
+              targetRole: 'CEO_AND_HR',
+              severity: 'INFO',
+              eventCode: 'RECIPIENT_SIGNED',
+              title: '개별 전자서명 제출 · 자동 취합 반영',
+              bodySummary: submitRes.message,
+            });
+            sendJson(res, 200, { result: submitRes });
+            return;
+          }
+        }
+
         // PC 관리자 API 경계 보호: 제한된 모바일 세션(WORKER / DEPT_MANAGER / MFA_PENDING) 보유 브라우저의 우회 접근 차단
         const pcCookies = parseCookieHeader(req.headers.cookie);
         const mobileCookieOnPc = pcCookies[MOBILE_SESSION_COOKIE] || '';
@@ -1518,6 +1595,7 @@ export function createAppServer(options = {}) {
             };
             state.completedTaskIds = [];
             state.emptyRosterMode = false;
+            opsSuite.resetManualScaleOverrides();
             mobileHub.syncWorkerAccessWithRoster(
               state.workers,
               state.offboardedWorkers,

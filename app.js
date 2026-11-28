@@ -18,6 +18,9 @@ const appState = {
   lastFocusedBeforeModulePopup: null,
   lastFocusedBeforeAttModal: null,
   lastFocusedBeforeLeaveModal: null,
+  lastFocusedBeforeRecipientModal: null,
+  lastFocusedBeforePrintModal: null,
+  publicCsrfToken: '',
   popupModalTabKey: null,
   popupRestoreSlot: null,
   autoUnlockAttempted: false,
@@ -44,49 +47,68 @@ const appState = {
   expandedArchivedDocs: {},
   formsDocTimer: null,
   formsReqSeq: 0,
+  selectedLmcMinutesId: 'LMC-MIN-02',
+  selectedLmcRegId: 'LMC-REG-1',
+  selectedWorkRuleAmendmentId: 'WR-2026-01',
+  lmcRecActive: false,
+  lmcRecStream: null,
+  lmcRecMediaRecorder: null,
+  lmcRecSpeech: null,
+  lmcRecStartedAtMs: 0,
+  lmcRecTimerId: null,
+  lmcDraftDurationSec: 1840,
+  lmcDraftAudioFileName: '2026-11-24_노사협의회_운영위원회_녹음.webm',
+  lmcDraftTranscript: '',
   showCodeDiffMarks: true,
 };
 
 const RECENT_CODE_CHANGES = [
   {
-    id: 'CHG-FROZEN-TOP-HEADER',
-    menuGroup: 'hr',
-    badge: '변경 1 · 상단 헤더·세부 탭 틀 고정',
-    desc: '상단 대분류 타이틀·기능 버튼 바와 하부 세부 메뉴 탭(직원 명부 · 채용·계약 등) 영역을 통합 틀 고정해 스크롤 시 항상 상단에 고정 유지',
-    btnLabel: '인사 관리 틀고정 확인',
+    id: 'CHG-SCALE-STATUTORY-CHECK',
+    menuGroup: 'settings',
+    badge: '변경 1 · 환경설정 인원수별 법정체크 & 30인+ 활성화',
+    desc: '1·5·10·30·50·100·300인+ 법정 필수 추가사항 전수 점검표 탑재 및 30인+ 노사협의회 클릭 시 별도 대시보드 창 즉시 활성화',
+    btnLabel: '환경설정 법정체크 보기',
     action: () => {
-      switchTab('ops-org', false);
+      switchTab('settings-master', false);
+      document.getElementById('settings-statutory-scale-panel')?.scrollIntoView({ block: 'start' });
     },
   },
   {
-    id: 'CHG-LEAVE-POPUP-MODAL',
-    menuGroup: 'leave',
-    badge: '변경 2 · 연차 관리 직원 클릭 전용 팝업',
-    desc: '연차 관리에서 직원 클릭 시 아래에 나열하지 않고 전체폭 전용 팝업 창으로 연차 발생·신청·사용 기록 즉시 오픈',
-    btnLabel: '연차 팝업 열기',
-    action: (triggerEl) => {
-      switchTab('ops-leave', false);
-      openLeaveDetailModal(appState.selectedEmpCode || 'EMP-201', triggerEl);
+    id: 'CHG-LMC-DEDICATED-DASHBOARD',
+    menuGroup: 'lmc',
+    badge: '변경 2 · 노사협의회 대시보드 (녹음회의록·서명취합)',
+    desc: '노사협의회 규정·운영위원 관리 + 회의 녹음 자동 회의록 변환 + 사용자·근로자위원 메일 서명 시 결과보고서 자동 취합·보관',
+    btnLabel: '노사협의회 창 열기',
+    action: async (triggerEl) => {
+      if (!appState.snapshot?.operationsSuite?.statutoryGovernance?.lmcWorkspaceEnabled) {
+        await runOpsAction({ actionType: 'SET_LMC_WORKSPACE_ACTIVE', active: true }, triggerEl);
+      }
+      switchTab('lmc-dashboard', false);
     },
   },
   {
-    id: 'CHG-FULL-WIDTH-LAYOUT',
-    menuGroup: 'home',
-    badge: '변경 3 · 전 화면·팝업 좌우 끝까지 전체폭 확장',
-    desc: '본문·연차/근태 표·서식 스튜디오·팝업 창의 좌우 폭 제한을 제거해 화면 좌우 끝까지 100% 넓게 사용',
-    btnLabel: '연차 전체폭 보기',
-    action: () => {
-      switchTab('ops-leave', false);
-    },
-  },
-  {
-    id: 'CHG-FORMS-SPLIT-STUDIO',
+    id: 'CHG-WORK-RULES-CONSENT',
     menuGroup: 'legal',
-    badge: '변경 4 · 입사 3종 자동서명 · 분할 서식함',
-    desc: '채용·입사 3종 서식 자동연결·자필서명 및 서식·법정 우측 전체폭 기본양식↔변경양식 실시간 비교',
-    btnLabel: '분할 서식함 열기',
+    badge: '변경 3 · 취업규칙 개정 메일/카톡 발송 · 과반수 동의취합',
+    desc: '취업규칙 개정 시 근로자별 메일·카톡 발송 → 개정내용 열람확인 → 본인 이름 전자서명 → 과반수 동의서(연명부) 자동 취합',
+    btnLabel: '취업규칙 개정·동의 열기',
     action: () => {
-      switchTab('forms-center', false);
+      switchTab('work-rules', false);
+    },
+  },
+  {
+    id: 'CHG-OFFLINE-PRINT-SIGN',
+    menuGroup: 'legal',
+    badge: '변경 4 · 오프라인 프린트 자필서명 양식 인쇄 지원',
+    desc: '노사협의회 회의록 위원 서명부 및 취업규칙 개정 동의 연명부·개별 동의서를 프린트해 자필서명 받고 취합에 반영',
+    btnLabel: '프린트 서명양식 보기',
+    action: (triggerEl) => {
+      switchTab('work-rules', false);
+      const am = appState.snapshot?.operationsSuite?.statutoryGovernance?.workRulesGovernance?.amendments?.[0];
+      if (am && appState.snapshot) {
+        openWorkRuleRosterPrintSheet(appState.snapshot, am, triggerEl);
+      }
     },
   },
 ];
@@ -132,9 +154,15 @@ const MAJOR_MENU_GROUPS = [
     ],
   },
   {
+    groupKey: 'lmc',
+    groupTitle: '노사협의회',
+    tabs: [{ key: 'lmc-dashboard', label: '규정 · 운영 · 녹음회의록 · 서명취합' }],
+  },
+  {
     groupKey: 'legal',
     groupTitle: '서식 · 법정',
     tabs: [
+      { key: 'work-rules', label: '취업규칙 개정 · 동의' },
       { key: 'forms-center', label: '표준 서식함' },
       { key: 'ops-statutory', label: '노사 · 안전 · 교육' },
       { key: 'compliance', label: '신고 일정' },
@@ -1262,6 +1290,8 @@ const GENERIC_GROUP_LABELS = Object.freeze({
   trainings: '법정의무교육',
   stdForms: '표준 서식 목록',
   signedDocs: '이름별 서명 서식',
+  lmcMembers: '노사협의회 위원 명단',
+  lmcMinutes: '노사협의회 회의록',
 });
 
 function renderGenericSyncControls(
@@ -2045,6 +2075,8 @@ function openModalWithText(title, subtitle, bodyText, triggerEl) {
   setBackgroundInert(true);
   const attModal = document.getElementById('att-calendar-modal');
   const leaveModal = document.getElementById('leave-detail-modal');
+  const rcpModal = document.getElementById('recipient-sign-modal');
+  const prtModal = document.getElementById('print-sheet-modal');
   if (attModal && !attModal.hidden) {
     attModal.inert = true;
     attModal.setAttribute('aria-hidden', 'true');
@@ -2052,6 +2084,14 @@ function openModalWithText(title, subtitle, bodyText, triggerEl) {
   if (leaveModal && !leaveModal.hidden) {
     leaveModal.inert = true;
     leaveModal.setAttribute('aria-hidden', 'true');
+  }
+  if (rcpModal && !rcpModal.hidden) {
+    rcpModal.inert = true;
+    rcpModal.setAttribute('aria-hidden', 'true');
+  }
+  if (prtModal && !prtModal.hidden) {
+    prtModal.inert = true;
+    prtModal.setAttribute('aria-hidden', 'true');
   }
   if (modPopup && !modPopup.hidden) {
     modPopup.inert = true;
@@ -2065,6 +2105,8 @@ function closeModal() {
   const modal = document.getElementById('doc-modal');
   const attModal = document.getElementById('att-calendar-modal');
   const leaveModal = document.getElementById('leave-detail-modal');
+  const rcpModal = document.getElementById('recipient-sign-modal');
+  const prtModal = document.getElementById('print-sheet-modal');
   const modPopup = document.getElementById('module-popup-modal');
   if (!modal || modal.hidden) return;
   modal.hidden = true;
@@ -2074,6 +2116,12 @@ function closeModal() {
   } else if (leaveModal && !leaveModal.hidden) {
     leaveModal.inert = false;
     leaveModal.removeAttribute('aria-hidden');
+  } else if (rcpModal && !rcpModal.hidden) {
+    rcpModal.inert = false;
+    rcpModal.removeAttribute('aria-hidden');
+  } else if (prtModal && !prtModal.hidden) {
+    prtModal.inert = false;
+    prtModal.removeAttribute('aria-hidden');
   } else if (modPopup && !modPopup.hidden) {
     modPopup.inert = false;
     modPopup.removeAttribute('aria-hidden');
@@ -2093,6 +2141,10 @@ function closeModal() {
     document.getElementById('att-cal-close-btn')?.focus();
   } else if (leaveModal && !leaveModal.hidden) {
     document.getElementById('leave-modal-close-btn')?.focus();
+  } else if (rcpModal && !rcpModal.hidden) {
+    document.getElementById('recipient-sign-close-btn')?.focus();
+  } else if (prtModal && !prtModal.hidden) {
+    document.getElementById('print-sheet-close-btn')?.focus();
   } else if (modPopup && !modPopup.hidden) {
     (document.getElementById('popup-module-select') || document.getElementById('module-popup-close-btn'))?.focus();
   } else {
@@ -2983,6 +3035,9 @@ async function runOpsAction(payload, triggerBtn = null) {
     updateSnapshot(data.snapshot);
     if (data.result?.autoOpenOnboardingDocs && data.result?.hiredEmpCode) {
       document.getElementById('onboarding-doc-studio')?.scrollIntoView({ block: 'start' });
+    }
+    if (data.result?.openWorkspaceTab) {
+      switchTab(data.result.openWorkspaceTab, false);
     }
     if (data.result?.message) {
       showBanner(data.result.message);
@@ -7594,6 +7649,2720 @@ function renderFormsCenterTab(snapshot) {
    전체 스냅샷 반영 및 2단계(대분류 → 하부 탭) 네비게이션 컨트롤러
    ========================================================================== */
 
+/* ==========================================================================
+   규모별 법정 체크리스트 · 노사협의회 전용 대시보드(규정/운영/녹음회의록/위원서명취합)
+   · 취업규칙 개정(메일/카톡 발송 · 열람확인 · 본인서명 · 과반수 동의서 취합) · A4 프린트 서명양식
+   ========================================================================== */
+
+function stopLmcLiveRecording() {
+  if (appState.lmcRecTimerId) {
+    clearInterval(appState.lmcRecTimerId);
+    appState.lmcRecTimerId = null;
+  }
+  if (appState.lmcRecSpeech) {
+    try {
+      appState.lmcRecSpeech.onend = null;
+      appState.lmcRecSpeech.stop();
+    } catch {
+      // ignore
+    }
+    appState.lmcRecSpeech = null;
+  }
+  if (appState.lmcRecMediaRecorder && appState.lmcRecMediaRecorder.state !== 'inactive') {
+    try {
+      appState.lmcRecMediaRecorder.stop();
+    } catch {
+      // ignore
+    }
+  }
+  appState.lmcRecMediaRecorder = null;
+  if (appState.lmcRecStream) {
+    try {
+      appState.lmcRecStream.getTracks().forEach((t) => t.stop());
+    } catch {
+      // ignore
+    }
+    appState.lmcRecStream = null;
+  }
+  appState.lmcRecActive = false;
+}
+
+async function ensurePublicCsrfToken() {
+  if (appState.publicCsrfToken) return appState.publicCsrfToken;
+  const res = await fetch('/api/mobile/bootstrap', { credentials: 'same-origin' });
+  if (!res.ok) throw new Error('보안 토큰을 초기화할 수 없습니다.');
+  const data = await res.json();
+  appState.publicCsrfToken = data.loginCsrfToken || '';
+  return appState.publicCsrfToken;
+}
+
+async function apiPublicSignPost(path, payload, triggerControl = null) {
+  if (triggerControl) {
+    triggerControl.disabled = true;
+    triggerControl.setAttribute('aria-busy', 'true');
+  }
+  try {
+    const token = await ensurePublicCsrfToken();
+    const res = await fetch(path, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': token,
+      },
+      body: JSON.stringify(payload || {}),
+    });
+    let data = {};
+    try {
+      data = await res.json();
+    } catch {
+      data = {};
+    }
+    if (!res.ok) {
+      throw new Error(data.error || `서명 처리에 실패했습니다 (HTTP ${res.status})`);
+    }
+    return data;
+  } finally {
+    if (triggerControl) {
+      triggerControl.disabled = false;
+      triggerControl.removeAttribute('aria-busy');
+    }
+  }
+}
+
+function openPrintSheetModal({ title, subtitle, paperNode, triggerEl = null }) {
+  const modal = document.getElementById('print-sheet-modal');
+  const titleEl = document.getElementById('print-sheet-title');
+  const subEl = document.getElementById('print-sheet-subtitle');
+  const bodyEl = document.getElementById('print-sheet-body');
+  const modPopup = document.getElementById('module-popup-modal');
+  if (!modal || !bodyEl) return;
+
+  if (modal.hidden) {
+    appState.lastFocusedBeforePrintModal = triggerEl || document.activeElement;
+  }
+  if (titleEl) titleEl.textContent = title;
+  if (subEl) subEl.textContent = subtitle || '인쇄 버튼을 누르면 상·하단 메뉴 없이 A4 서명부만 출력됩니다.';
+  bodyEl.replaceChildren(paperNode);
+
+  setBackgroundInert(true);
+  if (modPopup && !modPopup.hidden) {
+    modPopup.inert = true;
+    modPopup.setAttribute('aria-hidden', 'true');
+  }
+  modal.hidden = false;
+  modal.inert = false;
+  modal.removeAttribute('aria-hidden');
+  document.getElementById('print-sheet-exec-btn')?.focus();
+}
+
+function closePrintSheetModal(restoreFocus = true) {
+  const modal = document.getElementById('print-sheet-modal');
+  const modPopup = document.getElementById('module-popup-modal');
+  if (!modal || modal.hidden) return;
+  modal.hidden = true;
+  if (modPopup && !modPopup.hidden) {
+    modPopup.inert = false;
+    modPopup.removeAttribute('aria-hidden');
+  } else {
+    setBackgroundInert(false);
+  }
+  if (restoreFocus) {
+    const prev = appState.lastFocusedBeforePrintModal;
+    if (
+      prev &&
+      prev !== document.body &&
+      prev.isConnected &&
+      !prev.closest('[hidden]') &&
+      typeof prev.focus === 'function'
+    ) {
+      prev.focus();
+    }
+  }
+}
+
+function openLmcRegulationPrintSheet(snapshot, regItem, triggerEl = null) {
+  const c = snapshot.company;
+  const paper = h(
+    'div',
+    { className: 'print-sheet-paper' },
+    h('h3', { className: 'print-sheet-title-main' }, `${c.companyName} 노사협의회 규정 (제${regItem.version}판)`),
+    h(
+      'p',
+      { className: 'print-sheet-meta-sub' },
+      `사업자등록번호: ${c.bizRegNo || '-'} | 시행일자: ${regItem.enactedDate} | 근로자참여 및 협력증진에 관한 법률 제17조`
+    ),
+    h('pre', { className: 'doc-paper-box' }, regItem.regulationBody),
+    h(
+      'table',
+      { className: 'print-sign-table', 'aria-label': '노사협의회 규정 제정·개정 서명란' },
+      h(
+        'thead',
+        {},
+        h(
+          'tr',
+          {},
+          h('th', { scope: 'col' }, '구분'),
+          h('th', { scope: 'col' }, '직책 · 소속'),
+          h('th', { scope: 'col' }, '성명'),
+          h('th', { scope: 'col' }, '서명일자'),
+          h('th', { scope: 'col' }, '자필 서명 / (인)')
+        )
+      ),
+      h(
+        'tbody',
+        {},
+        h(
+          'tr',
+          {},
+          h('td', {}, '사용자 대표'),
+          h('td', {}, '대표이사'),
+          h('td', {}, c.ceoName || '대표이사'),
+          h('td', {}, regItem.enactedDate),
+          h('td', {}, h('div', { className: 'print-wet-sign-box' }, '(서명 또는 인)'))
+        ),
+        h(
+          'tr',
+          {},
+          h('td', {}, '근로자 대표'),
+          h('td', {}, '노사협의회 근로자위원 대표'),
+          h('td', {}, '근로자대표'),
+          h('td', {}, regItem.enactedDate),
+          h('td', {}, h('div', { className: 'print-wet-sign-box' }, '(서명 또는 인)'))
+        )
+      )
+    )
+  );
+  openPrintSheetModal({
+    title: `[프린트 서명양식] ${c.companyName} 노사협의회 규정 (제${regItem.version}판)`,
+    subtitle: '프린트 후 노사 대표 자필 서명·날인하여 관할 지방고용노동관서 신고(15일 이내) 및 사내 비치용으로 활용하세요.',
+    paperNode: paper,
+    triggerEl,
+  });
+}
+
+function openLmcMinutesPrintSheet(snapshot, minItem, triggerEl = null) {
+  const c = snapshot.company;
+  const paper = h(
+    'div',
+    { className: 'print-sheet-paper' },
+    h('h3', { className: 'print-sheet-title-main' }, minItem.title),
+    h(
+      'p',
+      { className: 'print-sheet-meta-sub' },
+      `사업장: ${c.companyName} (${c.bizRegNo || '-'}) | 일시: ${minItem.meetingDate} | 구분: ${minItem.meetingCategory} | 장소: ${minItem.location} | 보존기한: ${minItem.retentionUntil} (3년)`
+    ),
+    h('h4', { className: 'ops-section-title' }, '1. 보고 · 협의 · 의결사항 요약'),
+    h(
+      'table',
+      { className: 'print-sign-table', 'aria-label': '회의 안건 및 의결 요약' },
+      h(
+        'tbody',
+        {},
+        h(
+          'tr',
+          {},
+          h('th', { scope: 'row' }, '보고사항 (제22조)'),
+          h('td', {}, (minItem.reportItems || []).join(' / ') || '-')
+        ),
+        h(
+          'tr',
+          {},
+          h('th', { scope: 'row' }, '협의사항 (제20조)'),
+          h('td', {}, (minItem.discussionItems || []).join(' / ') || '-')
+        ),
+        h(
+          'tr',
+          {},
+          h('th', { scope: 'row' }, '의결사항 (제21조)'),
+          h('td', {}, (minItem.resolutionItems || []).join(' / ') || '-')
+        )
+      )
+    ),
+    h('h4', { className: 'ops-section-title' }, '2. 출석 사용자위원 · 근로자위원 확인 및 자필서명 연명부'),
+    h(
+      'table',
+      { className: 'print-sign-table', 'aria-label': '노사협의회 출석위원 자필서명부' },
+      h(
+        'thead',
+        {},
+        h(
+          'tr',
+          {},
+          h('th', { scope: 'col' }, 'No.'),
+          h('th', { scope: 'col' }, '위원 구분'),
+          h('th', { scope: 'col' }, '성명'),
+          h('th', { scope: 'col' }, '소속 · 직책'),
+          h('th', { scope: 'col' }, '회의록 확인'),
+          h('th', { scope: 'col' }, '서명일자'),
+          h('th', { scope: 'col' }, '본인 자필 서명 / (인)')
+        )
+      ),
+      h(
+        'tbody',
+        {},
+        ...minItem.signatures.map((s, idx) =>
+          h(
+            'tr',
+            {},
+            h('td', {}, String(idx + 1)),
+            h('td', {}, s.side === 'EMPLOYER' ? '사용자위원' : '근로자위원'),
+            h('td', { className: 'font-extrabold' }, s.name),
+            h('td', {}, s.deptRole),
+            h('td', {}, s.signed ? '☑ 확인완료' : '□ 회의록 확인함'),
+            h('td', {}, s.signedAt || minItem.meetingDate),
+            h(
+              'td',
+              {},
+              h(
+                'div',
+                { className: 'print-wet-sign-box' },
+                s.signed ? `서명완료 (${s.signatureCode})` : '(자필서명 / 인)'
+              )
+            )
+          )
+        )
+      )
+    )
+  );
+  openPrintSheetModal({
+    title: `[프린트 서명양식] ${minItem.title} — 출석위원 자필서명부`,
+    subtitle: '인쇄 후 사용자위원·근로자위원 자필 서명을 받아 비치하고 [인쇄본 서면서명 반영] 버튼으로 시스템에 취합할 수 있습니다.',
+    paperNode: paper,
+    triggerEl,
+  });
+}
+
+function openWorkRuleRosterPrintSheet(snapshot, amItem, triggerEl = null) {
+  const c = snapshot.company;
+  const isAdverse = amItem.changeType === 'ADVERSE_CONSENT';
+  const paper = h(
+    'div',
+    { className: 'print-sheet-paper' },
+    h(
+      'h3',
+      { className: 'print-sheet-title-main' },
+      isAdverse
+        ? `${c.companyName} 취업규칙 개정 근로자 과반수 동의서 (자필서명 연명부)`
+        : `${c.companyName} 취업규칙 개정 근로자 과반수 의견청취 확인 연명부`
+    ),
+    h(
+      'p',
+      { className: 'print-sheet-meta-sub' },
+      `개정건명: ${amItem.title} | 시행예정일: ${amItem.effectiveDate} | 대상 근로자: ${amItem.stats.eligibleWorkerCount}명 (과반수 기준: ${amItem.stats.majorityRequiredCount}명 이상)`
+    ),
+    h('h4', { className: 'ops-section-title' }, '1. 취업규칙 신 · 구조문 대비표 (열람 · 확인용)'),
+    h(
+      'table',
+      { className: 'print-sign-table', 'aria-label': '인쇄용 신구조문 대비표' },
+      h(
+        'thead',
+        {},
+        h(
+          'tr',
+          {},
+          h('th', { scope: 'col' }, '개정 조항'),
+          h('th', { scope: 'col' }, '변경 전 (현행)'),
+          h('th', { scope: 'col' }, '변경 후 (개정안)')
+        )
+      ),
+      h(
+        'tbody',
+        {},
+        ...amItem.clauses.map((cl) =>
+          h(
+            'tr',
+            {},
+            h('td', { className: 'font-extrabold' }, cl.articleTitle),
+            h('td', {}, cl.beforeText || '(신설)'),
+            h('td', {}, cl.afterText)
+          )
+        )
+      )
+    ),
+    h(
+      'p',
+      {},
+      isAdverse
+        ? '본인들은 위 취업규칙 개정안(신·구조문 대비표 및 개정 사유)을 충분히 열람·확인하였으며, 근로기준법 제94조 제1항 단서에 따라 자유로운 의사로 동의 여부를 표시하고 본인 이름으로 자필 서명합니다.'
+        : '본인들은 위 취업규칙 개정안(신·구조문 대비표)을 열람·확인하고 근로기준법 제94조 제1항 본문에 따라 의견을 표시하며 본인 이름으로 자필 서명합니다.'
+    ),
+    h('h4', { className: 'ops-section-title' }, '2. 근로자 개별 확인 및 본인 자필서명 연명부'),
+    h(
+      'table',
+      { className: 'print-sign-table', 'aria-label': '취업규칙 개정 근로자 자필서명 연명부' },
+      h(
+        'thead',
+        {},
+        h(
+          'tr',
+          {},
+          h('th', { scope: 'col' }, 'No.'),
+          h('th', { scope: 'col' }, '사번'),
+          h('th', { scope: 'col' }, '소속 부서'),
+          h('th', { scope: 'col' }, '성명'),
+          h('th', { scope: 'col' }, '개정내용 확인'),
+          h('th', { scope: 'col' }, isAdverse ? '동의 여부' : '의견 표시'),
+          h('th', { scope: 'col' }, '서명일자'),
+          h('th', { scope: 'col' }, '본인 자필 서명 / (인)')
+        )
+      ),
+      h(
+        'tbody',
+        {},
+        ...amItem.workerStatuses.map((w) =>
+          h(
+            'tr',
+            {},
+            h('td', {}, String(w.rowNo)),
+            h('td', {}, w.empCode),
+            h('td', {}, w.deptName),
+            h('td', { className: 'font-extrabold' }, w.displayName),
+            h('td', {}, w.readConfirmed ? '☑ 열람확인' : '□ 확인함'),
+            h(
+              'td',
+              {},
+              w.signed
+                ? w.decision === 'AGREE'
+                  ? '☑ 동의  □ 부동의'
+                  : w.decision === 'DISAGREE'
+                    ? '□ 동의  ☑ 부동의'
+                    : '☑ 의견확인'
+                : '□ 동의  □ 부동의'
+            ),
+            h('td', {}, w.signedAt || '2026-  -  '),
+            h(
+              'td',
+              {},
+              h(
+                'div',
+                { className: 'print-wet-sign-box' },
+                w.signed ? `서명완료 (${w.signatureCode})` : '(본인 자필서명)'
+              )
+            )
+          )
+        )
+      )
+    )
+  );
+  openPrintSheetModal({
+    title: `[프린트 서명양식] ${amItem.title} — 과반수 동의 자필서명 연명부`,
+    subtitle: '프린터로 출력하여 현장·부서 회람 자필서명을 받은 뒤 [서면서명 반영]을 누르면 전자서명분과 합산 취합됩니다.',
+    paperNode: paper,
+    triggerEl,
+  });
+}
+
+function openWorkRuleIndividualPrintSheet(snapshot, amItem, triggerEl = null, onlyEmpCode = '') {
+  const c = snapshot.company;
+  const targets = onlyEmpCode
+    ? amItem.workerStatuses.filter((w) => w.empCode === onlyEmpCode)
+    : amItem.workerStatuses;
+  const isAdverse = amItem.changeType === 'ADVERSE_CONSENT';
+
+  const cards = targets.map((w) =>
+    h(
+      'div',
+      { className: 'print-individual-card' },
+      h(
+        'h3',
+        { className: 'print-sheet-title-main' },
+        isAdverse
+          ? '취업규칙 개정안 개별 열람 확인 및 동의서 (1인 1매 배부용)'
+          : '취업규칙 개정안 개별 열람 확인 및 의견서 (1인 1매 배부용)'
+      ),
+      h(
+        'p',
+        { className: 'print-sheet-meta-sub' },
+        `사업장: ${c.companyName} | 개정건명: ${amItem.title} (시행예정일: ${amItem.effectiveDate})`
+      ),
+      h(
+        'p',
+        {},
+        `대상 근로자 : No.${w.rowNo}  성명 ${w.displayName}  (사번: ${w.empCode} / 소속: ${w.deptName})`
+      ),
+      h(
+        'table',
+        { className: 'print-sign-table', 'aria-label': `${w.displayName} 신구조문 대비표` },
+        h(
+          'thead',
+          {},
+          h(
+            'tr',
+            {},
+            h('th', { scope: 'col' }, '조항'),
+            h('th', { scope: 'col' }, '변경 전(현행)'),
+            h('th', { scope: 'col' }, '변경 후(개정안)')
+          )
+        ),
+        h(
+          'tbody',
+          {},
+          ...amItem.clauses.map((cl) =>
+            h(
+              'tr',
+              {},
+              h('td', { className: 'font-extrabold' }, cl.articleTitle),
+              h('td', {}, cl.beforeText || '(신설)'),
+              h('td', {}, cl.afterText)
+            )
+          )
+        )
+      ),
+      h(
+        'p',
+        {},
+        '1. 개정내용 확인 : [ □ 위 취업규칙 개정안 및 신·구조문 대비표 전체 내용을 교부받아 확인하였습니다. ]'
+      ),
+      h(
+        'p',
+        {},
+        isAdverse
+          ? '2. 본인 의사표시 : [ □ 개정안에 동의합니다. ]    [ □ 개정안에 부동의합니다. ]'
+          : '2. 본인 의견표시 : [ □ 개정안에 이견 없음 ]    [ □ 별도 의견 있음: ____________________________ ]'
+      ),
+      h(
+        'p',
+        { className: 'font-extrabold' },
+        `서명일자 : 2026년 ____월 ____일    |    근로자 본인 성명 : ${w.displayName}   (자필서명 또는 인)`
+      )
+    )
+  );
+
+  openPrintSheetModal({
+    title: onlyEmpCode
+      ? `[개별 프린트 동의서] ${onlyEmpCode} — ${amItem.title}`
+      : `[전 직원 개별 배부용 프린트] ${amItem.title} (${targets.length}매)`,
+    subtitle: '개별 근로자에게 종이로 배부하여 확인 체크 및 본인 자필서명을 받을 수 있는 양식입니다.',
+    paperNode: h('div', { className: 'print-sheet-paper' }, ...cards),
+    triggerEl,
+  });
+}
+
+async function openRecipientSignModal({
+  portalKind,
+  targetId,
+  recipientId,
+  signToken,
+  triggerEl = null,
+  adminPreviewAuthCode = '',
+  adminPreviewSignerName = '',
+}) {
+  const modal = document.getElementById('recipient-sign-modal');
+  const titleEl = document.getElementById('recipient-sign-title');
+  const subEl = document.getElementById('recipient-sign-subtitle');
+  const bodyEl = document.getElementById('recipient-sign-body');
+  const modPopup = document.getElementById('module-popup-modal');
+  if (!modal || !bodyEl) return;
+
+  const normKind = String(portalKind || '').trim().toUpperCase();
+  appState.lastRecipientModalSelector =
+    normKind === 'LMC'
+      ? `[data-lmc-sign-member="${CSS.escape(String(recipientId || ''))}"]`
+      : `[data-wr-sign-emp="${CSS.escape(String(recipientId || ''))}"]`;
+  appState.lastRecipientFallbackSelector =
+    normKind === 'LMC' ? '#lmc-minutes-select' : '#work-rule-amendment-select';
+
+  if (modal.hidden) {
+    appState.lastFocusedBeforeRecipientModal = triggerEl || document.activeElement;
+  }
+
+  try {
+    const { target } = await apiPublicSignPost(
+      '/api/public-sign/inspect',
+      { portalKind, targetId, recipientId, signToken },
+      triggerEl
+    );
+
+    const maskedHint = target.recipient.maskedSignerHint || '***';
+    if (titleEl) {
+      titleEl.textContent =
+        target.portalKind === 'LMC'
+          ? `[노사위원 메일 수신화면] ${maskedHint} (${target.recipient.roleLabel}) — 회의록 확인 및 서명`
+          : `[근로자 메일·카톡 수신화면] ${maskedHint} (${target.recipient.roleLabel}) — 취업규칙 개정 확인 및 본인 서명`;
+    }
+    if (subEl) {
+      subEl.textContent = `${target.companyName} | ${target.title} (${target.subtitle})`;
+    }
+
+    const sigState = {
+      signerName: adminPreviewSignerName || '',
+      dataUrl: '',
+      consentConfirmed: false,
+    };
+    const sigPad = createSignatureCanvasControl(
+      adminPreviewSignerName || '',
+      'rcp-portal-sig',
+      sigState
+    );
+    const authCodeInput = h('input', {
+      id: 'rcp-auth-code-input',
+      type: 'text',
+      inputMode: 'numeric',
+      maxLength: 6,
+      value: adminPreviewAuthCode || '',
+      placeholder: '별도 발송된 6자리 인증번호 입력',
+    });
+
+    const readConfirmChk = h('input', {
+      id: 'rcp-read-confirm-chk',
+      type: 'checkbox',
+      checked: false,
+    });
+
+    const isWorkRule = target.portalKind === 'WORK_RULE';
+    const isAdverse = target.changeType === 'ADVERSE_CONSENT';
+    const decisionSelect = isWorkRule
+      ? h(
+          'select',
+          { id: 'rcp-decision-select' },
+          ...(isAdverse
+            ? [
+                h('option', { value: 'AGREE' }, '동의함 (개정안에 찬성·동의)'),
+                h('option', { value: 'DISAGREE' }, '부동의함 (개정안에 반대)'),
+              ]
+            : [
+                h('option', { value: 'OPINION_SUBMITTED' }, '개정안 확인 완료 (의견 제출)'),
+                h('option', { value: 'AGREE' }, '동의함 (이견 없음)'),
+              ])
+        )
+      : null;
+
+    const opinionInput = isWorkRule
+      ? h('input', {
+          id: 'rcp-opinion-input',
+          type: 'text',
+          placeholder: '추가 의견이 있는 경우 입력 (선택)',
+        })
+      : null;
+
+    const contentSection = isWorkRule
+      ? h(
+          'div',
+          { className: 'ops-section-block' },
+          h(
+            'div',
+            { className: 'ops-section-head' },
+            h('strong', { className: 'ops-section-title' }, '1단계 · 개정된 취업규칙 신·구조문 대비표 확인'),
+            h('span', { className: 'tag tag-blue' }, `무결성 해시 ${target.expectedBodySha256.slice(0, 12)}`)
+          ),
+          h('p', { className: 'cell-dept-name' }, `개정 사유: ${target.reason}`),
+          h(
+            'table',
+            { className: 'clause-compare-table', 'aria-label': '개별 근로자 열람용 신구조문 대비표' },
+            h(
+              'thead',
+              {},
+              h(
+                'tr',
+                {},
+                h('th', { scope: 'col' }, '개정 조항'),
+                h('th', { scope: 'col' }, '변경 전 (현행)'),
+                h('th', { scope: 'col' }, '변경 후 (개정안)')
+              )
+            ),
+            h(
+              'tbody',
+              {},
+              ...(target.clauses || []).map((cl) =>
+                h(
+                  'tr',
+                  {},
+                  h('td', { className: 'font-extrabold' }, cl.articleTitle),
+                  h('td', {}, cl.beforeText || '(신설)'),
+                  h('td', { className: 'font-extrabold' }, cl.afterText)
+                )
+              )
+            )
+          )
+        )
+      : h(
+          'div',
+          { className: 'ops-section-block' },
+          h(
+            'div',
+            { className: 'ops-section-head' },
+            h('strong', { className: 'ops-section-title' }, '1단계 · 녹음 자동정리 노사협의회 회의록 전문 확인'),
+            h('span', { className: 'tag tag-blue' }, `무결성 해시 ${target.expectedBodySha256.slice(0, 12)}`)
+          ),
+          h('pre', { className: 'doc-paper-box' }, target.documentBody)
+        );
+
+    const signFormSection = h(
+      'div',
+      { className: 'ops-section-block' },
+      h(
+        'div',
+        { className: 'ops-section-head' },
+        h(
+          'strong',
+          { className: 'ops-section-title' },
+          `2단계 · 내용 확인 체크 · 본인인증(${maskedHint}) 및 본인 이름 서명 제출`
+        ),
+        h(
+          'span',
+          { className: 'tag tag-amber' },
+          isWorkRule ? '서명 완료 시 과반수 동의서에 즉시 자동 취합' : '서명 완료 시 회의록 결과보고서에 즉시 자동 취합'
+        )
+      ),
+      h(
+        'label',
+        { className: 'check-label mb-6', for: 'rcp-read-confirm-chk' },
+        readConfirmChk,
+        h(
+          'span',
+          {},
+          isWorkRule
+            ? '수신한 취업규칙 개정안 및 신·구조문 대비표 전체 내용을 모두 읽고 확인하였습니다. (필수)'
+            : '위 노사협의회 회의록(보고·협의·의결사항) 전문을 모두 읽고 사실과 다름없음을 확인하였습니다. (필수)'
+        )
+      ),
+      h(
+        'div',
+        { className: 'ops-inline-form' },
+        h(
+          'div',
+          { className: 'field' },
+          h(
+            'label',
+            { for: 'rcp-auth-code-input' },
+            '수신자 본인확인 6자리 인증번호 (메일·알림톡 별도 발송)'
+          ),
+          authCodeInput
+        ),
+        ...(isWorkRule
+          ? [
+              h(
+                'div',
+                { className: 'field' },
+                h('label', { for: 'rcp-decision-select' }, isAdverse ? '동의 여부 선택' : '의견 표시 선택'),
+                decisionSelect
+              ),
+              h(
+                'div',
+                { className: 'field' },
+                h('label', { for: 'rcp-opinion-input' }, '검토 의견 (선택)'),
+                opinionInput
+              ),
+            ]
+          : [])
+      ),
+      sigPad.rootEl,
+      h(
+        'div',
+        { className: 'mt-12' },
+        h(
+          'button',
+          {
+            type: 'button',
+            id: 'rcp-submit-sign-btn',
+            className: 'btn btn-primary full-width',
+            onClick: async (e) => {
+              if (!readConfirmChk.checked) {
+                showBanner('먼저 1단계 문서 전문 열람·확인 체크박스에 체크해 주세요.', true);
+                readConfirmChk.focus();
+                return;
+              }
+              const enteredAuthCode = String(authCodeInput.value || '').trim();
+              if (!/^\d{6}$/.test(enteredAuthCode)) {
+                showBanner('별도 발송된 6자리 수신자 본인확인 인증번호를 입력해 주세요.', true);
+                authCodeInput.focus();
+                return;
+              }
+              if (!sigPad.isConsentConfirmed()) {
+                showBanner('전자서명 동의 체크박스에 체크해 주세요.', true);
+                sigPad.focusConsent();
+                return;
+              }
+              const enteredName = sigPad.getSignerName();
+              if (!enteredName || enteredName.length < 2) {
+                showBanner(`수신자 본인 성명(${maskedHint})을 정확히 입력해 주세요.`, true);
+                return;
+              }
+              try {
+                const submitData = await apiPublicSignPost(
+                  '/api/public-sign/submit',
+                  {
+                    portalKind: target.portalKind,
+                    targetId: target.targetId,
+                    recipientId: target.recipient.recipientId,
+                    signToken,
+                    authCode: enteredAuthCode,
+                    expectedBodySha256: target.expectedBodySha256,
+                    readConfirmed: true,
+                    consentConfirmed: true,
+                    signerName: enteredName,
+                    signatureDataUrl: sigPad.getSignatureDataUrl(),
+                    decision: decisionSelect ? decisionSelect.value : undefined,
+                    opinionText: opinionInput ? opinionInput.value : undefined,
+                  },
+                  e.currentTarget
+                );
+                if (window.location.hash.startsWith('#sign=')) {
+                  history.replaceState(null, '', window.location.pathname + window.location.search);
+                }
+                try {
+                  const bootRes = await fetch('/api/bootstrap', { credentials: 'same-origin' });
+                  if (bootRes.ok) {
+                    const bootJson = await bootRes.json();
+                    appState.csrfToken = bootJson.csrfToken;
+                    updateSnapshot(bootJson.snapshot);
+                  }
+                } catch {
+                  // ignore if unauthenticated worker tab
+                }
+                closeRecipientSignModal(true);
+                showBanner(submitData.result.message);
+              } catch (err) {
+                showBanner(err.message, true);
+              }
+            },
+          },
+          isWorkRule
+            ? '본인 이름으로 서명 제출 (과반수 동의서에 자동 취합)'
+            : '위원 서명 제출 (회의록 결과보고서에 자동 취합)'
+        )
+      )
+    );
+
+    bodyEl.replaceChildren(contentSection, signFormSection);
+
+    setBackgroundInert(true);
+    if (modPopup && !modPopup.hidden) {
+      modPopup.inert = true;
+      modPopup.setAttribute('aria-hidden', 'true');
+    }
+    modal.hidden = false;
+    modal.inert = false;
+    modal.removeAttribute('aria-hidden');
+    document.getElementById('recipient-sign-close-btn')?.focus();
+  } catch (err) {
+    showBanner(err.message, true);
+  }
+}
+
+function closeRecipientSignModal(restoreFocus = true) {
+  const modal = document.getElementById('recipient-sign-modal');
+  const modPopup = document.getElementById('module-popup-modal');
+  if (!modal || modal.hidden) return;
+  modal.hidden = true;
+  if (modPopup && !modPopup.hidden) {
+    modPopup.inert = false;
+    modPopup.removeAttribute('aria-hidden');
+  } else {
+    setBackgroundInert(false);
+  }
+  if (restoreFocus) {
+    const prev = appState.lastFocusedBeforeRecipientModal;
+    if (
+      prev &&
+      prev !== document.body &&
+      prev.isConnected &&
+      !prev.closest('[hidden]') &&
+      typeof prev.focus === 'function'
+    ) {
+      prev.focus();
+      return;
+    }
+    const reRenderedTarget =
+      (appState.lastRecipientModalSelector &&
+        document.querySelector(appState.lastRecipientModalSelector)) ||
+      (appState.lastRecipientFallbackSelector &&
+        document.querySelector(appState.lastRecipientFallbackSelector)) ||
+      document.getElementById('main-workspace');
+    if (reRenderedTarget && typeof reRenderedTarget.focus === 'function') {
+      reRenderedTarget.focus();
+    }
+  }
+}
+
+async function openIssuedRecipientSignFlow(portalKind, targetId, recipientId, triggerEl) {
+  const res = await runOpsAction(
+    {
+      actionType: 'ISSUE_RECIPIENT_SIGN_LINK',
+      portalKind,
+      targetId,
+      recipientId,
+    },
+    triggerEl
+  );
+  if (res?.result?.rawToken) {
+    await openRecipientSignModal({
+      portalKind,
+      targetId,
+      recipientId,
+      signToken: res.result.rawToken,
+      triggerEl,
+      adminPreviewAuthCode: res.result.authCode || '',
+      adminPreviewSignerName: res.result.signerNameHint || '',
+    });
+  }
+}
+
+function renderSettingsStatutoryScalePanel(snapshot) {
+  const panel = document.getElementById('settings-statutory-scale-panel');
+  if (!panel || !snapshot.operationsSuite?.statutoryGovernance) return;
+  const gov = snapshot.operationsSuite.statutoryGovernance;
+  const hc = snapshot.compliance.headcounts;
+
+  const quickScaleJump = async (regularWorkersCount, triggerBtn) => {
+    try {
+      const res = await apiPost(
+        '/api/simulate-company',
+        {
+          headcountInput: {
+            regularWorkers: regularWorkersCount,
+            partTimeWorkers: 0,
+            dailyWorkerManDays: 0,
+            dispatchedWorkers: 0,
+            operatingDays: 22,
+          },
+          resetPeak: true,
+        },
+        triggerBtn
+      );
+      updateSnapshot(res.snapshot);
+      showBanner(
+        `상시 ${res.snapshot.compliance.headcounts.lsaRegularCount}인 기준으로 규모별 법정 의무 체크리스트가 자동 갱신되었습니다.`
+      );
+    } catch (err) {
+      showBanner(err.message, true);
+    }
+  };
+
+  const triggerCards = h(
+    'div',
+    { className: 'scale-trigger-banner-grid' },
+    // 1) 30인 이상 노사협의회 전용 대시보드 활성화 카드
+    h(
+      'div',
+      {
+        className: gov.lmcWorkspaceEnabled
+          ? 'scale-trigger-card is-enabled'
+          : 'scale-trigger-card',
+      },
+      h(
+        'div',
+        {},
+        h(
+          'div',
+          { className: 'flex-between-tight mb-6' },
+          h(
+            'label',
+            { className: 'check-label', for: 'chk-settings-lmc-needed' },
+            h('input', {
+              id: 'chk-settings-lmc-needed',
+              type: 'checkbox',
+              checked: Boolean(gov.lmcWorkspaceEnabled),
+              onChange: (e) =>
+                runOpsAction(
+                  {
+                    actionType: 'SET_LMC_WORKSPACE_ACTIVE',
+                    active: e.currentTarget.checked,
+                  },
+                  e.currentTarget
+                ),
+            }),
+            h('strong', {}, '30인 이상 · 노사협의회 필요 (별도 대시보드 활성화)')
+          ),
+          h(
+            'span',
+            { className: gov.lmcRequiredByLaw ? 'tag tag-blue' : 'tag tag-amber' },
+            gov.lmcRequiredByLaw
+              ? `현재 상시 ${hc.lsaRegularCount}명 (30인+ 의무)`
+              : `현재 상시 ${hc.lsaRegularCount}명 (클릭 시 활성화)`
+          )
+        ),
+        h(
+          'p',
+          { className: 'scale-check-desc' },
+          '체크·클릭하면 좌측 메뉴에 별도 [노사협의회] 대시보드 창이 나타나며 노사협의회 규정·운영위원·녹음 자동회의록·위원 서명 취합 보고서를 자동 보관합니다.'
+        )
+      ),
+      h(
+        'div',
+        { className: 'step-pill-group' },
+        h(
+          'button',
+          {
+            type: 'button',
+            id: 'btn-settings-open-lmc-dashboard',
+            className: 'btn btn-primary btn-sm',
+            onClick: async (e) => {
+              if (!gov.lmcWorkspaceEnabled) {
+                await runOpsAction(
+                  { actionType: 'SET_LMC_WORKSPACE_ACTIVE', active: true },
+                  e.currentTarget
+                );
+              } else {
+                switchTab('lmc-dashboard', false);
+              }
+            },
+          },
+          '노사협의회 전용 대시보드 열기'
+        ),
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'btn btn-secondary btn-sm',
+            onClick: async (e) => {
+              if (!gov.lmcWorkspaceEnabled) {
+                await runOpsAction(
+                  { actionType: 'SET_LMC_WORKSPACE_ACTIVE', active: true },
+                  e.currentTarget
+                );
+              }
+              openStandalonePopupWindow('lmc-dashboard');
+            },
+          },
+          '별도 창으로 띄우기'
+        )
+      )
+    ),
+    // 2) 10인 이상 취업규칙 개정·동의 취합 카드
+    h(
+      'div',
+      {
+        className: gov.workRulesWorkspaceEnabled
+          ? 'scale-trigger-card is-enabled'
+          : 'scale-trigger-card',
+      },
+      h(
+        'div',
+        {},
+        h(
+          'div',
+          { className: 'flex-between-tight mb-6' },
+          h(
+            'label',
+            { className: 'check-label', for: 'chk-settings-workrules-needed' },
+            h('input', {
+              id: 'chk-settings-workrules-needed',
+              type: 'checkbox',
+              checked: Boolean(gov.workRulesWorkspaceEnabled),
+              onChange: (e) =>
+                runOpsAction(
+                  {
+                    actionType: 'TOGGLE_SCALE_CHECK_ITEM',
+                    itemId: 'CHK_10_WORK_RULE',
+                    checked: e.currentTarget.checked,
+                  },
+                  e.currentTarget
+                ),
+            }),
+            h('strong', {}, '10인 이상 · 취업규칙 작성·개정 및 과반수 동의 취합')
+          ),
+          h(
+            'span',
+            { className: gov.workRulesRequiredByLaw ? 'tag tag-blue' : 'tag tag-gray' },
+            gov.workRulesRequiredByLaw
+              ? `현재 상시 ${hc.lsaRegularCount}명 (10인+ 의무)`
+              : `현재 상시 ${hc.lsaRegularCount}명 (10인 미만 면제)`
+          )
+        ),
+        h(
+          'p',
+          { className: 'scale-check-desc' },
+          '취업규칙 개정 시 근로자별 메일·카톡 발송 → 개정 내용 열람 확인 → 본인 성명 전자서명(또는 프린트 자필서명) → 과반수 동의서 자동 취합을 수행합니다.'
+        )
+      ),
+      h(
+        'div',
+        { className: 'step-pill-group' },
+        h(
+          'button',
+          {
+            type: 'button',
+            id: 'btn-settings-open-work-rules',
+            className: 'btn btn-primary btn-sm',
+            onClick: () => switchTab('work-rules', false),
+          },
+          '취업규칙 개정 · 과반수 동의 창 열기'
+        )
+      )
+    )
+  );
+
+  const checklistTable = h(
+    'div',
+    { className: 'table-scroll-wrap' },
+    h(
+      'table',
+      { className: 'payroll-table', 'aria-label': '인원수별 법정 필수 추가사항 점검표' },
+      h(
+        'thead',
+        {},
+        h(
+          'tr',
+          {},
+          h('th', { scope: 'col' }, '체크 · No.'),
+          h('th', { scope: 'col' }, '인원수 구간'),
+          h('th', { scope: 'col' }, '법정 필수 추가·비치 항목'),
+          h('th', { scope: 'col' }, '근거 법조문 · 미이행 리스크'),
+          h('th', { scope: 'col' }, '현재 사업장 판정'),
+          h('th', { scope: 'col' }, '화면 이동')
+        )
+      ),
+      h(
+        'tbody',
+        {},
+        ...gov.scaleChecklist.map((item) =>
+          h(
+            'tr',
+            {},
+            h(
+              'td',
+              { 'data-label': '체크 · No.' },
+              h(
+                'div',
+                { className: 'master-mark-wrap' },
+                h(
+                  'label',
+                  { className: 'row-check-label' },
+                  h('input', {
+                    type: 'checkbox',
+                    className: 'row-check-input',
+                    dataset: { scaleCheckId: item.id },
+                    checked: Boolean(item.checked),
+                    'aria-label': `No.${item.rowNo} ${item.title} 확인 체크`,
+                    onChange: async (e) => {
+                      const checkId = item.id;
+                      await runOpsAction(
+                        {
+                          actionType: 'TOGGLE_SCALE_CHECK_ITEM',
+                          itemId: checkId,
+                          checked: e.currentTarget.checked,
+                        },
+                        e.currentTarget
+                      );
+                      if (appState.activeTab === 'settings-master') {
+                        document
+                          .querySelector(`[data-scale-check-id="${CSS.escape(checkId)}"]`)
+                          ?.focus();
+                      }
+                    },
+                  })
+                ),
+                h('span', { className: 'row-num-pill' }, String(item.rowNo))
+              )
+            ),
+            h(
+              'td',
+              { 'data-label': '인원수 구간' },
+              h(
+                'span',
+                { className: item.autoApplicable ? 'tag tag-blue' : 'tag tag-gray' },
+                item.tier
+              )
+            ),
+            h('td', { 'data-label': '법정 필수 항목', className: 'font-extrabold' }, item.title),
+            h(
+              'td',
+              { 'data-label': '근거 법조문' },
+              h('div', {}, item.lawBasis),
+              h('div', { className: 'cell-dept-name' }, item.penaltySummary)
+            ),
+            h(
+              'td',
+              { 'data-label': '현재 판정' },
+              h(
+                'span',
+                {
+                  className: item.autoApplicable
+                    ? item.checked
+                      ? 'tag tag-green'
+                      : 'tag tag-amber'
+                    : 'tag tag-gray',
+                },
+                item.statusLabel
+              )
+            ),
+            h(
+              'td',
+              { 'data-label': '화면 이동' },
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className:
+                    item.id === 'CHK_30_LMC' || item.id === 'CHK_10_WORK_RULE'
+                      ? 'btn btn-primary btn-sm'
+                      : 'btn btn-secondary btn-sm',
+                  onClick: async (e) => {
+                    if (item.id === 'CHK_30_LMC' && !gov.lmcWorkspaceEnabled) {
+                      await runOpsAction(
+                        { actionType: 'SET_LMC_WORKSPACE_ACTIVE', active: true },
+                        e.currentTarget
+                      );
+                    } else {
+                      switchTab(item.linkedTab, false);
+                    }
+                  },
+                },
+                item.actionLabel
+              )
+            )
+          )
+        )
+      )
+    )
+  );
+
+  panel.replaceChildren(
+    h(
+      'div',
+      { className: 'ops-section-head' },
+      h(
+        'div',
+        { className: 'step-pill-group' },
+        h(
+          'h3',
+          { className: 'ops-section-title' },
+          `인원수(규모)별 법정 필수 추가사항 점검표 (현재 상시 ${hc.lsaRegularCount}명)`
+        ),
+        h(
+          'span',
+          { className: 'code-diff-pill' },
+          '변경됨 · 규모별 법정의무 전수 점검 + 30인+ 노사협의회 클릭 시 전용 대시보드 오픈'
+        )
+      ),
+      h(
+        'div',
+        { className: 'step-pill-group' },
+        ...[
+          [4, '4인(5인미만)'],
+          [12, '12인(10인+ 취업규칙)'],
+          [35, '35인(30인+ 노사협의회)'],
+          [60, '60인(50인+ 안전·장애인)'],
+          [320, '320인(300인+ 공시)'],
+        ].map(([cnt, lbl]) =>
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'btn btn-secondary btn-sm',
+              onClick: (e) => quickScaleJump(cnt, e.currentTarget),
+            },
+            lbl
+          )
+        )
+      )
+    ),
+    triggerCards,
+    checklistTable
+  );
+}
+
+function renderLmcDashboardTab(snapshot) {
+  const wrap = document.getElementById('lmc-dashboard-container');
+  if (!wrap || !snapshot.operationsSuite?.statutoryGovernance) return;
+  const gov = snapshot.operationsSuite.statutoryGovernance;
+  const lmc = gov.lmcGovernance;
+  const samples = gov.sampleTranscripts || [];
+
+  if (
+    !appState.lmcDraftTranscript &&
+    samples.length > 0
+  ) {
+    appState.lmcDraftTranscript = samples[0].transcript;
+    appState.lmcDraftAudioFileName = samples[0].audioFileName;
+    appState.lmcDraftDurationSec = samples[0].durationSec;
+  }
+
+  const activeMin =
+    lmc.minutesList.find((m) => m.minutesId === appState.selectedLmcMinutesId) ||
+    lmc.minutesList[0] ||
+    null;
+  if (activeMin) appState.selectedLmcMinutesId = activeMin.minutesId;
+
+  const activeReg =
+    lmc.regulations.find((r) => r.regId === appState.selectedLmcRegId) ||
+    lmc.regulations[0] ||
+    null;
+  if (activeReg) appState.selectedLmcRegId = activeReg.regId;
+
+  const kpiStrip = h(
+    'div',
+    { className: 'kpi-strip' },
+    h(
+      'div',
+      { className: 'kpi-card' },
+      h('div', { className: 'kpi-label' }, '노사협의회 규정 자동 보관'),
+      h('div', { className: 'kpi-value' }, `제${activeReg?.version ?? 1}판 비치`),
+      h('div', { className: 'kpi-sub' }, '설치·개정 15일 내 신고 기준 충족')
+    ),
+    h(
+      'div',
+      { className: 'kpi-card' },
+      h('div', { className: 'kpi-label' }, '노사 동수 위원 운영'),
+      h(
+        'div',
+        { className: 'kpi-value' },
+        `사용자 ${lmc.employerCount} : 근로자 ${lmc.workerCount}`
+      ),
+      h(
+        'div',
+        { className: 'kpi-sub' },
+        lmc.parityValid ? '근참법 제6조 노사 동수(3~10인) 적법' : '노사 위원 동수(각 3~10인) 조정 필요'
+      )
+    ),
+    h(
+      'div',
+      { className: 'kpi-card' },
+      h('div', { className: 'kpi-label' }, '녹음 자동변환 회의록 보관'),
+      h('div', { className: 'kpi-value' }, `총 ${lmc.minutesList.length}건`),
+      h('div', { className: 'kpi-sub' }, '근참법 제21조 작성일로부터 3년 자동 보존')
+    ),
+    h(
+      'div',
+      { className: 'kpi-card' },
+      h('div', { className: 'kpi-label' }, '현재 회의록 위원 서명 취합'),
+      h(
+        'div',
+        { className: 'kpi-value' },
+        activeMin ? `${activeMin.signedTotal} / ${activeMin.totalMembers}명` : '0 / 0명'
+      ),
+      h(
+        'div',
+        { className: 'kpi-sub' },
+        activeMin?.allSigned ? '전원 서명 완료 · 결과보고서 확정 ✓' : '위원 메일 서명 취합 진행중'
+      )
+    )
+  );
+
+  // 1) 회의 녹음(운영위원회·정기회의) → 자동 회의록 변환 스튜디오
+  const recStatusSpan = h(
+    'span',
+    { className: appState.lmcRecActive ? 'rec-live-indicator' : 'tag tag-blue' },
+    appState.lmcRecActive ? '● 실시간 회의 마이크 녹음 및 음성인식 진행중' : '녹음 대기 · 샘플 또는 음성파일 즉시 변환 가능'
+  );
+
+  const transcriptArea = h('textarea', {
+    id: 'lmc-rec-transcript-input',
+    className: 'doc-textarea-mono',
+    rows: '6',
+    'aria-label': '회의 녹음 음성인식(STT) 원문 텍스트',
+    onInput: (e) => {
+      appState.lmcDraftTranscript = e.currentTarget.value;
+    },
+  });
+  transcriptArea.value = appState.lmcDraftTranscript;
+
+  const audioFileBadge = h(
+    'span',
+    { className: 'tag tag-gray', id: 'lmc-audio-file-badge' },
+    `녹음파일: ${appState.lmcDraftAudioFileName} (${Math.floor(appState.lmcDraftDurationSec / 60)}분 ${appState.lmcDraftDurationSec % 60}초)`
+  );
+
+  const toggleLiveMicRecording = async (btnEl) => {
+    if (appState.lmcRecActive) {
+      const elapsed = Math.max(
+        5,
+        Math.round((Date.now() - (appState.lmcRecStartedAtMs || Date.now())) / 1000)
+      );
+      stopLmcLiveRecording();
+      appState.lmcDraftDurationSec = elapsed;
+      appState.lmcDraftAudioFileName = `실시간_운영위원회_마이크녹음_${elapsed}s.webm`;
+      audioFileBadge.textContent = `녹음파일: ${appState.lmcDraftAudioFileName} (${Math.floor(elapsed / 60)}분 ${elapsed % 60}초)`;
+      recStatusSpan.className = 'tag tag-green';
+      recStatusSpan.textContent = `녹음 완료 (${elapsed}초) · 아래 버튼으로 회의록 자동 정리 가능`;
+      btnEl.textContent = '● 마이크 회의 녹음 시작';
+      showBanner('마이크 회의 녹음이 종료되어 변환 대기창에 반영되었습니다.');
+      return;
+    }
+
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error('현재 브라우저 환경에서 마이크 장치를 사용할 수 없어 녹음 파일 업로드 또는 샘플 변환을 이용해 주세요.');
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      appState.lmcRecStream = stream;
+      appState.lmcRecActive = true;
+      appState.lmcRecStartedAtMs = Date.now();
+      if (typeof MediaRecorder === 'function') {
+        const mr = new MediaRecorder(stream);
+        mr.start();
+        appState.lmcRecMediaRecorder = mr;
+      }
+      // 회의 음성 외부 클라우드 유출 방지: 브라우저 온디바이스(processLocally) 음성인식이 검증된 경우에만 자동 STT 구동
+      let onDeviceSttStarted = false;
+      const SpeechCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (typeof SpeechCtor === 'function' && typeof SpeechCtor.available === 'function') {
+        try {
+          const availability = await SpeechCtor.available({
+            langs: ['ko-KR'],
+            processLocally: true,
+          });
+          if (!appState.lmcRecActive || appState.lmcRecStream !== stream) {
+            return;
+          }
+          if (availability === 'available') {
+            const rec = new SpeechCtor();
+            rec.lang = 'ko-KR';
+            rec.continuous = true;
+            rec.interimResults = false;
+            rec.processLocally = true;
+            if (rec.processLocally === true) {
+              rec.onresult = (ev) => {
+                const lines = [];
+                for (let i = ev.resultIndex; i < ev.results.length; i++) {
+                  if (ev.results[i].isFinal) {
+                    const spoken = String(ev.results[i][0]?.transcript || '').trim();
+                    if (spoken) lines.push(`[실시간발언] ${spoken}`);
+                  }
+                }
+                if (lines.length > 0) {
+                  appState.lmcDraftTranscript = [appState.lmcDraftTranscript, ...lines]
+                    .filter(Boolean)
+                    .join('\n');
+                  transcriptArea.value = appState.lmcDraftTranscript;
+                }
+              };
+              rec.start();
+              appState.lmcRecSpeech = rec;
+              onDeviceSttStarted = true;
+            }
+          }
+        } catch {
+          // 온디바이스 STT 미지원 시 외부 전송 없이 로컬 녹음만 수행
+        }
+      }
+      recStatusSpan.className = 'rec-live-indicator';
+      recStatusSpan.textContent = onDeviceSttStarted
+        ? '● 온디바이스 보안 마이크 녹음·음성인식 중...'
+        : '● 로컬 보안 녹음 중 (회의 음성 외부 전송 차단됨)';
+      btnEl.textContent = '■ 녹음 종료 · 텍스트 반영';
+      showBanner(
+        onDeviceSttStarted
+          ? '온디바이스 보안 음성인식 및 녹음이 시작되었습니다.'
+          : '외부 음성 서버 전송이 차단된 로컬 보안 녹음이 시작되었습니다.'
+      );
+    } catch (err) {
+      stopLmcLiveRecording();
+      showBanner(err.message, true);
+    }
+  };
+
+  const recordingSection = h(
+    'div',
+    { className: 'ops-section-block code-diff-box' },
+    h(
+      'div',
+      { className: 'ops-section-head' },
+      h(
+        'div',
+        { className: 'step-pill-group' },
+        h('h3', { className: 'ops-section-title' }, '1. 운영위원회 · 노사협의회 회의 녹음 → 자동 회의록 변환 · 보관'),
+        h('span', { className: 'code-diff-pill' }, '변경됨 · 회의 녹음 자동 회의록 정리'),
+        recStatusSpan
+      ),
+      h(
+        'div',
+        { className: 'step-pill-group' },
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'btn btn-secondary btn-sm',
+            onClick: () => openStandalonePopupWindow('lmc-dashboard'),
+          },
+          '노사협의회 별도 창 열기'
+        )
+      )
+    ),
+    h(
+      'div',
+      { className: 'rec-studio-box' },
+      h(
+        'div',
+        { className: 'flex-between-wrap' },
+        h(
+          'div',
+          { className: 'step-pill-group' },
+          h(
+            'button',
+            {
+              type: 'button',
+              id: 'btn-lmc-mic-record',
+              className: appState.lmcRecActive ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm',
+              onClick: (e) => toggleLiveMicRecording(e.currentTarget),
+            },
+            appState.lmcRecActive ? '■ 녹음 종료 · 텍스트 반영' : '● 마이크 회의 녹음 시작'
+          ),
+          h(
+            'label',
+            { className: 'file-upload-label', for: 'lmc-audio-upload-input' },
+            h('span', {}, '녹음파일 업로드 (음성·텍스트)'),
+            h('input', {
+              id: 'lmc-audio-upload-input',
+              type: 'file',
+              className: 'visually-hidden-input',
+              accept: 'audio/*,.webm,.mp3,.wav,.m4a,.txt',
+              onChange: async (e) => {
+                const f = e.currentTarget.files?.[0];
+                if (!f) return;
+                appState.lmcDraftAudioFileName = f.name;
+                appState.lmcDraftDurationSec = Math.max(60, Math.round(f.size / 4000));
+                audioFileBadge.textContent = `녹음파일: ${f.name}`;
+                if (f.name.endsWith('.txt') || f.type.startsWith('text/')) {
+                  const txt = await f.text();
+                  appState.lmcDraftTranscript = txt;
+                  transcriptArea.value = txt;
+                } else if (!appState.lmcDraftTranscript && samples[0]) {
+                  appState.lmcDraftTranscript = samples[0].transcript;
+                  transcriptArea.value = samples[0].transcript;
+                }
+                showBanner(`녹음 파일(${f.name})이 로드되었습니다. [법정 회의록 자동 정리 · 보관]을 눌러 변환하세요.`);
+                e.currentTarget.value = '';
+              },
+            })
+          ),
+          ...samples.map((smp) =>
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'btn btn-secondary btn-sm',
+                onClick: () => {
+                  appState.lmcDraftTranscript = smp.transcript;
+                  appState.lmcDraftAudioFileName = smp.audioFileName;
+                  appState.lmcDraftDurationSec = smp.durationSec;
+                  transcriptArea.value = smp.transcript;
+                  audioFileBadge.textContent = `녹음파일: ${smp.audioFileName} (${Math.floor(smp.durationSec / 60)}분)`;
+                  const catSel = document.getElementById('lmc-rec-category');
+                  if (catSel) catSel.value = smp.meetingCategory;
+                  const locIn = document.getElementById('lmc-rec-location');
+                  if (locIn) locIn.value = smp.location;
+                  showBanner(`[${smp.label}] 녹음 음성인식 데이터가 입력되었습니다.`);
+                },
+              },
+              smp.label
+            )
+          )
+        ),
+        audioFileBadge
+      ),
+      h(
+        'form',
+        {
+          id: 'lmc-recording-to-minutes-form',
+          onSubmit: async (e) => {
+            e.preventDefault();
+            stopLmcLiveRecording();
+            const f = e.currentTarget;
+            const res = await runOpsAction(
+              {
+                actionType: 'CREATE_LMC_MINUTES_FROM_RECORDING',
+                meetingCategory: f.querySelector('[name="meetingCategory"]').value,
+                meetingDate: f.querySelector('[name="meetingDate"]').value,
+                location: f.querySelector('[name="location"]').value,
+                title: f.querySelector('[name="title"]').value,
+                audioFileName: appState.lmcDraftAudioFileName,
+                durationSec: appState.lmcDraftDurationSec,
+                rawTranscript: transcriptArea.value,
+              },
+              f.querySelector('button[type="submit"]')
+            );
+            if (res?.result?.minutesId) {
+              appState.selectedLmcMinutesId = res.result.minutesId;
+              renderLmcDashboardTab(res.snapshot);
+            }
+          },
+        },
+        h(
+          'div',
+          { className: 'ops-inline-form' },
+          h(
+            'div',
+            { className: 'field' },
+            h('label', { for: 'lmc-rec-category' }, '회의 구분'),
+            h(
+              'select',
+              { id: 'lmc-rec-category', name: 'meetingCategory' },
+              h('option', { value: '운영위원회' }, '운영위원회 (수시·실무협의)'),
+              h('option', { value: '정기회의' }, '분기 정기 노사협의회 (제12조)'),
+              h('option', { value: '임시회의' }, '임시 노사협의회')
+            )
+          ),
+          h(
+            'div',
+            { className: 'field' },
+            h('label', { for: 'lmc-rec-date' }, '회의 개최일'),
+            h('input', {
+              id: 'lmc-rec-date',
+              name: 'meetingDate',
+              type: 'date',
+              value: snapshot.company.referenceDate || '2026-11-24',
+              required: true,
+            })
+          ),
+          h(
+            'div',
+            { className: 'field' },
+            h('label', { for: 'lmc-rec-location' }, '개최 장소'),
+            h('input', {
+              id: 'lmc-rec-location',
+              name: 'location',
+              type: 'text',
+              value: '본사 2층 노사협의회실',
+            })
+          ),
+          h(
+            'div',
+            { className: 'field' },
+            h('label', { for: 'lmc-rec-title' }, '회의록 제목 (미입력 시 자동 생성)'),
+            h('input', {
+              id: 'lmc-rec-title',
+              name: 'title',
+              type: 'text',
+              placeholder: '예: 2026년 제5차 운영위원회 회의록',
+            })
+          ),
+          h(
+            'div',
+            { className: 'field' },
+            h(
+              'button',
+              {
+                type: 'submit',
+                id: 'btn-convert-recording-minutes',
+                className: 'btn btn-primary full-width',
+              },
+              '녹음 내용 → 법정 회의록 자동 정리 · 보관함 저장'
+            )
+          )
+        ),
+        h(
+          'div',
+          { className: 'field' },
+          h(
+            'label',
+            { for: 'lmc-rec-transcript-input' },
+            '회의 녹음 실시간 음성인식(STT) 원문 (화자별 발언을 자동으로 보고·협의·의결사항으로 분류합니다)'
+          ),
+          transcriptArea
+        )
+      )
+    )
+  );
+
+  // 2) 회의록 보관함 · 사용자위원/근로자위원 메일 발송 · 개별 서명 · 자동 취합 결과보고서
+  const minutesSection = h(
+    'div',
+    { className: 'ops-section-block code-diff-box' },
+    h(
+      'div',
+      { className: 'ops-section-head' },
+      h(
+        'div',
+        { className: 'step-pill-group' },
+        h(
+          'h3',
+          { className: 'ops-section-title' },
+          '2. 회의록 자동 보관함 · 노사위원 메일 서명 요청 · 결과보고서 자동 취합'
+        ),
+        h('span', { className: 'code-diff-pill' }, '변경됨 · 위원별 서명 완료 시 보고서 자동 완성')
+      ),
+      activeMin
+        ? h(
+            'div',
+            { className: 'step-pill-group' },
+            h(
+              'select',
+              {
+                id: 'lmc-minutes-select',
+                className: 'month-input-box',
+                'aria-label': '보관된 노사협의회 회의록 선택',
+                onChange: (e) => {
+                  appState.selectedLmcMinutesId = e.currentTarget.value;
+                  renderLmcDashboardTab(snapshot);
+                },
+              },
+              ...lmc.minutesList.map((m) =>
+                h(
+                  'option',
+                  { value: m.minutesId, selected: m.minutesId === activeMin.minutesId },
+                  `[${m.minutesId}] ${m.meetingDate} ${m.title} (서명 ${m.signedTotal}/${m.totalMembers})`
+                )
+              )
+            ),
+            h(
+              'button',
+              {
+                type: 'button',
+                id: 'btn-lmc-dispatch-emails',
+                className: 'btn btn-primary btn-sm',
+                onClick: (e) =>
+                  runOpsAction(
+                    {
+                      actionType: 'DISPATCH_LMC_SIGN_REQUESTS',
+                      minutesId: activeMin.minutesId,
+                      channel: 'EMAIL',
+                    },
+                    e.currentTarget
+                  ),
+              },
+              '미서명 위원 전체 메일·서명링크 발송'
+            ),
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'btn btn-secondary btn-sm',
+                onClick: (e) =>
+                  openModalWithText(
+                    `[서명 자동 취합 보고서] ${activeMin.title}`,
+                    `보존기한 ${activeMin.retentionUntil} · 서명 ${activeMin.signedTotal}/${activeMin.totalMembers}명 완료`,
+                    activeMin.compiledReportBody,
+                    e.currentTarget
+                  ),
+              },
+              '취합 결과보고서 열람·복사'
+            ),
+            h(
+              'button',
+              {
+                type: 'button',
+                id: 'btn-lmc-print-minutes',
+                className: 'btn btn-secondary btn-sm',
+                onClick: (e) => openLmcMinutesPrintSheet(snapshot, activeMin, e.currentTarget),
+              },
+              '프린트용 자필서명부 인쇄'
+            )
+          )
+        : null
+    ),
+    activeMin
+      ? h(
+          'div',
+          {},
+          h(
+            'div',
+            { className: 'table-scroll-wrap mb-14' },
+            h(
+              'table',
+              { className: 'payroll-table', 'aria-label': '노사협의회 위원별 메일 발송 및 서명 취합 현황' },
+              h(
+                'thead',
+                {},
+                h(
+                  'tr',
+                  {},
+                  h('th', { scope: 'col' }, 'No.'),
+                  h('th', { scope: 'col' }, '위원 구분'),
+                  h('th', { scope: 'col' }, '성명 · 직책'),
+                  h('th', { scope: 'col' }, '이메일'),
+                  h('th', { scope: 'col' }, '메일 발송 · 열람'),
+                  h('th', { scope: 'col' }, '서명 제출 상태'),
+                  h('th', { scope: 'col' }, '위원 서명 · 인쇄 반영')
+                )
+              ),
+              h(
+                'tbody',
+                {},
+                ...activeMin.signatures.map((s) =>
+                  h(
+                    'tr',
+                    {},
+                    h('td', { 'data-label': 'No.' }, h('span', { className: 'row-num-pill' }, String(s.rowNo))),
+                    h(
+                      'td',
+                      { 'data-label': '위원 구분' },
+                      h(
+                        'span',
+                        { className: s.side === 'EMPLOYER' ? 'tag tag-blue' : 'tag tag-green' },
+                        s.side === 'EMPLOYER' ? '사용자위원' : '근로자위원'
+                      )
+                    ),
+                    h(
+                      'td',
+                      { 'data-label': '성명 · 직책' },
+                      h('div', { className: 'font-extrabold' }, s.name),
+                      h('div', { className: 'cell-dept-name' }, s.deptRole)
+                    ),
+                    h('td', { 'data-label': '이메일' }, s.email),
+                    h(
+                      'td',
+                      { 'data-label': '메일 발송 · 열람' },
+                      h(
+                        'span',
+                        { className: s.dispatched ? 'tag tag-blue' : 'tag tag-gray' },
+                        s.dispatched ? `메일발송 (${s.dispatchedAt})` : '발송전'
+                      ),
+                      s.readConfirmedAt
+                        ? h('div', { className: 'cell-dept-name' }, `열람확인 ${s.readConfirmedAt}`)
+                        : null
+                    ),
+                    h(
+                      'td',
+                      { 'data-label': '서명 제출 상태' },
+                      s.signed
+                        ? h(
+                            'div',
+                            {},
+                            h('span', { className: 'tag tag-green' }, `서명완료 ✓ (${s.signedAt})`),
+                            h('div', { className: 'cell-emp-code' }, s.signatureCode)
+                          )
+                        : h('span', { className: 'tag tag-amber' }, '서명 대기')
+                    ),
+                    h(
+                      'td',
+                      { 'data-label': '위원 서명 · 인쇄 반영' },
+                      h(
+                        'div',
+                        { className: 'step-pill-group' },
+                        !s.signed
+                          ? h(
+                              'button',
+                              {
+                                type: 'button',
+                                className: 'btn btn-primary btn-sm',
+                                dataset: { lmcSignMember: s.memberId },
+                                onClick: (e) =>
+                                  openIssuedRecipientSignFlow(
+                                    'LMC',
+                                    activeMin.minutesId,
+                                    s.memberId,
+                                    e.currentTarget
+                                  ),
+                              },
+                              '메일 수신화면 · 전자서명'
+                            )
+                          : null,
+                        !s.signed
+                          ? h(
+                              'button',
+                              {
+                                type: 'button',
+                                className: 'btn btn-secondary btn-sm',
+                                onClick: (e) =>
+                                  runOpsAction(
+                                    {
+                                      actionType: 'RECORD_LMC_OFFLINE_SIGNATURE',
+                                      minutesId: activeMin.minutesId,
+                                      memberId: s.memberId,
+                                    },
+                                    e.currentTarget
+                                  ),
+                              },
+                              '서면서명 반영'
+                            )
+                          : null,
+                        h(
+                          'a',
+                          {
+                            href: `mailto:${encodeURIComponent(s.email)}?subject=${encodeURIComponent(`[${snapshot.company.companyName}] 노사협의회 회의록 확인 및 전자서명 요청`)}&body=${encodeURIComponent(`${s.name} 위원님,\n\n${activeMin.title} 회의록이 정리되었습니다.\n첨부 또는 사내 서명 링크에서 내용을 확인하신 뒤 서명해 주시기 바랍니다.`)}`,
+                            className: 'btn btn-secondary btn-sm',
+                          },
+                          '메일앱'
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          ),
+          h(
+            'div',
+            { className: 'doc-compare-grid' },
+            h(
+              'div',
+              { className: 'doc-compare-col' },
+              h('strong', {}, '자동 정리된 법정 회의록 원본 (녹음 변환본)'),
+              h('pre', { className: 'doc-paper-box' }, activeMin.minutesBody)
+            ),
+            h(
+              'div',
+              { className: 'doc-compare-col' },
+              h(
+                'strong',
+                {},
+                `위원 서명 실시간 자동 취합 결과보고서 (${activeMin.signedTotal}/${activeMin.totalMembers}명 반영)`
+              ),
+              h('pre', { className: 'doc-paper-box' }, activeMin.compiledReportBody)
+            )
+          )
+        )
+      : h('div', { className: 'empty-state' }, '보관된 회의록이 없습니다.')
+  );
+
+  // 3) 노사협의회 규정 자동 보관함 & 위원 운영 시스템
+  const regAndCommitteeSection = h(
+    'div',
+    { className: 'ops-two-col' },
+    // 좌측: 규정 보관함
+    h(
+      'div',
+      { className: 'ops-section-block' },
+      h(
+        'div',
+        { className: 'ops-section-head' },
+        h('h3', { className: 'ops-section-title' }, '3-1. 노사협의회 규정 자동 보관함'),
+        activeReg
+          ? h(
+              'div',
+              { className: 'step-pill-group' },
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'btn btn-secondary btn-sm',
+                  onClick: (e) =>
+                    openModalWithText(
+                      `노사협의회 규정 (제${activeReg.version}판)`,
+                      `시행일 ${activeReg.enactedDate} · SHA-256 ${activeReg.bodySha256.slice(0, 12)}`,
+                      activeReg.regulationBody,
+                      e.currentTarget
+                    ),
+                },
+                '규정 전문 보기'
+              ),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'btn btn-secondary btn-sm',
+                  onClick: (e) => openLmcRegulationPrintSheet(snapshot, activeReg, e.currentTarget),
+                },
+                '규정 인쇄'
+              )
+            )
+          : null
+      ),
+      activeReg ? h('pre', { className: 'doc-paper-box' }, activeReg.regulationBody) : null,
+      h(
+        'details',
+        { className: 'details-card' },
+        h('summary', {}, '노사협의회 규정 개정 · 새 버전 자동 보관하기'),
+        h(
+          'form',
+          {
+            className: 'stack-form mt-12',
+            onSubmit: async (e) => {
+              e.preventDefault();
+              const f = e.currentTarget;
+              const res = await runOpsAction(
+                {
+                  actionType: 'SAVE_LMC_REGULATION',
+                  committeeCountEachSide: Number(f.querySelector('[name="cntEach"]').value),
+                  grievanceHandlingDays: Number(f.querySelector('[name="grvDays"]').value),
+                  enactedDate: f.querySelector('[name="enactedDate"]').value,
+                  customAddendum: f.querySelector('[name="addendum"]').value,
+                },
+                f.querySelector('button[type="submit"]')
+              );
+              if (res?.result?.regId) {
+                appState.selectedLmcRegId = res.result.regId;
+                renderLmcDashboardTab(res.snapshot);
+              }
+            },
+          },
+          h(
+            'div',
+            { className: 'studio-mini-grid' },
+            h(
+              'div',
+              { className: 'field' },
+              h('label', { for: 'lmc-reg-cnt' }, '노사 각 위원 수 (3~10인)'),
+              h('input', {
+                id: 'lmc-reg-cnt',
+                name: 'cntEach',
+                type: 'number',
+                min: '3',
+                max: '10',
+                value: String(activeReg?.committeeCountEachSide ?? 3),
+              })
+            ),
+            h(
+              'div',
+              { className: 'field' },
+              h('label', { for: 'lmc-reg-grv' }, '고충 통보기한 (최대 10일)'),
+              h('input', {
+                id: 'lmc-reg-grv',
+                name: 'grvDays',
+                type: 'number',
+                min: '1',
+                max: '10',
+                value: String(activeReg?.grievanceHandlingDays ?? 10),
+              })
+            ),
+            h(
+              'div',
+              { className: 'field' },
+              h('label', { for: 'lmc-reg-date' }, '개정 시행일'),
+              h('input', {
+                id: 'lmc-reg-date',
+                name: 'enactedDate',
+                type: 'date',
+                value: snapshot.company.referenceDate || '2026-11-24',
+              })
+            )
+          ),
+          h(
+            'div',
+            { className: 'field' },
+            h('label', { for: 'lmc-reg-addendum' }, '운영위원회 · 회의록 보관 특칙'),
+            h('input', {
+              id: 'lmc-reg-addendum',
+              name: 'addendum',
+              type: 'text',
+              value: activeReg?.customAddendum || '',
+            })
+          ),
+          h('button', { type: 'submit', className: 'btn btn-primary btn-sm' }, '새 규정 버전 자동 보관')
+        )
+      )
+    ),
+    // 우측: 위원 운영 시스템
+    h(
+      'div',
+      { className: 'ops-section-block' },
+      h(
+        'div',
+        { className: 'ops-section-head' },
+        h('h3', { className: 'ops-section-title' }, '3-2. 노사협의회 위원 운영 시스템 (사용자·근로자 동수)'),
+        h(
+          'span',
+          { className: lmc.parityValid ? 'tag tag-green' : 'tag tag-amber' },
+          `사용자 ${lmc.employerCount}명 · 근로자 ${lmc.workerCount}명`
+        )
+      ),
+      h(
+        'div',
+        { className: 'table-scroll-wrap' },
+        h(
+          'table',
+          { className: 'payroll-table', 'aria-label': '노사협의회 위원 명부' },
+          h(
+            'thead',
+            {},
+            h(
+              'tr',
+              {},
+              h('th', { scope: 'col' }, '구분'),
+              h('th', { scope: 'col' }, '성명 · 직책'),
+              h('th', { scope: 'col' }, '이메일 · 임기'),
+              h('th', { scope: 'col' }, '관리')
+            )
+          ),
+          h(
+            'tbody',
+            {},
+            ...lmc.committeeMembers.map((m) =>
+              h(
+                'tr',
+                {},
+                h(
+                  'td',
+                  { 'data-label': '구분' },
+                  h(
+                    'span',
+                    { className: m.side === 'EMPLOYER' ? 'tag tag-blue' : 'tag tag-green' },
+                    m.side === 'EMPLOYER' ? '사용자위원' : '근로자위원'
+                  )
+                ),
+                h(
+                  'td',
+                  { 'data-label': '성명 · 직책' },
+                  h('div', { className: 'font-extrabold' }, m.name),
+                  h('div', { className: 'cell-dept-name' }, m.deptRole)
+                ),
+                h(
+                  'td',
+                  { 'data-label': '이메일 · 임기' },
+                  h('div', {}, m.email),
+                  h('div', { className: 'cell-dept-name' }, `임기 ${m.termStart} ~ ${m.termEnd}`)
+                ),
+                h(
+                  'td',
+                  { 'data-label': '관리' },
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'btn btn-secondary btn-sm',
+                      onClick: (e) =>
+                        runOpsAction(
+                          { actionType: 'DELETE_LMC_MEMBER', memberId: m.memberId },
+                          e.currentTarget
+                        ),
+                    },
+                    '제외'
+                  )
+                )
+              )
+            )
+          )
+        )
+      ),
+      h(
+        'details',
+        { className: 'details-card' },
+        h('summary', {}, '노사협의회 위원 신규 등록 (메일 서명 대상 추가)'),
+        h(
+          'form',
+          {
+            className: 'stack-form mt-12',
+            onSubmit: (e) => {
+              e.preventDefault();
+              const f = e.currentTarget;
+              runOpsAction(
+                {
+                  actionType: 'SAVE_LMC_MEMBER',
+                  side: f.querySelector('[name="side"]').value,
+                  name: f.querySelector('[name="name"]').value,
+                  deptRole: f.querySelector('[name="deptRole"]').value,
+                  email: f.querySelector('[name="email"]').value,
+                },
+                f.querySelector('button[type="submit"]')
+              );
+            },
+          },
+          h(
+            'div',
+            { className: 'studio-mini-grid' },
+            h(
+              'div',
+              { className: 'field' },
+              h('label', { for: 'lmc-mem-side' }, '위원 구분'),
+              h(
+                'select',
+                { id: 'lmc-mem-side', name: 'side' },
+                h('option', { value: 'WORKER' }, '근로자위원'),
+                h('option', { value: 'EMPLOYER' }, '사용자위원')
+              )
+            ),
+            h(
+              'div',
+              { className: 'field' },
+              h('label', { for: 'lmc-mem-name' }, '성명'),
+              h('input', { id: 'lmc-mem-name', name: 'name', type: 'text', required: true })
+            ),
+            h(
+              'div',
+              { className: 'field' },
+              h('label', { for: 'lmc-mem-role' }, '소속 · 직책'),
+              h('input', {
+                id: 'lmc-mem-role',
+                name: 'deptRole',
+                type: 'text',
+                value: '생산기술팀 · 근로자위원',
+              })
+            ),
+            h(
+              'div',
+              { className: 'field' },
+              h('label', { for: 'lmc-mem-email' }, '서명 수신 이메일'),
+              h('input', {
+                id: 'lmc-mem-email',
+                name: 'email',
+                type: 'email',
+                placeholder: 'member@company.co.kr',
+                required: true,
+              })
+            )
+          ),
+          h('button', { type: 'submit', className: 'btn btn-primary btn-sm' }, '위원 등록')
+        )
+      )
+    )
+  );
+
+  wrap.replaceChildren(kpiStrip, recordingSection, minutesSection, regAndCommitteeSection);
+}
+
+function renderWorkRulesTab(snapshot) {
+  const wrap = document.getElementById('work-rules-container');
+  if (!wrap || !snapshot.operationsSuite?.statutoryGovernance) return;
+  const wrGov = snapshot.operationsSuite.statutoryGovernance.workRulesGovernance;
+  const amendments = wrGov.amendments || [];
+  const activeAm =
+    amendments.find((a) => a.amendmentId === appState.selectedWorkRuleAmendmentId) ||
+    amendments[0] ||
+    null;
+  if (!activeAm) {
+    wrap.replaceChildren(h('div', { className: 'empty-state' }, '등록된 취업규칙 개정안이 없습니다.'));
+    return;
+  }
+  appState.selectedWorkRuleAmendmentId = activeAm.amendmentId;
+  const st = activeAm.stats;
+  const isAdverse = activeAm.changeType === 'ADVERSE_CONSENT';
+  const visibleWorkers = applyStarFilter(activeAm.workerStatuses);
+
+  const kpiStrip = h(
+    'div',
+    { className: 'kpi-strip' },
+    h(
+      'div',
+      { className: 'kpi-card' },
+      h('div', { className: 'kpi-label' }, '적용 대상 근로자 · 과반수 기준'),
+      h('div', { className: 'kpi-value' }, `총 ${st.eligibleWorkerCount}명`),
+      h('div', { className: 'kpi-sub' }, `법정 과반수 기준: ${st.majorityRequiredCount}명 이상`)
+    ),
+    h(
+      'div',
+      { className: 'kpi-card' },
+      h('div', { className: 'kpi-label' }, '메일 · 카톡 개별 발송'),
+      h('div', { className: 'kpi-value' }, `${st.dispatchedCount} / ${st.eligibleWorkerCount}명`),
+      h('div', { className: 'kpi-sub' }, '개별 열람·전자서명 전용 링크 발송')
+    ),
+    h(
+      'div',
+      { className: 'kpi-card' },
+      h('div', { className: 'kpi-label' }, '개정내용 열람 확인'),
+      h('div', { className: 'kpi-value' }, `${st.readConfirmedCount} / ${st.eligibleWorkerCount}명`),
+      h('div', { className: 'kpi-sub' }, '신·구조문 대비표 열람 일시 기록')
+    ),
+    h(
+      'div',
+      { className: 'kpi-card' },
+      h('div', { className: 'kpi-label' }, isAdverse ? '과반수 동의 서명 취합' : '과반수 의견청취 서명'),
+      h(
+        'div',
+        { className: 'kpi-value' },
+        isAdverse ? `동의 ${st.agreedCount}명 (${st.agreedRatePct}%)` : `확인 ${st.signedCount}명 (${st.participationRatePct}%)`
+      ),
+      h(
+        'div',
+        { className: 'kpi-sub' },
+        st.procedureSatisfied
+          ? '★ 근기법 제94조 제1항 과반수 요건 충족 완료'
+          : `과반수 완료까지 ${Math.max(0, st.majorityRequiredCount - (isAdverse ? st.agreedCount : st.signedCount))}명 추가 서명 필요`
+      )
+    )
+  );
+
+  const amendmentHeaderAndClauses = h(
+    'div',
+    { className: 'ops-section-block code-diff-box' },
+    h(
+      'div',
+      { className: 'ops-section-head' },
+      h(
+        'div',
+        { className: 'step-pill-group' },
+        h(
+          'h3',
+          { className: 'ops-section-title' },
+          '취업규칙 개정 · 근로자 개별 메일/카톡 발송 · 본인서명 과반수 동의서 자동 취합'
+        ),
+        h(
+          'span',
+          { className: 'code-diff-pill' },
+          '변경됨 · 메일/카톡 확인 후 서명 시 동의서 자동 취합 + 프린트 서명양식'
+        )
+      ),
+      h(
+        'div',
+        { className: 'step-pill-group' },
+        h(
+          'select',
+          {
+            id: 'work-rule-amendment-select',
+            className: 'month-input-box',
+            'aria-label': '취업규칙 개정안 선택',
+            onChange: (e) => {
+              appState.selectedWorkRuleAmendmentId = e.currentTarget.value;
+              renderWorkRulesTab(snapshot);
+            },
+          },
+          ...amendments.map((am) =>
+            h(
+              'option',
+              { value: am.amendmentId, selected: am.amendmentId === activeAm.amendmentId },
+              `[${am.amendmentId}] ${am.title}`
+            )
+          )
+        )
+      )
+    ),
+    h(
+      'div',
+      { className: 'consent-progress-bar-wrap' },
+      h(
+        'div',
+        { className: 'flex-between-wrap' },
+        h(
+          'div',
+          { className: 'step-pill-group' },
+          h(
+            'span',
+            { className: isAdverse ? 'tag tag-amber' : 'tag tag-blue' },
+            activeAm.changeTypeLabel
+          ),
+          h('span', { className: 'tag tag-gray' }, `시행예정일 ${activeAm.effectiveDate}`),
+          h(
+            'span',
+            { className: st.procedureSatisfied ? 'tag tag-green' : 'tag tag-amber' },
+            st.procedureSatisfied
+              ? '과반수 동의(의견청취) 달성 완료 ✓ — 동의서 자동 취합됨'
+              : `진행중: 서명 ${st.signedCount}명 / 과반수 기준 ${st.majorityRequiredCount}명`
+          )
+        ),
+        h(
+          'div',
+          { className: 'step-pill-group' },
+          h(
+            'button',
+            {
+              type: 'button',
+              id: 'btn-wr-dispatch-all',
+              className: 'btn btn-primary btn-sm',
+              onClick: (e) =>
+                runOpsAction(
+                  {
+                    actionType: 'DISPATCH_WORK_RULE_NOTICES',
+                    amendmentId: activeAm.amendmentId,
+                    channel: 'EMAIL_AND_KAKAO',
+                  },
+                  e.currentTarget
+                ),
+            },
+            '전 근로자 메일 + 카톡(알림톡) 일괄 발송'
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'btn btn-secondary btn-sm',
+              onClick: (e) =>
+                openModalWithText(
+                  `[자동 취합 동의서] ${activeAm.title}`,
+                  `찬성 동의 ${st.agreedCount}/${st.eligibleWorkerCount}명 (${st.agreedRatePct}%) · 과반수 기준 ${st.majorityRequiredCount}명`,
+                  activeAm.aggregatedConsentDocBody,
+                  e.currentTarget
+                ),
+            },
+            '취합된 동의서(연명부) 열람'
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'btn btn-secondary btn-sm',
+              onClick: (e) =>
+                openModalWithText(
+                  `[노동청 제출용] 취업규칙 변경신고서`,
+                  `시행일 ${activeAm.effectiveDate}`,
+                  activeAm.laborOfficeFilingBody,
+                  e.currentTarget
+                ),
+            },
+            '노동청 변경신고서 초안'
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              id: 'btn-wr-print-roster',
+              className: 'btn btn-secondary btn-sm',
+              onClick: (e) => openWorkRuleRosterPrintSheet(snapshot, activeAm, e.currentTarget),
+            },
+            '프린트용 연명부(자필서명) 인쇄'
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              id: 'btn-wr-print-individual',
+              className: 'btn btn-secondary btn-sm',
+              onClick: (e) => openWorkRuleIndividualPrintSheet(snapshot, activeAm, e.currentTarget),
+            },
+            '개별 배부용 동의서(1인1매) 인쇄'
+          )
+        )
+      ),
+      h('progress', {
+        className: st.procedureSatisfied ? 'meter-progress' : 'meter-progress meter-progress-warn',
+        'aria-label': '취업규칙 과반수 동의 달성률',
+        max: String(Math.max(1, st.eligibleWorkerCount)),
+        value: String(isAdverse ? st.agreedCount : st.signedCount),
+      })
+    ),
+    h(
+      'table',
+      { className: 'clause-compare-table', 'aria-label': '취업규칙 신구조문 대비표' },
+      h(
+        'thead',
+        {},
+        h(
+          'tr',
+          {},
+          h('th', { scope: 'col' }, '개정 조항'),
+          h('th', { scope: 'col' }, '변경 전 (현행 규정)'),
+          h('th', { scope: 'col' }, '변경 후 (개정안 — 근로자 발송 본문)')
+        )
+      ),
+      h(
+        'tbody',
+        {},
+        ...activeAm.clauses.map((cl) =>
+          h(
+            'tr',
+            {},
+            h('td', { className: 'font-extrabold' }, cl.articleTitle),
+            h('td', {}, cl.beforeText || '(신설)'),
+            h('td', { className: 'font-extrabold' }, cl.afterText)
+          )
+        )
+      )
+    ),
+    h(
+      'details',
+      { className: 'details-card' },
+      h('summary', {}, '신규 취업규칙 개정안 작성 · 신·구조문 대비표 추가하기'),
+      h(
+        'form',
+        {
+          id: 'new-work-rule-amendment-form',
+          className: 'stack-form mt-12',
+          onSubmit: async (e) => {
+            e.preventDefault();
+            const f = e.currentTarget;
+            const res = await runOpsAction(
+              {
+                actionType: 'CREATE_WORK_RULE_AMENDMENT',
+                title: f.querySelector('[name="title"]').value,
+                effectiveDate: f.querySelector('[name="effectiveDate"]').value,
+                changeType: f.querySelector('[name="changeType"]').value,
+                reason: f.querySelector('[name="reason"]').value,
+                clauses: [
+                  {
+                    articleTitle: f.querySelector('[name="articleTitle"]').value,
+                    beforeText: f.querySelector('[name="beforeText"]').value,
+                    afterText: f.querySelector('[name="afterText"]').value,
+                  },
+                ],
+              },
+              f.querySelector('button[type="submit"]')
+            );
+            if (res?.result?.amendmentId) {
+              appState.selectedWorkRuleAmendmentId = res.result.amendmentId;
+              renderWorkRulesTab(res.snapshot);
+            }
+          },
+        },
+        h(
+          'div',
+          { className: 'ops-inline-form' },
+          h(
+            'div',
+            { className: 'field' },
+            h('label', { for: 'wr-new-title' }, '개정안 건명'),
+            h('input', {
+              id: 'wr-new-title',
+              name: 'title',
+              type: 'text',
+              placeholder: '예: 2027년 정기 취업규칙 개정안',
+              required: true,
+            })
+          ),
+          h(
+            'div',
+            { className: 'field' },
+            h('label', { for: 'wr-new-date' }, '시행 예정일'),
+            h('input', {
+              id: 'wr-new-date',
+              name: 'effectiveDate',
+              type: 'date',
+              value: '2026-12-15',
+              required: true,
+            })
+          ),
+          h(
+            'div',
+            { className: 'field' },
+            h('label', { for: 'wr-new-type' }, '법정 변경 절차 구분'),
+            h(
+              'select',
+              { id: 'wr-new-type', name: 'changeType' },
+              h('option', { value: 'ADVERSE_CONSENT' }, '불이익 변경 포함 (근로자 과반수 동의 필수)'),
+              h('option', { value: 'NORMAL_OPINION' }, '통상·유리 변경 (근로자 과반수 의견청취)')
+            )
+          ),
+          h(
+            'div',
+            { className: 'field' },
+            h('label', { for: 'wr-new-reason' }, '개정 사유'),
+            h('input', {
+              id: 'wr-new-reason',
+              name: 'reason',
+              type: 'text',
+              value: '근로조건 기준 정비 및 개정 노동법령 반영',
+            })
+          )
+        ),
+        h(
+          'div',
+          { className: 'ops-inline-form' },
+          h(
+            'div',
+            { className: 'field' },
+            h('label', { for: 'wr-new-art' }, '대상 조항명'),
+            h('input', {
+              id: 'wr-new-art',
+              name: 'articleTitle',
+              type: 'text',
+              placeholder: '예: 제22조 (시차출퇴근제)',
+              required: true,
+            })
+          ),
+          h(
+            'div',
+            { className: 'field' },
+            h('label', { for: 'wr-new-before' }, '변경 전 (현행)'),
+            h('input', {
+              id: 'wr-new-before',
+              name: 'beforeText',
+              type: 'text',
+              placeholder: '현행 조문 요약',
+            })
+          ),
+          h(
+            'div',
+            { className: 'field' },
+            h('label', { for: 'wr-new-after' }, '변경 후 (개정안)'),
+            h('input', {
+              id: 'wr-new-after',
+              name: 'afterText',
+              type: 'text',
+              placeholder: '개정 후 조문 내용',
+              required: true,
+            })
+          ),
+          h(
+            'div',
+            { className: 'field' },
+            h('button', { type: 'submit', className: 'btn btn-primary full-width' }, '개정안 등록')
+          )
+        )
+      )
+    )
+  );
+
+  const workerConsentSection = h(
+    'div',
+    { className: 'ops-section-block' },
+    h(
+      'div',
+      { className: 'ops-section-head' },
+      h(
+        'h3',
+        { className: 'ops-section-title' },
+        '근로자별 메일·카톡 수신 · 개정내용 열람확인 · 본인 이름 서명 취합 대장'
+      ),
+      renderRosterSyncControls(activeAm.workerStatuses, renderWorkRulesTab)
+    ),
+    h(
+      'div',
+      { className: 'table-scroll-wrap mb-14' },
+      h(
+        'table',
+        { className: 'payroll-table', 'aria-label': '취업규칙 개정 근로자별 확인 및 서명 현황' },
+        h(
+          'thead',
+          {},
+          h(
+            'tr',
+            {},
+            renderMasterSelectHeaderTh(activeAm.workerStatuses, '취업규칙 동의 대상 근로자'),
+            h('th', { scope: 'col' }, '사번 · 성명'),
+            h('th', { scope: 'col' }, '메일 · 카톡 발송'),
+            h('th', { scope: 'col' }, '개정내용 열람확인'),
+            h('th', { scope: 'col' }, '동의 · 본인서명 상태'),
+            h('th', { scope: 'col' }, '개별 수신화면 서명 · 프린트')
+          )
+        ),
+        h(
+          'tbody',
+          {},
+          visibleWorkers.length === 0
+            ? [
+                h(
+                  'tr',
+                  {},
+                  h(
+                    'td',
+                    { colspan: '6' },
+                    activeAm.workerStatuses.length === 0
+                      ? '적용 대상 근로자가 없습니다.'
+                      : '표시할 별표(★) 직원이 없습니다.'
+                  )
+                ),
+              ]
+            : visibleWorkers.map((w) =>
+                h(
+                  'tr',
+                  {},
+                  renderMasterMarkTd(w),
+                  h(
+                    'td',
+                    { 'data-label': '사번 · 성명' },
+                    h('div', { className: 'cell-emp-code' }, w.empCode),
+                    h('div', { className: 'breakable-name' }, w.displayName),
+                    h('div', { className: 'cell-dept-name' }, `${w.deptName} · ${w.email}`)
+                  ),
+                  h(
+                    'td',
+                    { 'data-label': '메일 · 카톡 발송' },
+                    h(
+                      'span',
+                      { className: w.dispatched ? 'tag tag-blue' : 'tag tag-gray' },
+                      w.dispatched ? `${w.channelLabel} (${w.dispatchedAt})` : '발송 대기'
+                    )
+                  ),
+                  h(
+                    'td',
+                    { 'data-label': '개정내용 열람확인' },
+                    w.readConfirmed
+                      ? h('span', { className: 'tag tag-green' }, `열람확인 ✓ (${w.readConfirmedAt})`)
+                      : h('span', { className: 'tag tag-gray' }, '미열람')
+                  ),
+                  h(
+                    'td',
+                    { 'data-label': '동의 · 본인서명 상태' },
+                    w.signed
+                      ? h(
+                          'div',
+                          {},
+                          h(
+                            'span',
+                            {
+                              className:
+                                w.decision === 'DISAGREE' ? 'tag tag-red' : 'tag tag-green',
+                            },
+                            w.decision === 'AGREE'
+                              ? `동의 서명 ✓ (${w.signedAt})`
+                              : w.decision === 'DISAGREE'
+                                ? `부동의 서명 (${w.signedAt})`
+                                : `의견제출 서명 ✓ (${w.signedAt})`
+                          ),
+                          h(
+                            'div',
+                            { className: 'cell-emp-code' },
+                            `${w.signerName} · ${w.signatureCode}`
+                          )
+                        )
+                      : h('span', { className: 'tag tag-amber' }, '본인 서명 대기')
+                  ),
+                  h(
+                    'td',
+                    { 'data-label': '개별 수신화면 서명 · 프린트' },
+                    h(
+                      'div',
+                      { className: 'step-pill-group' },
+                      !w.signed
+                        ? h(
+                            'button',
+                            {
+                              type: 'button',
+                              className: 'btn btn-primary btn-sm',
+                              dataset: { wrSignEmp: w.empCode },
+                              onClick: (e) =>
+                                openIssuedRecipientSignFlow(
+                                  'WORK_RULE',
+                                  activeAm.amendmentId,
+                                  w.empCode,
+                                  e.currentTarget
+                                ),
+                            },
+                            '메일/카톡 수신화면 · 서명하기'
+                          )
+                        : h('span', { className: 'tag tag-green' }, '본인서명 취합됨'),
+                      !w.signed
+                        ? h(
+                            'button',
+                            {
+                              type: 'button',
+                              className: 'btn btn-secondary btn-sm',
+                              onClick: (e) =>
+                                runOpsAction(
+                                  {
+                                    actionType: 'RECORD_WORK_RULE_OFFLINE_SIGNATURE',
+                                    amendmentId: activeAm.amendmentId,
+                                    empCode: w.empCode,
+                                    decision:
+                                      activeAm.changeType === 'ADVERSE_CONSENT'
+                                        ? 'AGREE'
+                                        : 'OPINION_SUBMITTED',
+                                  },
+                                  e.currentTarget
+                                ),
+                            },
+                            '서면서명 반영'
+                          )
+                        : null,
+                      h(
+                        'button',
+                        {
+                          type: 'button',
+                          className: 'btn btn-secondary btn-sm',
+                          onClick: (e) =>
+                            openWorkRuleIndividualPrintSheet(
+                              snapshot,
+                              activeAm,
+                              e.currentTarget,
+                              w.empCode
+                            ),
+                        },
+                        '개별 인쇄'
+                      )
+                    )
+                  )
+                )
+              )
+        )
+      )
+    ),
+    h(
+      'div',
+      { className: 'doc-compare-col' },
+      h(
+        'strong',
+        {},
+        `실시간 자동 취합된 동의서(의견청취서) 및 연명부 미리보기 — 서명 완료 즉시 아래 동의서에 자동 취합됩니다`
+      ),
+      h('pre', { className: 'doc-paper-box' }, activeAm.aggregatedConsentDocBody)
+    )
+  );
+
+  wrap.replaceChildren(kpiStrip, amendmentHeaderAndClauses, workerConsentSection);
+}
+
+async function tryOpenHashSignPortalIfPresent() {
+  const hash = String(window.location.hash || '');
+  if (!hash.startsWith('#sign=')) return;
+  const params = new URLSearchParams(hash.slice(1));
+  const signType = params.get('sign');
+  const token = params.get('token') || '';
+  if (!token) return;
+  if (signType === 'lmc') {
+    const minutesId = params.get('minutesId') || '';
+    const memberId = params.get('memberId') || '';
+    if (minutesId && memberId) {
+      await openRecipientSignModal({
+        portalKind: 'LMC',
+        targetId: minutesId,
+        recipientId: memberId,
+        signToken: token,
+      });
+    }
+  } else if (signType === 'workrule') {
+    const amendmentId = params.get('amendmentId') || '';
+    const empCode = params.get('empCode') || '';
+    if (amendmentId && empCode) {
+      await openRecipientSignModal({
+        portalKind: 'WORK_RULE',
+        targetId: amendmentId,
+        recipientId: empCode,
+        signToken: token,
+      });
+    }
+  }
+}
+
 function syncCodeDiffMarksState() {
   const isOn = Boolean(appState.showCodeDiffMarks);
   document.documentElement.setAttribute('data-diff-marks', isOn ? 'on' : 'off');
@@ -7677,10 +10446,18 @@ function updateSnapshot(snapshot) {
   appState.snapshot = snapshot;
   const gate = document.getElementById('pc-auth-gate');
   if (gate) gate.hidden = true;
+  const lmcNavBtn = document.getElementById('major-nav-lmc');
+  const lmcEnabled = Boolean(
+    snapshot.operationsSuite?.statutoryGovernance?.lmcWorkspaceEnabled
+  );
+  if (lmcNavBtn) {
+    lmcNavBtn.hidden = !lmcEnabled;
+  }
   syncCodeDiffMarksState();
   syncSimFormControls(snapshot);
   renderHeadcountKpis(snapshot);
   renderMonthlyChangeBannerAndScaleBox(snapshot);
+  renderSettingsStatutoryScalePanel(snapshot);
   renderOpsHomeTab(snapshot);
   renderOpsRecruitTab(snapshot);
   renderOpsOrgTab(snapshot);
@@ -7688,6 +10465,8 @@ function updateSnapshot(snapshot) {
   renderOpsLeaveTab(snapshot);
   renderOpsEvalTab(snapshot);
   renderOpsDisciplineTab(snapshot);
+  renderLmcDashboardTab(snapshot);
+  renderWorkRulesTab(snapshot);
   renderFormsCenterTab(snapshot);
   renderOpsStatutoryTab(snapshot);
   renderOnboardingTab(snapshot);
@@ -7696,6 +10475,9 @@ function updateSnapshot(snapshot) {
   renderLifecycleTab(snapshot);
   renderPayrollTab(snapshot);
   renderAlumniTab(snapshot);
+  if (!lmcEnabled && appState.activeTab === 'lmc-dashboard') {
+    syncActiveNavigationState('settings-master', false);
+  }
   const attModal = document.getElementById('att-calendar-modal');
   if (attModal && !attModal.hidden) {
     renderAttCalendarModalContent(snapshot);
@@ -7842,6 +10624,7 @@ function switchMajorGroup(groupKey, focusSubtab = false) {
 }
 
 function switchTab(tabKey, focusTabBtn = false) {
+  stopLmcLiveRecording();
   if (appState.popupModalTabKey) {
     closeModuleDetailPopup(false);
   }
@@ -7852,6 +10635,14 @@ function switchTab(tabKey, focusTabBtn = false) {
   const leaveModal = document.getElementById('leave-detail-modal');
   if (leaveModal && !leaveModal.hidden) {
     closeLeaveDetailModal(false);
+  }
+  const rcpModal = document.getElementById('recipient-sign-modal');
+  if (rcpModal && !rcpModal.hidden) {
+    closeRecipientSignModal(false);
+  }
+  const prtModal = document.getElementById('print-sheet-modal');
+  if (prtModal && !prtModal.hidden) {
+    closePrintSheetModal(false);
   }
   setMobileSidebarOpen(false);
   syncActiveNavigationState(tabKey, focusTabBtn);
@@ -8250,6 +11041,24 @@ function bindEvents() {
   document.getElementById('leave-detail-modal')?.addEventListener('click', (e) => {
     if (e.target.id === 'leave-detail-modal') closeLeaveDetailModal(true);
   });
+  document.getElementById('recipient-sign-close-btn')?.addEventListener('click', () => {
+    closeRecipientSignModal(true);
+  });
+  document.getElementById('recipient-sign-modal')?.addEventListener('click', (e) => {
+    if (e.target.id === 'recipient-sign-modal') closeRecipientSignModal(true);
+  });
+  document.getElementById('print-sheet-close-btn')?.addEventListener('click', () => {
+    closePrintSheetModal(true);
+  });
+  document.getElementById('print-sheet-exec-btn')?.addEventListener('click', () => {
+    if (typeof window.print === 'function') window.print();
+  });
+  document.getElementById('print-sheet-modal')?.addEventListener('click', (e) => {
+    if (e.target.id === 'print-sheet-modal') closePrintSheetModal(true);
+  });
+  window.addEventListener('hashchange', () => {
+    tryOpenHashSignPortalIfPresent();
+  });
   document.getElementById('modal-copy-btn')?.addEventListener('click', async () => {
     const text = document.getElementById('modal-body')?.textContent || '';
     const fb = document.getElementById('copy-feedback');
@@ -8467,18 +11276,24 @@ function bindEvents() {
     const docModal = document.getElementById('doc-modal');
     const attModal = document.getElementById('att-calendar-modal');
     const leaveModal = document.getElementById('leave-detail-modal');
+    const rcpModal = document.getElementById('recipient-sign-modal');
+    const prtModal = document.getElementById('print-sheet-modal');
     const modPopup = document.getElementById('module-popup-modal');
     const sidebar = document.getElementById('left-sidebar');
     const activeModal =
       docModal && !docModal.hidden
         ? docModal
-        : attModal && !attModal.hidden
-          ? attModal
-          : leaveModal && !leaveModal.hidden
-            ? leaveModal
-            : modPopup && !modPopup.hidden
-              ? modPopup
-              : null;
+        : rcpModal && !rcpModal.hidden
+          ? rcpModal
+          : prtModal && !prtModal.hidden
+            ? prtModal
+            : attModal && !attModal.hidden
+              ? attModal
+              : leaveModal && !leaveModal.hidden
+                ? leaveModal
+                : modPopup && !modPopup.hidden
+                  ? modPopup
+                  : null;
     if (!activeModal) {
       if (e.key === 'Escape' && sidebar?.getAttribute('data-sidebar-open') === 'true') {
         e.preventDefault();
@@ -8491,6 +11306,8 @@ function bindEvents() {
     if (e.key === 'Escape') {
       e.preventDefault();
       if (activeModal === docModal) closeModal();
+      else if (activeModal === rcpModal) closeRecipientSignModal(true);
+      else if (activeModal === prtModal) closePrintSheetModal(true);
       else if (activeModal === attModal) closeAttCalendarModal(true);
       else if (activeModal === leaveModal) closeLeaveDetailModal(true);
       else closeModuleDetailPopup(true);
@@ -8818,6 +11635,7 @@ async function init() {
   } catch (err) {
     showBanner(`초기 데이터를 불러오지 못했습니다: ${err.message}`, true);
   }
+  await tryOpenHashSignPortalIfPresent();
 }
 
 init();

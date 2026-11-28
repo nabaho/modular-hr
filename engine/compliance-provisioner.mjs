@@ -2,19 +2,23 @@
  * 사업장 상시근로자 수 다중 산정기 및 규모×업종별 노동법 의무 자동 프로비저닝 엔진
  */
 
-import { INDUSTRIES, LAW_BASELINE, MODULE_CATALOG } from './labor-rules.mjs?v=31adf206a0bc';
+import { INDUSTRIES, LAW_BASELINE, MODULE_CATALOG } from './labor-rules.mjs?v=b13536e9ae42';
 
 const SCALE_THRESHOLDS = Object.freeze([5, 10, 30, 50, 100, 300, 500, 1000]);
 
 export const VALID_STATUTORY_TASK_IDS = Object.freeze([
   'TASK_CONTRACT_PAYSLIP',
+  'TASK_RETIREMENT_PENSION_EDU_1',
   'TASK_5PLUS_GUARDRAIL',
+  'TASK_WORKPLACE_BULLYING_5',
   'TASK_WORK_RULES_10',
   'TASK_LMC_30_REPORT',
+  'TASK_FAIR_HIRING_30',
   'TASK_OSH_50_OFFICER',
   'TASK_OSH_100_REG',
   'TASK_DISABILITY_REPORT',
   'TASK_EMPLOYMENT_DISCLOSURE_300',
+  'TASK_LARGE_CORP_500',
 ]);
 
 function toNonNegativeNumber(val, fallback = 0, label = 'number') {
@@ -338,6 +342,20 @@ export function provisionWorkplaceSystem(config = {}) {
     docTemplateId: 'DOC_EMPLOYMENT_CONTRACT',
   });
 
+  pushFiling({
+    id: 'TASK_RETIREMENT_PENSION_EDU_1',
+    scaleBadge: '1인+ 필수 (연례)',
+    title: '퇴직급여(퇴직연금 DB/DC) 설정 · 가입자 연 1회 의무교육 및 최저임금액 주지 게시',
+    authority: '사업장 자체 비치·교육 증빙 3년 보관 (고용노동부 점검)',
+    dueDate: nextAnnualDeadline(referenceDate, '12-31'),
+    legalBasis: '근로자퇴직급여 보장법 제4조·제32조(미교육 1천만 원 이하 과태료), 최저임금법 제11조',
+    actionSteps: [
+      '퇴직연금 제도 운용현황·수급요건 연 1회 가입자 교육 실시 및 이수 확인서 보관',
+      '당해 연도 최저임금액·효력발생일 사내 게시판 또는 전자망 상시 주지',
+    ],
+    docTemplateId: null,
+  });
+
   if (headcounts.is5OrMore) {
     pushFiling({
       id: 'TASK_5PLUS_GUARDRAIL',
@@ -349,6 +367,20 @@ export function provisionWorkplaceSystem(config = {}) {
       actionSteps: [
         '급여 엔진 가산수당 배율 1.5배/2.0배 자동 전환 및 주 52시간 상한 게이지 활성화',
         '반기 1회 이상 중대재해처벌법 안전보건확보의무 이행점검표 작성·보관',
+      ],
+      docTemplateId: null,
+    });
+
+    pushFiling({
+      id: 'TASK_WORKPLACE_BULLYING_5',
+      scaleBadge: '5인+ 강행규정',
+      title: '직장 내 괴롭힘 예방 · 신고 즉시 객관조사 · 피해근로자 보호 및 비밀유지 서약 체계',
+      authority: '사업장 상시 운영 (위반 시 노동청 진정·과태료)',
+      dueDate: addDaysISO(triggerDate, 10),
+      legalBasis: '근로기준법 제76조의2·제76조의3 (미조사·비밀누설 500만 원 이하 과태료, 불리한 처우 형사처벌)',
+      actionSteps: [
+        '직장 내 괴롭힘 접수 창구 지정 및 조사 참여자 비밀유지 서약서 징구 절차 마련',
+        '피해근로자 희망 시 근무장소 변경·유급휴가 등 보호조치 프로토콜 점검',
       ],
       docTemplateId: null,
     });
@@ -390,6 +422,20 @@ export function provisionWorkplaceSystem(config = {}) {
         '고충처리위원(3인 이내) 선임 및 고충처리대장(10일 내 결과 통보) 비치',
       ],
       docTemplateId: 'DOC_LMC_REGULATION_AND_FILING',
+    });
+
+    pushFiling({
+      id: 'TASK_FAIR_HIRING_30',
+      scaleBadge: '30인+ 공정채용',
+      title: '채용절차법 직무무관 개인정보 요구 금지 점검 및 채용서류 반환·파기 고지 체계',
+      authority: '사업장 채용절차 상시 감독 (관할 노동청)',
+      dueDate: addDaysISO(triggerDate, 15),
+      legalBasis: '채용절차의 공정화에 관한 법률 제4조의3·제11조 (위반 시 500만 원 이하 과태료)',
+      actionSteps: [
+        '입사지원서 내 출신지역·혼인여부·신장/체중·직계존비속 직업/재산 항목 완전 삭제',
+        '불합격자 채용서류 반환 청구기간(14~180일) 고지 및 기간 만료 후 지체 없는 파기',
+      ],
+      docTemplateId: null,
     });
   }
 
@@ -465,6 +511,22 @@ export function provisionWorkplaceSystem(config = {}) {
       ],
       docTemplateId: null,
     });
+
+    if (headcounts.exactLsaRatio >= 500) {
+      pushFiling({
+        id: 'TASK_LARGE_CORP_500',
+        scaleBadge: '500인+ 대기업 의무',
+        title: '직장어린이집 설치의무 · 적극적 고용개선조치(AA) · 재취업지원서비스(1000인+) 점검',
+        authority: '고용노동부 · 지자체 (연례 보고)',
+        dueDate: nextAnnualDeadline(referenceDate, '05-31'),
+        legalBasis: '영유아보육법 제14조 · 남녀고용평등법 제17조의3 · 고령자고용법 제21조의3',
+        actionSteps: [
+          '직장어린이집 직접 설치 또는 지역 어린이집 위탁보육 계약 이행 점검(미이행 시 이행강제금)',
+          '직종·직급별 남녀 근로자 현황 및 임금 현황 보고(AA) 제출',
+        ],
+        docTemplateId: null,
+      });
+    }
   }
 
   // 2-3. 분기별 · 반기별 · 연간 자동 운영 감독 캘린더 생성
