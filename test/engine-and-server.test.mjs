@@ -27,6 +27,8 @@ import {
   getKoreanStatutoryHolidayName,
 } from '../src/engine/hr-operations-suite.mjs';
 import os from 'node:os';
+import zlib from 'node:zlib';
+import { buildMergedBinderPdfBytes, extractTextFromPdfBytes } from '../src/engine/roster-dossier.mjs';
 import { createAppServer, createDiskStatePersistence } from '../src/server.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -4596,6 +4598,602 @@ test('28. 규모별 법정 체크리스트 · 30인+ 노사협의회 대시보�
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test('29. 가인지캠퍼스 원본 데이터(420문항·205 KPI·200연봉·25호봉) · 대한민국 33모듈 빌더 · 고객사 독립 패키지 추출 통합 검증', async () => {
+  const indexHtml = fs.readFileSync(path.join(PROJECT_ROOT, 'src/public/index.html'), 'utf8');
+  for (const id of [
+    'major-nav-eval',
+    'panel-eval-builder',
+    'panel-eval-gainge',
+    'panel-ops-eval',
+    'panel-eval-export',
+  ]) {
+    assert.ok(indexHtml.includes(`id="${id}"`), `index.html에 ${id} 요소가 존재해야 함`);
+  }
+
+  let savedStateObj = null;
+  const memPersistence = {
+    load() {
+      return savedStateObj ? structuredClone(savedStateObj) : null;
+    },
+    save(next) {
+      savedStateObj = structuredClone(next);
+    },
+  };
+
+  const { server } = createAppServer({
+    requirePcAuth: false,
+    demoMode: true,
+    statePersistence: memPersistence,
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  const localLoopback = `http://127.0.0.1:${port}`;
+  const hostHeaders = {
+    Host: `modular-hr.localhost:${port}`,
+    Origin: `http://modular-hr.localhost:${port}`,
+    'Content-Type': 'application/json',
+  };
+
+  try {
+    const bootRes = await fetch(`${localLoopback}/api/bootstrap`, {
+      headers: { Host: `modular-hr.localhost:${port}` },
+    });
+    assert.equal(bootRes.status, 200);
+    const { csrfToken, snapshot: snap0 } = await bootRes.json();
+    const st0 = snap0.operationsSuite.evaluationAndReward.studio;
+
+    assert.equal(st0.catalogStats.totalModules, 33);
+    assert.equal(st0.catalogStats.totalPresets, 6);
+    assert.equal(st0.catalogStats.totalCompRoles, 21);
+    assert.equal(st0.catalogStats.totalCompItems, 420);
+    assert.equal(st0.catalogStats.totalKpiRoles, 15);
+    assert.equal(st0.catalogStats.totalKpiItems, 205);
+    assert.equal(st0.catalogStats.totalSalaryTables, 200);
+    assert.equal(st0.hobongTable.length, 25);
+
+    const postAction = async (bodyObj) => {
+      const res = await fetch(`${localLoopback}/api/ops/action`, {
+        method: 'POST',
+        headers: { ...hostHeaders, 'x-csrf-token': csrfToken },
+        body: JSON.stringify(bodyObj),
+      });
+      const json = await res.json();
+      assert.equal(res.status, 200, JSON.stringify(json));
+      return json;
+    };
+
+    await postAction({
+      actionType: 'EVAL_APPLY_DIAGNOSTIC_PRESET',
+      presetId: 'PRESET-WORK-INNOVATION',
+      clientName: '한빛정밀(주)',
+      industry: '제조·화학업',
+      sizeBand: '100인이상',
+      hasUnion: true,
+    });
+
+    await postAction({ actionType: 'EVAL_TOGGLE_MODULE', moduleCode: 'PAY-STEP', enabled: true });
+    await postAction({ actionType: 'EVAL_TOGGLE_COMPETENCY_ITEM', roleBulk: '생산관리', include: true });
+    await postAction({ actionType: 'EVAL_TOGGLE_KPI_ITEM', roleBulk: '생산, 구매', include: true });
+    await postAction({ actionType: 'EVAL_UPDATE_HOBONG_CONFIG', rankIndex: 0, entryPayManwon: 3500 });
+    await postAction({ actionType: 'EVAL_UPDATE_HOBONG_CONFIG', rankIndex: 0, entryPayManwon: null });
+    await postAction({ actionType: 'EVAL_UPDATE_COMPETENCY_SCORE', itemId: 'GC-TPL-01', selfScore: 5, leaderScore: 2 });
+
+    await postAction({
+      actionType: 'EVAL_CALIBRATE_WORKER',
+      empCode: 'EMP-201',
+      grade: 'C',
+      reason: '1차 보정',
+    });
+    const calRes = await postAction({
+      actionType: 'EVAL_CALIBRATE_WORKER',
+      empCode: 'EMP-201',
+      grade: 'S',
+      reason: '분기 생산수율 15% 개선 기여',
+    });
+    const stMid = calRes.snapshot.operationsSuite.evaluationAndReward.studio;
+    assert.equal(stMid.clientProfile.clientName, '한빛정밀(주)');
+    assert.equal(stMid.hobongTable[0].annualPayManwon, 3500);
+    const law94Alert = stMid.legalGuardrails.alerts.find((a) => a.id === 'LAW-94-WORK-RULES');
+    assert.ok(law94Alert);
+    assert.equal(law94Alert.detail.includes('· 도입 시'), false);
+    assert.ok(stMid.budgetAndNineBox.nineBox.HIGH_HIGH.some((m) => m.empCode === 'EMP-201'));
+    assert.ok(stMid.selectedCompetencyItems.some((c) => c.role === '생산관리'));
+    assert.ok(stMid.selectedKpiItems.some((k) => k.role === '생산, 구매'));
+    assert.ok(stMid.competencySummary.selfFeedbackNeeded.length >= 1);
+
+    await postAction({ actionType: 'APPLY_EVAL_REWARDS' });
+
+    const expRes = await fetch(`${localLoopback}/api/eval-reward/export-package`, {
+      method: 'POST',
+      headers: { ...hostHeaders, 'x-csrf-token': csrfToken },
+      body: JSON.stringify({}),
+    });
+    assert.equal(expRes.status, 200);
+    const expData = await expRes.json();
+    const pkg = expData.package;
+    assert.ok(pkg.filename.includes('한빛정밀'));
+    assert.match(pkg.html, /한빛정밀\(주\) — 맞춤형 평가·보상 운영 시스템/);
+    assert.match(pkg.html, /PAY-STEP/);
+    assert.match(pkg.html, /회사 관리자/);
+    assert.equal(pkg.summary.includesHobong, true);
+    assert.ok(pkg.summary.selectedCompetencyCount >= 20);
+
+    const restarted = createAppServer({
+      requirePcAuth: false,
+      demoMode: true,
+      statePersistence: memPersistence,
+    });
+    const restoredStudio = restarted.getSnapshot().operationsSuite.evaluationAndReward.studio;
+    assert.equal(restoredStudio.clientProfile.clientName, '한빛정밀(주)');
+    assert.equal(restoredStudio.hobongTable[0].annualPayManwon, 3500);
+    assert.ok(restoredStudio.enabledModules.includes('PAY-STEP'));
+
+    // 7) Claude 2단계 보안·결함 보완 회귀 검증:
+    //   - templateOnly: true 추출 시 급여·성명 비포함 확인
+    //   - EVAL_IMPORT_CLIENT_CONFIG 시 기존 workerMetaEntries(캘리브레이션 사유) 보존 확인
+    //   - 비대상(일용직 등) 캘리브레이션 차단 확인
+    const tplExpRes = await fetch(`${localLoopback}/api/eval-reward/export-package`, {
+      method: 'POST',
+      headers: { ...hostHeaders, 'x-csrf-token': csrfToken },
+      body: JSON.stringify({ templateOnly: true }),
+    });
+    assert.equal(tplExpRes.status, 200);
+    const tplPkg = (await tplExpRes.json()).package;
+    const tplDataMatch = tplPkg.html.match(/<script id="pkg-data" type="application\/json">([\s\S]*?)<\/script>/);
+    assert.ok(tplDataMatch);
+    const tplEmbedded = JSON.parse(tplDataMatch[1]);
+    assert.equal(tplEmbedded.workers.length, 0, '공용 템플릿 패키지에는 직원 급여/성명이 포함되지 않아야 함');
+
+    const importRes = await postAction({
+      actionType: 'EVAL_IMPORT_CLIENT_CONFIG',
+      config: {
+        clientProfile: { clientName: '복원테스트(주)' },
+        enabledModules: ['EVAL-KPI', 'PAY-STEP'],
+      },
+    });
+    const importedRow = importRes.snapshot.operationsSuite.evaluationAndReward.studio.boardWithMeta.find(
+      (r) => r.empCode === 'EMP-201'
+    );
+    assert.equal(importedRow.calibrationReason, '분기 생산수율 15% 개선 기여');
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('30. 법정 근로자명부(제41조·별지 제16호·일용30일 예외·3.3% 분리) 및 PDF·신분증사진 단일PDF 병합·추출·자동정리 통합 검증', async () => {
+  const html = fs.readFileSync(path.join(PROJECT_ROOT, 'src', 'public', 'index.html'), 'utf8');
+  assert.ok(html.includes('id="worker-registry-modal"'), '직원 명부 전용 팝업 모달 존재 필수');
+
+  // 1) 순수 JS 단일 PDF 병합 생성기(buildMergedBinderPdfBytes) 및 /FlateDecode 한글 PDF 추출기(extractTextFromPdfBytes) 검증
+  const tinyJpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
+  const mergedPdf = buildMergedBinderPdfBytes({
+    title: 'MODULAR HR Binder Test',
+    koreanSubject: '성명: 강태양 | 소속 부서: 설비자동화팀',
+    summaryAsciiLines: ['Employee Dossier Summary'],
+    jpegPages: [{ width: 320, height: 200, jpegBytes: tinyJpeg, asciiCaption: 'ID Photo Redacted' }],
+  });
+  assert.equal(mergedPdf.pageCount, 2, '표지 1p + 신분증 JPEG 1p = 총 2p PDF 생성');
+  assert.match(new TextDecoder('latin1').decode(mergedPdf.pdfBytes.slice(0, 8)), /^%PDF-1\.4/);
+  const backExtracted = await extractTextFromPdfBytes(mergedPdf.pdfBytes);
+  assert.match(backExtracted, /강태양/);
+
+  // FlateDecode 압축 한글(UTF-16BE) PDF 스트림에서 주민번호 뒷자리 마스킹·생년/성별 추론·채용절차법 금지항목 제거 검증
+  const toHexUtf16 = (s) =>
+    `<FEFF${Array.from(s)
+      .map((ch) => ch.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0'))
+      .join('')}>`;
+  const syntheticRrn = ['930718', '1482910'].join('-');
+  const pdfContent = [
+    'BT',
+    `${toHexUtf16('주민등록증 사본 성명: 강태양')} Tj T*`,
+    `${toHexUtf16(`주민등록번호: ${syntheticRrn}`)} Tj T*`,
+    `${toHexUtf16('주민등록 주소: 경기도 평택시 고덕국제대로 210')} Tj T*`,
+    `${toHexUtf16('소속 부서: 설비자동화팀')} Tj T*`,
+    `${toHexUtf16('직위: 대리')} Tj T*`,
+    `${toHexUtf16('종사하는 업무의 종류: 스마트팩토리 PLC 설비제어')} Tj T*`,
+    `${toHexUtf16('월 기본급: 3,550,000원')} Tj T*`,
+    `${toHexUtf16('급여은행: 신한은행')} Tj T*`,
+    `${toHexUtf16('계좌번호: 110-482-918273')} Tj T*`,
+    `${toHexUtf16('자격·면허: 전기기능사, 산업안전산업기사')} Tj T*`,
+    `${toHexUtf16('혼인여부: 기혼')} Tj`,
+    'ET',
+  ].join('\n');
+  const deflated = zlib.deflateSync(Buffer.from(pdfContent, 'latin1'));
+  const flatePdfBytes = Buffer.concat([
+    Buffer.from(`%PDF-1.4\n1 0 obj\n<< /Filter /FlateDecode /Length ${deflated.length} >>\nstream\n`, 'latin1'),
+    deflated,
+    Buffer.from('\nendstream\nendobj\n%%EOF\n', 'latin1'),
+  ]);
+
+  let persisted = null;
+  const memStore = {
+    load: () => (persisted ? structuredClone(persisted) : null),
+    save: (st) => {
+      persisted = structuredClone(st);
+    },
+  };
+  const { server } = createAppServer({
+    requirePcAuth: false,
+    demoMode: true,
+    statePersistence: memStore,
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  const baseUrl = `http://127.0.0.1:${port}`;
+
+  const postJson = (urlPath, payload, token) =>
+    fetch(`${baseUrl}${urlPath}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: baseUrl,
+        'X-CSRF-Token': token,
+      },
+      body: JSON.stringify(payload),
+    });
+
+  try {
+    const { csrfToken, snapshot: snap0 } = await (await fetch(`${baseUrl}/api/bootstrap`)).json();
+    const reg0 = snap0.operationsSuite.orgAndAssignments.workerRegistry;
+    assert.equal(reg0.legalChecklist.length, 10, '법정 근로자명부 10대 법률 점검기준 탑재');
+
+    // 일용직(DLY-301, 8일) 시행령 제21조 30일 미만 예외 & 3.3%(EXT-401) 비근로자 분리 확인
+    const dlyRow0 = reg0.rows.find((r) => r.empCode === 'DLY-301');
+    const extRow0 = reg0.rows.find((r) => r.empCode === 'EXT-401');
+    const emp202Row0 = reg0.rows.find((r) => r.empCode === 'EMP-202');
+    assert.equal(dlyRow0.statutoryRosterTarget, false, '사용기간 30일 미만 일용직은 명부 작성 예외');
+    assert.equal(extRow0.statutoryRosterTarget, false, '3.3% 사업소득자는 근로자명부 비대상 분리');
+    assert.equal(emp202Row0.dossierAttachments.length, 0);
+
+    // 일용 누적 사용일수 32일로 정정 시 즉시 법정 근로자명부 작성 필수 대상으로 전환 검증
+    const dlyOver30Res = await postJson(
+      '/api/ops/action',
+      {
+        actionType: 'UPDATE_WORKER_ROSTER_PROFILE',
+        empCode: 'DLY-301',
+        dailyUsedDays: 32,
+        address: '경기도 화성시 향남읍 발안공단로 55',
+      },
+      csrfToken
+    );
+    assert.equal(dlyOver30Res.status, 200);
+    const dlyAfter = (await dlyOver30Res.json()).snapshot.operationsSuite.orgAndAssignments.workerRegistry.rows.find(
+      (r) => r.empCode === 'DLY-301'
+    );
+    assert.equal(dlyAfter.statutoryRosterTarget, true, '30일 이상 사용 일용근로자는 법정 명부 대상 전환');
+
+    // 2) /api/roster/parse-preview: FlateDecode PDF 업로드 추출 + 주민번호 뒷자리 폐기 + 채용절차법 금지항목 배제 검증
+    const previewRes = await postJson(
+      '/api/roster/parse-preview',
+      {
+        pdfBase64: flatePdfBytes.toString('base64'),
+        fileNames: ['주민등록증_강태양.jpg', '표준근로계약서_강태양.pdf', '신한은행_급여통장사본.png'],
+      },
+      csrfToken
+    );
+    assert.equal(previewRes.status, 200);
+    const { parsed } = await previewRes.json();
+    assert.equal(parsed.extracted.displayName, '강태양');
+    assert.equal(parsed.extracted.gender, '남');
+    assert.equal(parsed.extracted.birthDate, '1993-07-18');
+    assert.equal(parsed.extracted.maskedBirthOrId, '930718-*******');
+    assert.equal(JSON.stringify(parsed).includes('1482910'), false, '주민등록번호 뒷자리 평문 완전 제거 필수');
+    assert.equal(parsed.extracted.maskedAccountNo, '110-****-8273');
+    assert.ok(parsed.blindLawWarnings.length >= 1, '채용절차법 제4조의3 혼인여부 수집금지 탐지');
+
+    // 3) 최저임금 미달 급여로 신규 직원 등재 시도 시 400 차단 검증
+    const lowWageRes = await postJson(
+      '/api/ops/action',
+      {
+        actionType: 'INGEST_WORKER_DOSSIER_TO_ROSTER',
+        mode: 'NEW_WORKER',
+        rawText: '성명: 저임금테스트\n주 소정근로시간: 40\n월 기본급: 1,200,000원',
+      },
+      csrfToken
+    );
+    assert.equal(lowWageRes.status, 400);
+
+    // 4) 신규 입사자(강태양) 통합 PDF 연결 → 직원 명부 + 근태 + 연차 + 급여 전 메뉴 동시 생성 검증
+    const ingestNewRes = await postJson(
+      '/api/ops/action',
+      {
+        actionType: 'INGEST_WORKER_DOSSIER_TO_ROSTER',
+        mode: 'NEW_WORKER',
+        rawText: parsed.sanitizedPreviewText,
+        fileNames: ['주민등록증_강태양.jpg', '표준근로계약서_강태양.pdf', '신한은행_급여통장사본.png'],
+        binderMeta: {
+          binderTitle: '강태양 입사 인사증빙 통합 PDF',
+          fileName: '통합인사증빙_강태양.pdf',
+          pageCount: mergedPdf.pageCount,
+          byteSize: mergedPdf.byteLength,
+          pdfSha256: mergedPdf.pdfSha256,
+          idBackMasked: true,
+        },
+      },
+      csrfToken
+    );
+    assert.equal(ingestNewRes.status, 200);
+    const ingestNewJson = await ingestNewRes.json();
+    const newCode = ingestNewJson.result.empCode;
+    assert.equal(newCode, 'EMP-205');
+    const snapAfterNew = ingestNewJson.snapshot;
+    const newRosterRow = snapAfterNew.operationsSuite.orgAndAssignments.workerRegistry.rows.find(
+      (r) => r.empCode === newCode
+    );
+    assert.equal(newRosterRow.isStatutoryComplete, true);
+    assert.equal(newRosterRow.maskedAccountNo, '110-****-8273', '이미 마스킹된 계좌번호 재마스킹 시 훼손 금지');
+    assert.equal(newRosterRow.dossierAttachments.length, 1);
+    assert.ok(snapAfterNew.payrollLines.some((l) => l.empCode === newCode), '급여대장 자동 동기화');
+    assert.ok(snapAfterNew.operationsSuite.attendanceControl.board.some((a) => a.empCode === newCode), '근태보드 동기화');
+    assert.ok(snapAfterNew.operationsSuite.leaveAndMaternity.ledger.some((l) => l.empCode === newCode), '연차원장 동기화');
+    assert.equal(JSON.stringify(persisted).includes('1482910'), false, '영속 상태에도 주민번호 뒷자리 평문 미저장');
+
+    // 4-b) 닫히지 않은 '(' 131,072개 FlateDecode 압축 PDF 단일패스 O(N) 방어 + /Subtype /Image 제외 + 샘플 마스킹 RRN 추론 + 성명 개명 보존 + 외국인 국적 비덮어쓰기 검증
+    const unclosedParensDeflated = zlib.deflateSync(Buffer.from('('.repeat(131_072), 'latin1'));
+    const unclosedPdf = Buffer.concat([
+      Buffer.from(`%PDF-1.4\n1 0 obj\n<< /Filter /FlateDecode /Length ${unclosedParensDeflated.length} >>\nstream\n`, 'latin1'),
+      unclosedParensDeflated,
+      Buffer.from('\nendstream\nendobj\n%%EOF\n', 'latin1'),
+    ]);
+    const redosStart = Date.now();
+    const unclosedRes = await postJson(
+      '/api/roster/parse-preview',
+      { pdfBase64: unclosedPdf.toString('base64') },
+      csrfToken
+    );
+    assert.equal(unclosedRes.status, 200);
+    assert.ok(Date.now() - redosStart < 300, '닫히지 않은 괄호 131,072개 압축 PDF도 단일패스 선형시간(<300ms) 내 즉시 응답 필수');
+
+    const sample1ParsedRes = await postJson(
+      '/api/roster/parse-preview',
+      { rawText: snap0.operationsSuite.orgAndAssignments.workerRegistry.sampleDossiers[0].rawText },
+      csrfToken
+    );
+    const sample1Parsed = (await sample1ParsedRes.json()).parsed;
+    assert.equal(sample1Parsed.extracted.birthDate, '1993-07-18', '마스킹된 930718-1****** 형태에서도 생년월일 추론');
+    assert.equal(sample1Parsed.extracted.gender, '남', '마스킹된 930718-1****** 형태에서도 성별 추론');
+    assert.equal(sample1Parsed.rrnAutoMasked, true);
+
+    // 13자리 무하이픈 계좌번호(우리은행 등)가 주민번호·외국인국적으로 오인되지 않는지 검증
+    const bank13Res = await postJson(
+      '/api/roster/parse-preview',
+      { rawText: '성명: 홍길동\n급여은행: 우리은행\n계좌번호: 1002748392011' },
+      csrfToken
+    );
+    const bank13Parsed = (await bank13Res.json()).parsed;
+    assert.equal(bank13Parsed.extracted.gender, '', '13자리 계좌번호를 성별로 오인 금지');
+    assert.equal(bank13Parsed.extracted.nationality, '', '13자리 계좌번호를 외국국적으로 오인 금지');
+    assert.equal(bank13Parsed.extracted.maskedBirthOrId, '', '13자리 계좌번호를 주민번호로 오인 금지');
+    assert.equal(bank13Parsed.extracted.maskedAccountNo, '100-****-2011');
+
+    // CMap bfrange UTF-16 대리쌍(<D840DC00>) RangeError 500 무결성 + 한글 한 줄 인라인 성명 경계 추출 + UPDATE_SELECTED 생년월일/성별 불일치 409 차단 검증
+    const surrogateCmapPdf = Buffer.from(
+      '%PDF-1.4\n1 0 obj\n<< /Length 120 >>\nstream\nbeginbfrange\n<0001> <0002> <D840DC00>\nendbfrange\nBT <0001> Tj ET\nendstream\nendobj\n%%EOF\n',
+      'latin1'
+    );
+    const surrogateRes = await postJson(
+      '/api/roster/parse-preview',
+      { pdfBase64: surrogateCmapPdf.toString('base64') },
+      csrfToken
+    );
+    assert.equal(surrogateRes.status, 200, 'CMap 8자리 대리쌍(D840DC00) PDF RangeError 없이 200 처리 필수');
+
+    const inlineKorRes = await postJson(
+      '/api/roster/parse-preview',
+      {
+        rawText:
+          '성명: 강태양 생년월일: 1993-07-18 본적: 충남 천안시 주소: 경기도 평택시 (' +
+          ['930718', '1482910'].join(' \u2013 ') +
+          ')',
+      },
+      csrfToken
+    );
+    const inlineKorParsed = (await inlineKorRes.json()).parsed;
+    assert.equal(inlineKorParsed.extracted.displayName, '강태양', '한글 한 줄 인라인 성명 추출 정상 동작 필수');
+    assert.equal(inlineKorParsed.extracted.birthDate, '1993-07-18');
+    assert.equal(
+      JSON.stringify(inlineKorParsed).includes('1482910'),
+      false,
+      '전각 대시(–) 및 공백 하이픈 주민등록번호 뒷자리 평문 완전 마스킹 필수'
+    );
+    assert.ok(
+      inlineKorParsed.extracted.address.includes('경기도 평택시'),
+      '같은 줄 본적 제거 후에도 뒤따르는 정상 주소 필드 보존 필수'
+    );
+
+    const dobMismatchRes = await postJson(
+      '/api/ops/action',
+      {
+        actionType: 'INGEST_WORKER_DOSSIER_TO_ROSTER',
+        mode: 'UPDATE_SELECTED',
+        targetEmpCode: 'EMP-201',
+        rawText: snap0.operationsSuite.orgAndAssignments.workerRegistry.sampleDossiers[1].rawText,
+      },
+      csrfToken
+    );
+    assert.equal(dobMismatchRes.status, 409, '기존 직원의 생년월일/성별과 불일치하는 타인 보완서류 연결 시 409 차단 필수');
+
+    // UPDATE_SELECTED 시 타인 성명 문서 연결 409 차단 + stream 반복 O(N^2) 차단 + 계약만료일 역전 400 차단 검증
+    const streamSpamStart = Date.now();
+    await extractTextFromPdfBytes(Buffer.from('%PDF-1.4\n' + 'streamX '.repeat(60_000), 'latin1'));
+    assert.ok(Date.now() - streamSpamStart < 100, '줄바꿈 없는 stream 반복 PDF 선형/상수시간 처리 필수');
+
+    const beforeCount = (await (await fetch(`${baseUrl}/api/bootstrap`)).json()).snapshot.operationsSuite.orgAndAssignments.workerRegistry.rows.length;
+    const revDateRes = await postJson(
+      '/api/ops/action',
+      {
+        actionType: 'INGEST_WORKER_DOSSIER_TO_ROSTER',
+        mode: 'NEW_WORKER',
+        rawText: '성명: 역전테스트\n입사일: 2026-11-18\n계약만료일: 2025-01-01',
+      },
+      csrfToken
+    );
+    assert.equal(revDateRes.status, 400, '신규 등록 시 입사일 이전 계약만료일 400 차단 필수');
+    const afterFailSnap = (await (await fetch(`${baseUrl}/api/bootstrap`)).json()).snapshot;
+    assert.equal(
+      afterFailSnap.operationsSuite.orgAndAssignments.workerRegistry.rows.length,
+      beforeCount,
+      '400 검증 실패 시 유령 직원 등재 없이 100% 롤백 필수'
+    );
+
+    // 무변경 그대로 저장 시 제41조② 가짜 정정이력 미생성 검증 (DLY-301 중점기호 자격명 포함)
+    const dlyBeforeNoop = afterFailSnap.operationsSuite.orgAndAssignments.workerRegistry.rows.find(
+      (r) => r.empCode === 'DLY-301'
+    );
+    const noopRes = await postJson(
+      '/api/ops/action',
+      {
+        actionType: 'UPDATE_WORKER_ROSTER_PROFILE',
+        empCode: 'DLY-301',
+        displayName: dlyBeforeNoop.displayName,
+        gender: dlyBeforeNoop.gender,
+        birthDate: dlyBeforeNoop.birthDate,
+        hireDate: dlyBeforeNoop.hireDate,
+        jobTitle: dlyBeforeNoop.jobTitle,
+        qualifications: dlyBeforeNoop.qualifications.join(', '),
+      },
+      csrfToken
+    );
+    assert.equal(noopRes.status, 200);
+    const dlyAfterNoop = (await noopRes.json()).snapshot.operationsSuite.orgAndAssignments.workerRegistry.rows.find(
+      (r) => r.empCode === 'DLY-301'
+    );
+    assert.equal(
+      dlyAfterNoop.registryChangeLogs.length,
+      dlyBeforeNoop.registryChangeLogs.length,
+      '무변경 저장 시 가짜 정정이력 누적 금지'
+    );
+
+    const mismatchNameRes = await postJson(
+      '/api/ops/action',
+      {
+        actionType: 'INGEST_WORKER_DOSSIER_TO_ROSTER',
+        mode: 'UPDATE_SELECTED',
+        targetEmpCode: 'EMP-202',
+        rawText: '성명: 강태양\n급여은행: 신한은행',
+      },
+      csrfToken
+    );
+    assert.equal(mismatchNameRes.status, 409, '타인 성명 문서로 선택 직원 명부 덮어쓰기 409 차단 필수');
+
+    const infPayRes = await postJson(
+      '/api/ops/action',
+      {
+        actionType: 'INGEST_WORKER_DOSSIER_TO_ROSTER',
+        mode: 'NEW_WORKER',
+        rawText: '성명: 상한테스트',
+        overrides: { baseMonthlyPay: 'Infinity' },
+      },
+      csrfToken
+    );
+    assert.equal(infPayRes.status, 400, 'Infinity 급여 입력 400 차단 필수');
+
+    const imgStreamBytes = zlib.deflateSync(Buffer.from('(GarbageImageBytes12345) Tj', 'latin1'));
+    const imagePdf = Buffer.concat([
+      Buffer.from(`%PDF-1.4\n1 0 obj\n<< /Subtype /Image /Filter /FlateDecode /Length ${imgStreamBytes.length} >>\nstream\n`, 'latin1'),
+      imgStreamBytes,
+      Buffer.from('\nendstream\nendobj\n%%EOF\n', 'latin1'),
+    ]);
+    const extractedImgPdf = await extractTextFromPdfBytes(imagePdf);
+    assert.equal(extractedImgPdf.includes('GarbageImageBytes12345'), false, '/Subtype /Image 스트림 텍스트 오추출 차단');
+
+    const emp201Resave = await postJson(
+      '/api/ops/action',
+      {
+        actionType: 'UPDATE_WORKER_ROSTER_PROFILE',
+        empCode: 'EMP-201',
+        displayName: '김하늘(개명확인)',
+        maskedAccountNo: '124-****-9012',
+        maskedPhone: '',
+      },
+      csrfToken
+    );
+    assert.equal(emp201Resave.status, 200);
+    const emp201RowAfter = (await emp201Resave.json()).snapshot.operationsSuite.orgAndAssignments.workerRegistry.rows.find(
+      (r) => r.empCode === 'EMP-201'
+    );
+    assert.equal(emp201RowAfter.maskedAccountNo, '124-****-9012', '카드 폼 재저장 시 기존 마스킹 계좌 보존');
+    assert.equal(emp201RowAfter.maskedPhone, '', '빈 연락처 저장 시 가짜 010-****-0000 주입 금지');
+    assert.equal(emp201RowAfter.birthDate, '1994-03-15', '데모 직원 성명 정정 시에도 생년월일 보존 필수');
+    assert.equal(emp201RowAfter.dossierAttachments.length, 1, '데모 직원 성명 정정 시에도 증빙PDF 편철 보존 필수');
+
+    const emp203SuppRes = await postJson(
+      '/api/ops/action',
+      {
+        actionType: 'INGEST_WORKER_DOSSIER_TO_ROSTER',
+        mode: 'UPDATE_SELECTED',
+        targetEmpCode: 'EMP-203',
+        rawText: '자격·면허: ISO심사원',
+        fileNames: ['자격증사본.jpg'],
+      },
+      csrfToken
+    );
+    assert.equal(emp203SuppRes.status, 200);
+    const emp203After = (await emp203SuppRes.json()).snapshot.operationsSuite.orgAndAssignments.workerRegistry.rows.find(
+      (r) => r.empCode === 'EMP-203'
+    );
+    assert.equal(emp203After.nationality, '외국국적 (스페인)', 'UPDATE_SELECTED 보완 시 기존 외국인 국적 덮어쓰기 금지');
+
+    const rawPhoneSecret = ['010', '9412', '7766'].join('-');
+    const rawRrnSecret = ['940505', '2837461'].join('-');
+    // 5) 기존 직원(EMP-202) 누락 서류 통합 PDF 보완 및 overrides 평문 PII 강제 마스킹·제41조② 정정이력·영속 복원 검증
+    const suppRes = await postJson(
+      '/api/ops/action',
+      {
+        actionType: 'INGEST_WORKER_DOSSIER_TO_ROSTER',
+        mode: 'UPDATE_SELECTED',
+        targetEmpCode: 'EMP-202',
+        rawText: '급여은행: 우리은행\n계좌번호: 1002-748-392011\n자격·면허: 품질경영기사',
+        fileNames: ['우리은행_본인통장사본.jpg', '품질경영기사_자격증.jpg'],
+        overrides: {
+          maskedPhone: rawPhoneSecret,
+          maskedBirthOrId: rawRrnSecret,
+        },
+      },
+      csrfToken
+    );
+    assert.equal(suppRes.status, 200);
+    assert.equal(JSON.stringify(persisted).includes('9412'), false, 'overrides 휴대전화 중간자리 평문 저장 차단');
+    assert.equal(JSON.stringify(persisted).includes('2837461'), false, 'overrides 주민번호 뒷자리 평문 저장 차단');
+
+    const reloaded = createAppServer({
+      requirePcAuth: false,
+      demoMode: true,
+      statePersistence: memStore,
+    });
+    const restoredReg = reloaded.getSnapshot().operationsSuite.orgAndAssignments.workerRegistry;
+    const restored205 = restoredReg.rows.find((r) => r.empCode === 'EMP-205');
+    const restored202 = restoredReg.rows.find((r) => r.empCode === 'EMP-202');
+    assert.equal(restored205.displayName, '강태양');
+    assert.equal(restored202.bankName, '우리은행');
+    assert.equal(restored202.maskedAccountNo, '100-****-2011');
+    assert.equal(restored202.maskedPhone, '010-****-7766');
+    assert.equal(restored202.dossierAttachments.length, 1);
+    assert.equal(restored202.dossierAttachments[0].idBackMasked, false, '신분증 마스킹이 없는 일반 통장/자격증은 idBackMasked:false 정직 표기');
+    assert.ok(restored202.registryChangeLogs.length >= 1);
+
+    // 6) 연결된 증빙 PDF 해제(DELETE_WORKER_DOSSIER_ATTACHMENT) 및 정정이력 적재 검증
+    const delAttRes = await postJson(
+      '/api/ops/action',
+      {
+        actionType: 'DELETE_WORKER_DOSSIER_ATTACHMENT',
+        empCode: 'EMP-202',
+        binderId: restored202.dossierAttachments[0].binderId,
+      },
+      csrfToken
+    );
+    assert.equal(delAttRes.status, 200);
+    const afterDel202 = (await delAttRes.json()).snapshot.operationsSuite.orgAndAssignments.workerRegistry.rows.find(
+      (r) => r.empCode === 'EMP-202'
+    );
+    assert.equal(afterDel202.dossierAttachments.length, 0);
+    assert.equal(afterDel202.registryChangeLogs[0].category, '증빙편철제외');
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 
 
 

@@ -21,6 +21,9 @@ import {
   maskInlinePiiText,
 } from './document-generator.mjs';
 import { createStatutoryGovernanceManager } from './statutory-governance.mjs';
+import { createRosterDossierManager } from './roster-dossier.mjs';
+import { createEvalRewardStudioManager } from './eval-reward-studio.mjs';
+import { buildStandaloneClientPackage } from './eval-reward-exporter.mjs';
 
 function computeDocPayloadDigest(templateId, info) {
   return crypto
@@ -414,6 +417,8 @@ export function computeStatutoryAnnualLeaveDays(hireDate, referenceDate = '2026-
 
 export function createOperationsSuiteManager() {
   const statutoryGovernance = createStatutoryGovernanceManager();
+  const rosterDossier = createRosterDossierManager();
+  const evalRewardStudio = createEvalRewardStudioManager();
   let applicantSeq = 105;
   let hireEmpSeq = 266;
   let assignmentSeq = 304;
@@ -755,7 +760,7 @@ export function createOperationsSuiteManager() {
     }
   }
 
-  function resetForNewRoster() {
+  function resetForNewRoster(opts = {}) {
     dailyAttendanceMap.clear();
     leavePrevCalendarBackup.clear();
     leaveRecordsMap.clear();
@@ -764,6 +769,8 @@ export function createOperationsSuiteManager() {
     evalGradeMap.clear();
     workerProfileExtrasMap.clear();
     statutoryGovernance.resetForNewRoster();
+    rosterDossier.resetForNewRoster(opts);
+    evalRewardStudio.resetForNewRoster();
   }
 
   function exportPersistenceState() {
@@ -801,6 +808,8 @@ export function createOperationsSuiteManager() {
       contractSigned: contractMapObj,
       signedDocumentsArchive: structuredClone(signedDocumentsArchive),
       statutoryGovernance: statutoryGovernance.exportPersistenceState(),
+      rosterDossier: rosterDossier.exportPersistenceState(),
+      evalRewardStudio: evalRewardStudio.exportPersistenceState(),
     };
   }
 
@@ -863,6 +872,14 @@ export function createOperationsSuiteManager() {
     }
     if (saved.statutoryGovernance && typeof saved.statutoryGovernance === 'object') {
       statutoryGovernance.restorePersistenceState(saved.statutoryGovernance);
+    }
+    if (saved.rosterDossier && typeof saved.rosterDossier === 'object') {
+      rosterDossier.restorePersistenceState(saved.rosterDossier);
+    } else {
+      rosterDossier.resetForNewRoster({ withDemoSeeds: false });
+    }
+    if (saved.evalRewardStudio && typeof saved.evalRewardStudio === 'object') {
+      evalRewardStudio.restorePersistenceState(saved.evalRewardStudio);
     }
   }
 
@@ -1560,6 +1577,8 @@ export function createOperationsSuiteManager() {
       }
     }
     statutoryGovernance.scrubPurgedPerson(origEmpCode, origDisplayName);
+    rosterDossier.scrubPurgedPerson(origEmpCode);
+    evalRewardStudio.scrubPurgedPerson(origEmpCode);
   }
 
   /**
@@ -1936,6 +1955,13 @@ export function createOperationsSuiteManager() {
       orgAndAssignments: {
         departments: orgDepartments,
         assignmentLogs: structuredClone(assignmentLogs),
+        workerRegistry: rosterDossier.buildView({
+          company,
+          workers,
+          contractLedger,
+          workerProfileExtrasMap,
+          offboardedSummary,
+        }),
       },
       attendanceControl: {
         is5OrMore: hc.is5OrMore,
@@ -1951,6 +1977,12 @@ export function createOperationsSuiteManager() {
       },
       evaluationAndReward: {
         board: evaluationBoard,
+        studio: evalRewardStudio.buildView({
+          company,
+          workers,
+          evalBoard: evaluationBoard,
+          payrollLines,
+        }),
       },
       disciplineAndGrievance: {
         is30OrMore: hc.is30OrMore,
@@ -2710,6 +2742,12 @@ export function createOperationsSuiteManager() {
           afterSummary,
           insuranceSyncNote,
         });
+        rosterDossier.recordAssignmentChange(
+          w.empCode,
+          orderLabel,
+          `${prevDept} · ${prevTitle} → ${afterSummary}`,
+          state.company.referenceDate || '2026-11-15'
+        );
         appendAudit('M3인사발령', `[${asgId}] ${w.displayName}(${w.empCode}) ${orderLabel} → 급여·4대보험 자동 반영`);
         return { message: `[${w.displayName}] ${orderLabel} 처리가 완료되어 급여대장 및 조직현황에 즉시 반영되었습니다.` };
       }
@@ -3319,16 +3357,37 @@ export function createOperationsSuiteManager() {
       }
 
       default: {
+        const rosterRes = rosterDossier.applyAction(actionPayload, {
+          state,
+          payrollLocked,
+          workerProfileExtrasMap,
+          contractSignedMap,
+          appendAudit,
+          tombstoneStore,
+        });
+        if (rosterRes !== null) return rosterRes;
         const govRes = statutoryGovernance.applyAction(actionPayload, { state, appendAudit });
         if (govRes !== null) return govRes;
+        const evalRes = evalRewardStudio.applyAction(actionPayload, { state, evalGradeMap, appendAudit });
+        if (evalRes !== null) return evalRes;
         throw badRequest(`지원하지 않는 관리 액션(${actionType})입니다.`);
       }
     }
   }
 
+  function buildStandaloneEvalPackage({ company, workers, payrollLines, compliance, offboardedSummary }) {
+    const view = buildView({ company, workers, payrollLines, compliance, offboardedSummary });
+    return buildStandaloneClientPackage({
+      studioView: view.evaluationAndReward.studio,
+      company,
+      evalBoard: view.evaluationAndReward.board,
+    });
+  }
+
   return Object.freeze({
     buildView,
     applyAction,
+    buildStandaloneEvalPackage,
     inspectPublicSignTarget: statutoryGovernance.inspectPublicSignTarget,
     submitPublicSignTarget: statutoryGovernance.submitPublicSignTarget,
     resetManualScaleOverrides: statutoryGovernance.resetManualScaleOverrides,
